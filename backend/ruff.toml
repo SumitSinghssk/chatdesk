@@ -1,0 +1,5 @@
+target-version = "py312"
+extend-exclude = ["venv", ".venv", "storage", "alembic/versions"]
+
+[lint]
+select = ["E9", "F"]

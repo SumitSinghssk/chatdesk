@@ -1,0 +1,16 @@
+venv/
+.venv/
+__pycache__/
+*.py[cod]
+.env
+storage/uploads/*
+!storage/uploads/.gitkeep
+storage/logs/*
+!storage/logs/.gitkeep
+.pytest_cache/
+.idea/
+.vscode/
+storage/backups/
+storage/imports/
+.env.docker
+storage/whatsapp-media/

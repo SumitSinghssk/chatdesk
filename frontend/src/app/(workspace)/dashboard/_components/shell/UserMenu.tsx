@@ -1,0 +1,72 @@
+"use client";
+
+import { useRef, useState } from "react";
+import Link from "next/link";
+import { ChevronsUpDown, LogOut, MessageCircle, UserCircle } from "lucide-react";
+
+import { Avatar } from "@/app/admin/_components/ui/index";
+import { useClickOutside } from "@/app/admin/_hooks/useClickOutside";
+import { CUSTOMER_ROUTES } from "@/config/routes";
+import { cn } from "@/lib/utils";
+
+import { useDashboard } from "../DashboardContext";
+
+// Mirrors the admin UserMenu (header variant) for a signed-in business.
+
+const item =
+  "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-fg-muted transition hover:bg-hover hover:text-fg";
+
+export function UserMenu({ onSignOut }: { onSignOut: () => void }) {
+  const { me } = useDashboard();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useClickOutside(ref, () => setOpen(false), open);
+  const name = me.name || me.email || me.phone || "Your account";
+  const subtitle = me.business_name || me.email || "Business account";
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        aria-label="Account menu"
+        className="hover:bg-hover flex items-center gap-2 rounded-lg p-1 pr-1.5 text-left transition"
+      >
+        <Avatar name={name} src={me.avatar} size={28} />
+        <span className="hidden min-w-0 flex-1 xl:block">
+          <span className="text-fg block truncate text-xs font-semibold">{name}</span>
+          <span className="text-fg-subtle block truncate text-[11px]">{subtitle}</span>
+        </span>
+        <ChevronsUpDown className="text-fg-faint hidden h-4 w-4 xl:block" />
+      </button>
+
+      {open && (
+        <div className="border-line bg-surface absolute top-full right-0 z-100 mt-2 w-60 rounded-xl border p-1.5 shadow-xl">
+          <div className="flex items-center gap-2.5 px-2 py-2">
+            <Avatar name={name} src={me.avatar} size={36} />
+            <div className="min-w-0">
+              <p className="text-fg truncate text-sm font-semibold">{name}</p>
+              <p className="text-fg-subtle truncate text-xs">{me.business_name ?? me.email}</p>
+            </div>
+          </div>
+          <div className="bg-line my-1 h-px" />
+          <Link href={CUSTOMER_ROUTES.ACCOUNT()} className={item} onClick={() => setOpen(false)}>
+            <UserCircle className="text-fg-faint h-4 w-4" /> My account
+          </Link>
+          <Link href={CUSTOMER_ROUTES.WHATSAPP()} className={item} onClick={() => setOpen(false)}>
+            <MessageCircle className="text-fg-faint h-4 w-4" /> WhatsApp setup
+          </Link>
+          <div className="bg-line my-1 h-px" />
+          <button
+            type="button"
+            onClick={onSignOut}
+            className={cn(item, "text-danger hover:bg-danger-soft hover:text-danger font-medium")}
+          >
+            <LogOut className="h-4 w-4" /> Log out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

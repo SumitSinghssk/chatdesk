@@ -1,0 +1,79 @@
+name: starter-kit-api
+
+x-api-env: &api-env
+  APP_ENV: ${APP_ENV:-production}
+  APP_URL: ${SITE_URL:-http://localhost:3000}
+  FRONTEND_URL: ${SITE_URL:-http://localhost:3000}
+  ALLOWED_ORIGINS: ${SITE_URL:-http://localhost:3000}
+  TRUSTED_PROXIES: 127.0.0.1,::1,172.28.0.0/16
+  DATABASE_URL: postgresql://${POSTGRES_USER:-starter_kit}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}@postgres:5432/${POSTGRES_DB:-starter_kit}
+  SECRET_KEY: ${SECRET_KEY:?Set SECRET_KEY in .env.docker}
+  ADMIN_HINT_SECRET: ${ADMIN_HINT_SECRET:?Set ADMIN_HINT_SECRET in .env.docker}
+  INTERNAL_API_KEY: ${INTERNAL_API_KEY:-}
+  FRONTEND_INTERNAL_URL: ${FRONTEND_INTERNAL_URL:-http://frontend:3000}
+  UPLOADS_PUBLIC_URL: ${UPLOADS_PUBLIC_URL:-}
+  SENTRY_DSN: ${SENTRY_DSN:-}
+  SENTRY_ENVIRONMENT: ${SENTRY_ENVIRONMENT:-production}
+  SENTRY_TRACES_SAMPLE_RATE: ${SENTRY_TRACES_SAMPLE_RATE:-0}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-starter_kit}
+      POSTGRES_USER: ${POSTGRES_USER:-starter_kit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.docker}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [starter-kit]
+
+  api:
+    build: .
+    image: starter-kit-api:latest
+    restart: unless-stopped
+    command: ["api"]
+    environment:
+      <<: *api-env
+      AUTO_SEED: ${AUTO_SEED:-basic}
+      WEB_CONCURRENCY: ${WEB_CONCURRENCY:-2}
+    volumes:
+      - storage:/app/storage
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      starter-kit:
+        aliases: [api]
+
+  scheduler:
+    build: .
+    image: starter-kit-api:latest
+    restart: unless-stopped
+    command: ["scheduler"]
+    environment:
+      <<: *api-env
+    volumes:
+      - storage:/app/storage
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    networks: [starter-kit]
+
+volumes:
+  pgdata:
+  storage:
+
+networks:
+  starter-kit:
+    name: starter-kit
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

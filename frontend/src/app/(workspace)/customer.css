@@ -1,0 +1,40 @@
+/*
+ * Customer workspace theme.
+ * The workspace is built from the admin panel's shell and UI kit (admin.css + .admin-theme),
+ * so it inherits every size, radius, animation and dark-mode token from there.
+ * This file only swaps the brand colour from indigo to WhatsApp green.
+ */
+
+.customer-theme,
+.customer-theme .admin-theme {
+  --primary: #008069;
+  --primary-hover: #016a57;
+  --primary-soft: #e7f8f3;
+  --primary-fg: #ffffff;
+  --info: #008069;
+  --info-soft: #e7f8f3;
+
+  /* Admin components that use Tailwind's indigo palette directly (avatars, badges, confirm
+     dialogs, KPI tiles…) pick these up, so they turn green here without code changes. */
+  --color-indigo-50: #e7f8f3;
+  --color-indigo-100: #c9efe3;
+  --color-indigo-200: #95dfc9;
+  --color-indigo-300: #5cc9aa;
+  --color-indigo-400: #25b38b;
+  --color-indigo-500: #00a884;
+  --color-indigo-600: #008069;
+  --color-indigo-700: #016a57;
+  --color-indigo-800: #035547;
+  --color-indigo-900: #05443a;
+  --color-indigo-950: #022822;
+}
+
+.dark .customer-theme,
+.dark .customer-theme .admin-theme {
+  --primary: #00a884;
+  --primary-hover: #25d366;
+  --primary-soft: rgb(0 168 132 / 0.14);
+  --primary-fg: #ffffff;
+  --info: #5cc9aa;
+  --info-soft: rgb(0 168 132 / 0.14);
+}
