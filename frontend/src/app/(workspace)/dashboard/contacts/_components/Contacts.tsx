@@ -40,7 +40,6 @@ import {
   PageHeader,
   Pagination,
   RowActions,
-  Tooltip,
 } from "@/app/admin/_components/ui/index";
 import { useBulkSelection } from "@/app/admin/_hooks/useBulkSelection";
 import { useUrlListState } from "@/app/admin/_hooks/useUrlListState";
@@ -54,6 +53,7 @@ import { inboxApi } from "../../_lib/inboxApi";
 import { ContactModal } from "./ContactModal";
 import { ImportModal } from "./ImportModal";
 import { TagBulkModal } from "./TagBulkModal";
+import { Tooltip } from "../../_components/Tooltip";
 
 const GRID_ID = "ws-contacts";
 const SOURCE_LABELS: Record<string, string> = {

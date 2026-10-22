@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, Sun } from "lucide-react";
 
-import { Tooltip } from "@/app/admin/_components/ui/index";
 import { headerButton } from "@/app/admin/(panel)/_components/shell/headerStyles";
 import { useThemeStore } from "@/app/admin/_store/themeStore";
 import { CUSTOMER_ROUTES } from "@/config/routes";
@@ -13,6 +12,7 @@ import { cn } from "@/lib/utils";
 
 import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
 import { UserMenu } from "./UserMenu";
+import { Tooltip } from "../Tooltip";
 
 // Mirrors app/admin/(panel)/_components/shell/Header.tsx. The admin "Create" menu becomes a
 // WhatsApp status chip, the most important state for a business.

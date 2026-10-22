@@ -17,11 +17,12 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { Avatar, Button, Skeleton, Tooltip } from "@/app/admin/_components/ui/index";
+import { Avatar, Button, Skeleton } from "@/app/admin/_components/ui/index";
 import { cn } from "@/lib/utils";
 
 import type { Conversation, InboxSummary } from "../../_lib/inboxApi";
 import { listTime } from "./format";
+import { Tooltip } from "../../_components/Tooltip";
 
 export type ListFilter = "open" | "pending" | "resolved" | "all";
 

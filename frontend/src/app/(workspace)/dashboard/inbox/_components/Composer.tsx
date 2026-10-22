@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEv
 import { useQuery } from "@tanstack/react-query";
 import { Ban, FileText, Loader2, Paperclip, Plus, SendHorizontal, X, Zap } from "lucide-react";
 
-import { Button, Tooltip } from "@/app/admin/_components/ui/index";
+import { Button } from "@/app/admin/_components/ui/index";
 import { cn } from "@/lib/utils";
 
 import { INBOX_QK, inboxApi, type InboxMessage, type QuickReply } from "../../_lib/inboxApi";
@@ -12,6 +12,7 @@ import { EmojiPicker } from "./EmojiPicker";
 import { fileKind } from "./fileKind";
 import { fileSize } from "./format";
 import { QuickRepliesModal } from "./QuickRepliesModal";
+import { Tooltip } from "../../_components/Tooltip";
 
 export const ACCEPT =
   "image/jpeg,image/png,image/webp,video/mp4,video/3gpp,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip";

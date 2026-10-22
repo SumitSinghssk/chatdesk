@@ -3,9 +3,9 @@
 import { useRef, useState } from "react";
 import { Briefcase, Coffee, Hand, Smile, type LucideIcon } from "lucide-react";
 
-import { Tooltip } from "@/app/admin/_components/ui/index";
 import { useClickOutside } from "@/app/admin/_hooks/useClickOutside";
 import { cn } from "@/lib/utils";
+import { Tooltip } from "../../_components/Tooltip";
 
 // A compact, dependency-free set of the emoji people use most in customer chats.
 const GROUPS: { label: string; icon: LucideIcon; emojis: string[] }[] = [

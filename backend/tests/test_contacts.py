@@ -114,7 +114,13 @@ def test_csv_import_and_export(biz):
     assert export.status_code == 200 and "attachment" in export.headers["content-disposition"]
     lines = list(csv.reader(io.StringIO(export.content.decode("utf-8-sig"))))
     assert lines[0][:5] == ["phone", "name", "whatsapp_name", "email", "tags"] and "city" in lines[0]
-    assert len(lines) == 2 and lines[1][0] == "+919876543210"
+    assert len(lines) == 2 and lines[1][0] == '="+919876543210"'  # stays text in Excel
+    assert len(lines[1][9]) == 16 and lines[1][9][10] == " "  # "YYYY-MM-DD HH:MM"
+
+    # an exported file can be imported back (phone cells are ="+91...")
+    back = biz.post(f"{BASE}/import", headers=WEB, data={"update_existing": "true"},
+                    files={"file": ("export.csv", export.content, "text/csv")}).json()["data"]
+    assert back["created"] == 0 and back["updated"] == 1 and back["skipped"] == 0
 
 
 def test_contacts_are_private(biz, client, admin_headers):

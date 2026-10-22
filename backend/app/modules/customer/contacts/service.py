@@ -15,7 +15,7 @@ from app.modules.customer.inbox.models import WaContact, WaConversation
 from app.services.sms import config as sms_config
 from app.services.sms import normalize_phone
 from app.shared.pagination import list_response
-from app.shared.utils.datetime import days_ago_start, iso, now
+from app.shared.utils.datetime import days_ago_start, iso, now, to_site
 from app.shared.utils.grid import GridField, apply_filters, apply_sort
 from app.shared.utils.search import search_clause
 
@@ -268,6 +268,11 @@ def import_csv(db: Session, customer: Customer, file: UploadFile, tag: str | Non
                                  "custom": extra}}}
 
 
+def _when(value) -> str:
+    """Readable local time for spreadsheets, e.g. 2026-10-22 12:59 (site timezone)."""
+    return to_site(value).strftime("%Y-%m-%d %H:%M") if value else ""
+
+
 def export_csv(db: Session, customer: Customer, search=None, tag=None, filters=None, match="and",
                sort=None) -> StreamingResponse:
     q = _query(db, customer, search, tag, filters, match)
@@ -278,9 +283,10 @@ def export_csv(db: Session, customer: Customer, search=None, tag=None, filters=N
     writer.writerow(["phone", "name", "whatsapp_name", "email", "tags", "opted_out", "blocked", "source",
                      "last_message_at", "created_at", *attr_keys])
     for r in rows:
-        writer.writerow([f"+{r.wa_id}", r.name or "", r.profile_name or "", r.email or "", ";".join(r.tags or []),
+        # ="+91..." keeps Excel from turning the number into 9.17E+11; our importer reads it back fine
+        writer.writerow([f'="+{r.wa_id}"', r.name or "", r.profile_name or "", r.email or "", ";".join(r.tags or []),
                          "yes" if r.opted_out else "no", "yes" if r.blocked else "no", r.source,
-                         iso(r.last_message_at) or "", iso(r.created_at) or "",
+                         _when(r.last_message_at), _when(r.created_at),
                          *[(r.attributes or {}).get(k, "") for k in attr_keys]])
     stamp = now().strftime("%Y%m%d-%H%M")
     return StreamingResponse(iter(["﻿" + buf.getvalue()]), media_type="text/csv; charset=utf-8",

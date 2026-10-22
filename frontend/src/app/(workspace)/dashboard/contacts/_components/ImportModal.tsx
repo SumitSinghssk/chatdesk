@@ -2,7 +2,6 @@
 
 import { useRef, useState, type DragEvent } from "react";
 import { CheckCircle2, Download, FileSpreadsheet, Upload } from "lucide-react";
-import { toast } from "sonner";
 
 import { Button, ErrorBanner, Input, Modal, Switch } from "@/app/admin/_components/ui/index";
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
@@ -71,8 +70,7 @@ export function ImportModal({
     setError("");
     try {
       const res = await contactsApi.importCsv(file, { tag: tag.trim() || undefined, updateExisting });
-      setResult(res.data);
-      toast.success(res.message ?? "Import finished");
+      setResult(res.data); // the dialog shows the summary; a toast would cover its Done button
       onImported();
     } catch (err) {
       setError(errorMessage(err));

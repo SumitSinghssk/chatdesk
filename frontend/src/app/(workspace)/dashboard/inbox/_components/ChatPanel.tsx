@@ -23,7 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Avatar, Button, Dropdown, Spinner, Tooltip } from "@/app/admin/_components/ui/index";
+import { Avatar, Button, Dropdown, Spinner } from "@/app/admin/_components/ui/index";
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +41,7 @@ import { dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
 import { MessageBubble } from "./MessageBubble";
 import { TemplateModal } from "./TemplateModal";
+import { Tooltip } from "../../_components/Tooltip";
 
 const LATEST = 50;
 const POLL_MS = 4000;

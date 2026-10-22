@@ -16,12 +16,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Tooltip } from "@/app/admin/_components/ui/index";
 import { cn } from "@/lib/utils";
 
 import { downloadUrl, mediaUrl, type InboxMessage } from "../../_lib/inboxApi";
 import { fileKind } from "./fileKind";
 import { bubbleTime, fileSize } from "./format";
+import { Tooltip } from "../../_components/Tooltip";
 
 function fullTime(iso: string | null) {
   return iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
