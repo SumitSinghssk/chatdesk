@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app.core import rate_limiter
 from app.main import app
 from app.modules.customer.inbox import service as inbox_service
+from app.modules.customer.templates import service as templates_service
 from app.modules.customer.whatsapp import service as wa_service
 from app.services.whatsapp import WhatsAppError
 
@@ -65,8 +66,30 @@ class FakeMeta:
     def send(self, payload):
         return self._ok(payload)
 
-    def templates(self, waba_id, limit=200):
+    def templates(self, waba_id, limit=100, max_pages=20):
         return FakeMeta.templates_data
+
+    def create_template(self, waba_id, body):
+        FakeMeta.sent.append({"create_template": body})
+        if FakeMeta.fail_next:
+            FakeMeta.fail_next = False
+            raise WhatsAppError("Invalid parameter", 400, 100, "Message template already exists in English")
+        return {"id": f"T{uuid.uuid4().hex[:10]}", "status": "PENDING", "category": body["category"]}
+
+    def edit_template(self, template_id, body):
+        FakeMeta.sent.append({"edit_template": template_id, **body})
+        return {"success": True}
+
+    def delete_template(self, waba_id, name, template_id=None):
+        FakeMeta.sent.append({"delete_template": name, "hsm_id": template_id})
+        return {"success": True}
+
+    def upload_sample(self, content, mime, filename):
+        FakeMeta.sent.append({"upload_sample": filename, "mime": mime, "size": len(content)})
+        return "4::aGFuZGxl"
+
+    def fetch_url(self, url, max_bytes=0):
+        return b"\x89PNG meta hosted sample", "image/png"
 
 
 @pytest.fixture()
@@ -75,15 +98,24 @@ def business(client, admin_headers, monkeypatch):
     rate_limiter._history.clear()  # every test signs up a new business from the same test IP
     monkeypatch.setattr(wa_service, "WhatsAppClient", FakeMeta)
     monkeypatch.setattr(inbox_service, "WhatsAppClient", FakeMeta)
-    inbox_service._template_cache.clear()
+    monkeypatch.setattr(templates_service, "WhatsAppClient", FakeMeta)
+    templates_service._last_sync.clear()
+    templates_service._last_error.clear()
     FakeMeta.sent, FakeMeta.fail_next = [], False
     FakeMeta.templates_data = [
-        {"name": "order_update", "language": "en", "status": "APPROVED", "category": "UTILITY",
+        {"id": "101", "name": "order_update", "language": "en", "status": "APPROVED", "category": "UTILITY",
          "components": [{"type": "BODY", "text": "Hi {{1}}, order {{2}} has shipped."},
                         {"type": "FOOTER", "text": "Thanks"}]},
-        {"name": "promo_pic", "language": "en", "status": "APPROVED", "category": "MARKETING",
-         "components": [{"type": "HEADER", "format": "IMAGE"}, {"type": "BODY", "text": "New arrivals"}]},
-        {"name": "draft_one", "language": "en", "status": "PENDING", "components": []},
+        {"id": "102", "name": "promo_pic", "language": "en", "status": "APPROVED", "category": "MARKETING",
+         "components": [{"type": "HEADER", "format": "IMAGE",
+                         "example": {"header_handle": ["https://scontent.whatsapp.net/sample.png"]}},
+                        {"type": "BODY", "text": "New arrivals"},
+                        {"type": "BUTTONS", "buttons": [
+                            {"type": "URL", "text": "Shop", "url": "https://shop.example.com/{{1}}",
+                             "example": ["https://shop.example.com/summer"]},
+                            {"type": "COPY_CODE", "example": "SAVE10"}]}]},
+        {"id": "103", "name": "draft_one", "language": "en", "status": "PENDING", "category": "MARKETING",
+         "components": [{"type": "BODY", "text": "Soon"}]},
     ]
     original = client.get("/api/v1/admin/settings/customer_auth", headers=admin_headers).json()["data"]
     client.put("/api/v1/admin/settings/customer_auth", headers=admin_headers,
@@ -202,9 +234,12 @@ def test_window_closed_requires_template(business):
     blocked = business.post(f"{BASE}/inbox/conversations/{conv['id']}/messages", headers=WEB, json={"text": "Hi"})
     assert blocked.status_code == 422 and "template" in blocked.json()["message"]
 
-    templates = business.get(f"{BASE}/inbox/templates").json()["data"]
-    assert [t["name"] for t in templates] == ["order_update", "promo_pic"]  # only approved
-    assert templates[0]["body_params"] == ["1", "2"] and templates[1]["supported"] is False
+    templates = {t["name"]: t for t in business.get(f"{BASE}/inbox/templates").json()["data"]}
+    assert sorted(templates) == ["order_update", "promo_pic"]  # only approved
+    assert templates["order_update"]["params"]["body"] == ["1", "2"]
+    assert templates["promo_pic"]["params"]["buttons"] == [
+        {"index": 0, "type": "url", "label": "Shop", "example": "summer"},
+        {"index": 1, "type": "copy_code", "label": "Coupon code", "example": "SAVE10"}]
 
     missing = business.post(f"{BASE}/inbox/conversations/{conv['id']}/template", headers=WEB,
                             json={"name": "order_update", "language": "en", "body_params": [{"text": "Asha"}]})
@@ -214,6 +249,23 @@ def test_window_closed_requires_template(business):
     assert ok.status_code == 200, ok.text
     assert ok.json()["data"]["text"] == "Hi Asha, order #1042 has shipped.\n\nThanks"
     assert FakeMeta.sent[-1]["components"][0]["parameters"][1] == {"type": "text", "text": "#1042"}
+
+    # image header (sample fetched from Meta, uploaded once) + dynamic link and coupon buttons
+    no_buttons = business.post(f"{BASE}/inbox/conversations/{conv['id']}/template", headers=WEB, json={
+        "name": "promo_pic", "language": "en"})
+    assert no_buttons.status_code == 422
+    pic = business.post(f"{BASE}/inbox/conversations/{conv['id']}/template", headers=WEB, json={
+        "name": "promo_pic", "language": "en",
+        "button_params": [{"index": 0, "text": "winter"}, {"index": 1, "text": "WIN20"}]})
+    assert pic.status_code == 200, pic.text
+    sent = FakeMeta.sent[-1]["components"]
+    assert sent[0] == {"type": "header", "parameters": [{"type": "image", "image": {"id": "MEDIA123"}}]}
+    assert sent[1] == {"type": "button", "sub_type": "url", "index": "0",
+                       "parameters": [{"type": "text", "text": "winter"}]}
+    assert sent[2]["parameters"] == [{"type": "coupon_code", "coupon_code": "WIN20"}]
+    data = pic.json()["data"]
+    assert data["media"]["mime"] == "image/png" and data["template"]["buttons"][0]["text"] == "Shop"
+    assert business.get(f"{BASE}/inbox/messages/{data['id']}/media").content.startswith(b"\x89PNG")
 
 
 def test_status_read_contact_notes_and_tags(business):

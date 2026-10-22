@@ -8,7 +8,7 @@ import { adminPortalTarget } from "@/app/admin/_components/ui/portal";
 import { cn } from "@/lib/utils";
 
 import { downloadUrl, mediaUrl, type InboxMessage } from "../../_lib/inboxApi";
-import { fileKind } from "./fileKind";
+import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, dayLabel } from "./format";
 
 /**
@@ -51,7 +51,8 @@ export function MediaViewer({
   const media = message.media;
   const url = mediaUrl(media.path);
   const kind = fileKind(media.mime, media.filename);
-  const isPdf = message.type === "document" && kind.label === "PDF";
+  const type = mediaType(message);
+  const isPdf = type === "document" && kind.label === "PDF";
   const sender = message.direction === "out" ? (message.sent_by ?? "You") : contactName;
   const btn =
     "flex h-10 w-10 items-center justify-center rounded-full text-white/80 transition hover:bg-white/10 hover:text-white";
@@ -69,7 +70,7 @@ export function MediaViewer({
           <p className="truncate text-sm font-semibold">{sender}</p>
           <p className="truncate text-xs text-white/60">
             {dayLabel(message.created_at)}, {bubbleTime(message.created_at)}
-            {media.filename && message.type === "document" ? ` · ${media.filename}` : ""}
+            {media.filename && type === "document" ? ` · ${media.filename}` : ""}
             {items.length > 1 ? ` · ${index + 1} of ${items.length}` : ""}
           </p>
         </div>
@@ -111,14 +112,14 @@ export function MediaViewer({
             <ChevronLeft className="h-6 w-6" />
           </button>
         )}
-        {message.type === "image" || message.type === "sticker" ? (
+        {type === "image" || type === "sticker" ? (
           <img
             key={url}
             src={url}
             alt={message.text ?? "Photo"}
             className="max-h-full max-w-full rounded object-contain shadow-2xl"
           />
-        ) : message.type === "video" ? (
+        ) : type === "video" ? (
           <video key={url} src={url} controls autoPlay className="max-h-full max-w-full rounded shadow-2xl" />
         ) : isPdf ? (
           <iframe
@@ -140,7 +141,7 @@ export function MediaViewer({
         )}
       </div>
 
-      {message.text && message.type !== "document" && (
+      {message.text && type !== "document" && (
         <p className="mx-auto mb-5 max-w-2xl px-4 text-center text-sm whitespace-pre-wrap text-white/90">
           {message.text}
         </p>

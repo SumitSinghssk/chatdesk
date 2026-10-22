@@ -9,6 +9,8 @@ export const CUSTOMER_ROUTES = {
   CONTACTS: route("/dashboard/contacts"),
   CAMPAIGNS: route("/dashboard/campaigns"),
   TEMPLATES: route("/dashboard/templates"),
+  TEMPLATE_NEW: route("/dashboard/templates/new"),
+  TEMPLATE_EDIT: (id: number) => `/dashboard/templates/${id}/edit`,
   CHATBOTS: route("/dashboard/chatbots"),
   AI_AGENT: route("/dashboard/ai-agent"),
   COMMERCE: route("/dashboard/commerce"),

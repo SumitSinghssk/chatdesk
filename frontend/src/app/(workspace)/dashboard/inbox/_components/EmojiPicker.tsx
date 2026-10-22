@@ -42,7 +42,14 @@ const GROUPS: { label: string; icon: LucideIcon; emojis: string[] }[] = [
   },
 ];
 
-export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
+export function EmojiPicker({
+  onPick,
+  placement = "top",
+}: {
+  onPick: (emoji: string) => void;
+  /** Where the panel opens; the chat composer sits at the bottom, so "top" by default. */
+  placement?: "top" | "bottom";
+}) {
   const [open, setOpen] = useState(false);
   const [group, setGroup] = useState(0);
   const ref = useRef<HTMLDivElement>(null);
@@ -50,7 +57,7 @@ export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
 
   return (
     <div ref={ref} className="relative">
-      <Tooltip label="Emoji" side="top" align="start">
+      <Tooltip label="Emoji" side={placement} align="start">
         <button
           type="button"
           aria-label="Emoji"
@@ -68,7 +75,10 @@ export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
         <div
           role="dialog"
           aria-label="Emoji picker"
-          className="popover-panel border-line bg-surface absolute bottom-full left-0 z-50 mb-2 w-72 rounded-xl border p-2 shadow-xl"
+          className={cn(
+            "popover-panel border-line bg-surface absolute left-0 z-50 w-72 rounded-xl border p-2 shadow-xl",
+            placement === "top" ? "bottom-full mb-2" : "top-full mt-2"
+          )}
           onKeyDown={(e) => e.key === "Escape" && setOpen(false)}
         >
           {/* Icon tabs, one row that scrolls sideways if space runs out: never wraps */}

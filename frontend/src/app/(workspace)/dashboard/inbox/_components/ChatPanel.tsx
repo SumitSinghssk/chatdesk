@@ -33,10 +33,10 @@ import {
   type Conversation,
   type ConversationStatus,
   type InboxMessage,
-  type MessageTemplate,
+  type SendTemplateInput,
 } from "../../_lib/inboxApi";
 import { Composer, MAX_FILES } from "./Composer";
-import { fileKind } from "./fileKind";
+import { fileKind, mediaType } from "./fileKind";
 import { dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
 import { MessageBubble } from "./MessageBubble";
@@ -55,8 +55,9 @@ function mergeById(...lists: InboxMessage[][]): InboxMessage[] {
 /** Media that opens in the full-screen viewer (photos, videos, PDFs). */
 function viewable(m: InboxMessage) {
   if (!m.media) return false;
-  if (m.type === "image" || m.type === "video" || m.type === "sticker") return true;
-  return m.type === "document" && fileKind(m.media.mime, m.media.filename).label === "PDF";
+  const type = mediaType(m);
+  if (type === "image" || type === "video" || type === "sticker") return true;
+  return type === "document" && fileKind(m.media.mime, m.media.filename).label === "PDF";
 }
 
 function WindowChip({ conversation, nowMs }: { conversation: Conversation; nowMs: number }) {
@@ -281,15 +282,7 @@ export function ChatPanel({
     }
   };
 
-  const sendTemplate = (t: MessageTemplate, body: string[], header: string[]) =>
-    run(() =>
-      inboxApi.sendTemplate(id, {
-        name: t.name,
-        language: t.language,
-        body_params: body.map((text) => ({ text })),
-        header_params: header.map((text) => ({ text })),
-      })
-    );
+  const sendTemplate = (input: SendTemplateInput) => run(() => inboxApi.sendTemplate(id, input));
 
   const setStatus = async (status: ConversationStatus) => {
     try {

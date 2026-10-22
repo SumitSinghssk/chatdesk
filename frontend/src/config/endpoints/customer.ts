@@ -32,6 +32,13 @@ export const CUSTOMER_ENDPOINTS = {
     BULK: "/customer/contacts/bulk",
     ONE: (id: number) => `/customer/contacts/${id}`,
   },
+  TEMPLATES: {
+    LIST: "/customer/templates",
+    STATS: "/customer/templates/stats",
+    SYNC: "/customer/templates/sync",
+    MEDIA: "/customer/templates/media",
+    ONE: (id: number) => `/customer/templates/${id}`,
+  },
   INBOX: {
     SUMMARY: "/customer/inbox/summary",
     CONVERSATIONS: "/customer/inbox/conversations",
