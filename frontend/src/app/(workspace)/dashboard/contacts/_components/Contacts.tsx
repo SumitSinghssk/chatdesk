@@ -24,6 +24,7 @@ import {
   DataGrid,
   KpiGrid,
   KpiTile,
+  ToolbarIconButton,
   TrendHint,
   useGridUrlState,
   type FilterRule,
@@ -37,7 +38,6 @@ import {
   Card,
   Dropdown,
   EmptyState,
-  PageHeader,
   Pagination,
   RowActions,
 } from "@/app/admin/_components/ui/index";
@@ -336,30 +336,7 @@ export function Contacts() {
 
   return (
     <>
-      <PageHeader
-        icon={Users}
-        title="Contacts"
-        count={stats?.total}
-        description="Everyone you can message on WhatsApp, with tags, custom fields and opt-in status."
-        actions={
-          <>
-            <Button variant="secondary" leftIcon={Upload} onClick={() => setImportOpen(true)}>
-              Import
-            </Button>
-            <Button
-              variant="secondary"
-              leftIcon={Download}
-              href={contactsApi.exportUrl(exportParams)}
-              target="_blank"
-            >
-              Export
-            </Button>
-            <Button leftIcon={UserPlus} onClick={modal.openCreate}>
-              Add contact
-            </Button>
-          </>
-        }
-      />
+      <h1 className="sr-only">Contacts</h1>
 
       <KpiGrid cols={5}>
         <KpiTile
@@ -461,15 +438,27 @@ export function Contacts() {
           count={data?.meta.total}
           countLabel={data?.meta.total === 1 ? "contact" : "contacts"}
           actions={
-            <Tooltip label="Add contact" align="end">
-              <Button
-                iconOnly
-                leftIcon={Plus}
-                aria-label="Add contact"
-                onClick={modal.openCreate}
-                className="h-9 w-9"
+            <>
+              <ToolbarIconButton icon={Upload} label="Import CSV" onClick={() => setImportOpen(true)} />
+              <ToolbarIconButton
+                icon={Download}
+                label="Export CSV"
+                tooltipAlign="end"
+                onClick={() => {
+                  // the API answers with a file attachment, so the page stays where it is
+                  window.location.href = contactsApi.exportUrl(exportParams);
+                }}
               />
-            </Tooltip>
+              <Tooltip label="Add contact" align="end">
+                <Button
+                  iconOnly
+                  leftIcon={Plus}
+                  aria-label="Add contact"
+                  onClick={modal.openCreate}
+                  className="h-9 w-9"
+                />
+              </Tooltip>
+            </>
           }
           selection={selection}
           onRowClick={(row) => modal.openEdit(row.id)}
