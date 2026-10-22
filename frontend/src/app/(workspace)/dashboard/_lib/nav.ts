@@ -96,16 +96,8 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.CAMPAIGNS(),
     icon: Megaphone,
     section: "grow",
-    status: "planned",
-    phase: "Phase 2",
-    description: "Broadcasts, retargeting and drip sequences.",
-    features: [
-      "Send approved templates to segments",
-      "Schedule with time zones and see the cost first",
-      "Retarget people who read, clicked or replied",
-      "Drip sequences that stop when the customer replies",
-      "Delivery, read, click and reply reports",
-    ],
+    status: "live",
+    description: "Broadcast approved templates to your contacts, now or on a schedule.",
   },
   {
     key: "templates",

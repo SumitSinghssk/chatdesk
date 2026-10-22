@@ -105,6 +105,15 @@ Then open:
    - Meta needs a public HTTPS URL. Locally, run `ngrok http 8001` and set `APP_URL` in `backend/.env` to the ngrok URL.
 4. Message your number from a phone. The workspace Overview shows the event, and **Send a test message** replies to you.
 
+### How campaigns are sent
+
+- The API sends campaigns in a background thread. It also checks every 15 seconds for scheduled campaigns that are due, and resumes any campaign a restart interrupted.
+- In production, also run `backend> python scheduler.py` every minute (cron or Task Scheduler). Its `campaigns` task does the same job if the API is down.
+- Each campaign is claimed with one atomic database update, so it is never sent twice.
+- Speed is about 20 messages a second (`CAMPAIGN_SEND_GAP` in seconds).
+- If Meta rejects the token or can't be reached, the campaign pauses with the reason instead of failing everyone. Press **Resume** once the token is fixed.
+- Set `CAMPAIGN_WORKER=off` to turn the in-API sender off, for example when only `scheduler.py` should send.
+
 ## Everyday commands
 
 | Task | Command (from the folder shown) |

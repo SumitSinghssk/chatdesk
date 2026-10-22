@@ -1,9 +1,16 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 
-import { ModulePage } from "../_components/ModulePage";
+import { Spinner } from "@/app/admin/_components/ui/index";
+
+import { Campaigns } from "./_components/Campaigns";
 
 export const metadata: Metadata = { title: "Campaigns" };
 
 export default function Page() {
-  return <ModulePage module="campaigns" />;
+  return (
+    <Suspense fallback={<Spinner className="h-full" />}>
+      <Campaigns />
+    </Suspense>
+  );
 }

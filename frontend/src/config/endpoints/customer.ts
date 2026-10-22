@@ -39,6 +39,16 @@ export const CUSTOMER_ENDPOINTS = {
     MEDIA: "/customer/templates/media",
     ONE: (id: number) => `/customer/templates/${id}`,
   },
+  CAMPAIGNS: {
+    LIST: "/customer/campaigns",
+    STATS: "/customer/campaigns/stats",
+    PREVIEW: "/customer/campaigns/preview",
+    TEST: "/customer/campaigns/test",
+    ONE: (id: number) => `/customer/campaigns/${id}`,
+    CONTROL: (id: number, action: string) => `/customer/campaigns/${id}/${action}`,
+    RECIPIENTS: (id: number) => `/customer/campaigns/${id}/recipients`,
+    EXPORT: (id: number) => `/customer/campaigns/${id}/recipients/export`,
+  },
   INBOX: {
     SUMMARY: "/customer/inbox/summary",
     CONVERSATIONS: "/customer/inbox/conversations",

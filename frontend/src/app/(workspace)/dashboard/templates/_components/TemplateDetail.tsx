@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Copy, Pencil, Trash2 } from "lucide-react";
+import { Copy, Megaphone, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge, Button, Modal } from "@/app/admin/_components/ui/index";
@@ -81,7 +81,14 @@ export function TemplateDetail({
             </Link>
             {t.editable && (
               <Link href={CUSTOMER_ROUTES.TEMPLATE_EDIT(t.id)}>
-                <Button leftIcon={Pencil}>Edit</Button>
+                <Button variant={t.status === "approved" ? "secondary" : "primary"} leftIcon={Pencil}>
+                  Edit
+                </Button>
+              </Link>
+            )}
+            {t.status === "approved" && (
+              <Link href={CUSTOMER_ROUTES.CAMPAIGN_NEW({ template: t.id })}>
+                <Button leftIcon={Megaphone}>Use in campaign</Button>
               </Link>
             )}
           </>
