@@ -11,7 +11,14 @@ from app.core.config import STORAGE_DIR
 from app.core.crypto import decrypt_secret
 from app.modules.customer.account.models import Customer
 from app.modules.customer.auth.service import field_error
-from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage, WaNote, WaQuickReply
+from app.modules.customer.inbox.models import (
+    WaContact,
+    WaConversation,
+    WaConversationEvent,
+    WaMessage,
+    WaNote,
+    WaQuickReply,
+)
 from app.modules.customer.inbox.processor import get_or_create_contact, get_or_create_conversation, touch
 from app.modules.customer.inbox.schemas import (
     ContactUpdateSchema,
@@ -22,6 +29,8 @@ from app.modules.customer.inbox.schemas import (
     StartConversationSchema,
     StatusSchema,
 )
+from app.modules.customer.team import assign as assigning
+from app.modules.customer.team.access import actor, actor_name, role_of, visible_chats
 from app.modules.customer.templates import builder
 from app.modules.customer.templates import service as templates_service
 from app.modules.customer.whatsapp.models import WhatsAppAccount
@@ -49,10 +58,16 @@ def _client(db: Session, customer: Customer) -> tuple[WhatsAppAccount, WhatsAppC
     return account, WhatsAppClient(account.phone_number_id, decrypt_secret(account.access_token) or "")
 
 
+def _scoped(db: Session, customer: Customer):
+    """The workspace's chats this member may see (agents can be limited to their own)."""
+    q = db.query(WaConversation).filter(WaConversation.customer_id == customer.id)
+    rule = visible_chats(db, customer, WaConversation)
+    return q.filter(rule) if rule is not None else q
+
+
 def _conversation(db: Session, customer: Customer, conversation_id: int) -> WaConversation:
-    conversation = (db.query(WaConversation).options(joinedload(WaConversation.contact))
-                    .filter(WaConversation.id == conversation_id, WaConversation.customer_id == customer.id)
-                    .first())
+    conversation = (_scoped(db, customer).options(joinedload(WaConversation.contact))
+                    .filter(WaConversation.id == conversation_id).first())
     if conversation is None:
         raise HTTPException(404, detail="Conversation not found")
     return conversation
@@ -98,6 +113,12 @@ def serialize_conversation(conversation: WaConversation) -> dict:
         "resolved_at": iso(conversation.resolved_at),
         "created_at": iso(conversation.created_at),
         "contact": _contact(conversation.contact),
+        "assignee": ({"id": conversation.assignee.id, "name": assigning.display(conversation.assignee)}
+                     if conversation.assignee_id and conversation.assignee else None),
+        "team": ({"id": conversation.team.id, "name": conversation.team.name}
+                 if conversation.team_id and conversation.team else None),
+        "assigned_at": iso(conversation.assigned_at),
+        "waiting_since": iso(conversation.waiting_since),
     }
 
 
@@ -153,8 +174,10 @@ def _serialize_messages(db: Session, messages: list[WaMessage]) -> list[dict]:
 
 def _outbound(db: Session, customer: Customer, conversation: WaConversation, sent_by: str | None = None,
               **fields) -> WaMessage:
+    person = actor(customer)
     message = WaMessage(customer_id=customer.id, conversation_id=conversation.id, direction="out",
-                        status="pending", sent_by=sent_by or customer.name, created_at=now(), **fields)
+                        status="pending", sent_by=sent_by or actor_name(customer), member_id=person.id,
+                        created_at=now(), **fields)
     db.add(message)
     db.flush()
     return message
@@ -174,6 +197,9 @@ def _attempt(db: Session, conversation: WaConversation, message: WaMessage, send
         message.error_message = exc.details or str(exc)
         text = f"Not sent: {message.error_message}"
     touch(conversation, message)
+    if reopen and message.status == "sent":  # a person answered (campaign sends don't count)
+        member = db.get(Customer, message.member_id) if message.member_id else None
+        assigning.record_response(db, conversation, member)
     if reopen and conversation.status == "resolved":
         conversation.status = "open"
         conversation.resolved_at = None
@@ -194,9 +220,19 @@ def _guard_contact(conversation: WaConversation) -> None:
 # Conversations -----------------------------------------------------------------------
 
 def list_conversations(db: Session, customer: Customer, status: str | None, search: str | None,
-                       unread: bool, page: int | None, per_page: int | None) -> dict:
-    q = (db.query(WaConversation).join(WaContact, WaConversation.contact_id == WaContact.id)
-         .options(joinedload(WaConversation.contact)).filter(WaConversation.customer_id == customer.id))
+                       unread: bool, page: int | None, per_page: int | None, assignee: str | None = None,
+                       team_id: int | None = None) -> dict:
+    q = (_scoped(db, customer).join(WaContact, WaConversation.contact_id == WaContact.id)
+         .options(joinedload(WaConversation.contact), joinedload(WaConversation.assignee),
+                  joinedload(WaConversation.team)))
+    if assignee == "me":
+        q = q.filter(WaConversation.assignee_id == actor(customer).id)
+    elif assignee == "unassigned":
+        q = q.filter(WaConversation.assignee_id.is_(None))
+    elif assignee and assignee.isdigit():
+        q = q.filter(WaConversation.assignee_id == int(assignee))
+    if team_id:
+        q = q.filter(WaConversation.team_id == team_id)
     if status in ("open", "pending", "resolved"):
         q = q.filter(WaConversation.status == status)
     if unread:
@@ -216,10 +252,16 @@ def summary(db: Session, customer: Customer) -> dict:
         func.sum(case((WaConversation.status == "pending", 1), else_=0)),
         func.sum(case((WaConversation.status == "resolved", 1), else_=0)),
         func.sum(case((WaConversation.unread_count > 0, 1), else_=0)),
-    ).filter(WaConversation.customer_id == customer.id).one()
-    total, open_, pending, resolved, unread = (int(v or 0) for v in row)
+        func.sum(case(((WaConversation.assignee_id == actor(customer).id)
+                       & WaConversation.status.in_(assigning.OPEN), 1), else_=0)),
+        func.sum(case((WaConversation.assignee_id.is_(None) & WaConversation.status.in_(assigning.OPEN), 1),
+                      else_=0)),
+    ).select_from(WaConversation).filter(
+        WaConversation.id.in_(_scoped(db, customer).with_entities(WaConversation.id))).one()
+    total, open_, pending, resolved, unread, mine, unassigned = (int(v or 0) for v in row)
     return {"status": True, "data": {"all": total, "open": open_, "pending": pending, "resolved": resolved,
-                                     "unread": unread}}
+                                     "unread": unread, "mine": mine, "unassigned": unassigned,
+                                     "role": role_of(customer)}}
 
 
 def get_conversation(db: Session, customer: Customer, conversation_id: int) -> dict:
@@ -235,6 +277,9 @@ def start_conversation(db: Session, customer: Customer, payload: StartConversati
     if payload.name and not contact.name:
         contact.name = payload.name.strip()
     conversation = get_or_create_conversation(db, contact)
+    if conversation.assignee_id is None:  # whoever starts the chat handles it
+        assigning.assign(db, customer, conversation, actor(customer).id, conversation.team_id,
+                         actor_name(customer))
     db.commit()
     db.refresh(conversation)
     return {"status": True, "data": serialize_conversation(conversation)}
@@ -242,10 +287,14 @@ def start_conversation(db: Session, customer: Customer, payload: StartConversati
 
 def set_status(db: Session, customer: Customer, conversation_id: int, payload: StatusSchema) -> dict:
     conversation = _conversation(db, customer, conversation_id)
+    if conversation.status != payload.status:
+        words = {"open": "Reopened", "pending": "Marked pending", "resolved": "Resolved"}
+        assigning.event(db, conversation, "status", words[payload.status], actor_name(customer))
     conversation.status = payload.status
     conversation.resolved_at = now() if payload.status == "resolved" else None
     if payload.status == "resolved":
         conversation.unread_count = 0
+        conversation.waiting_since = None  # nothing left to answer
     db.commit()
     labels = {"open": "Conversation reopened", "pending": "Marked as pending", "resolved": "Conversation resolved"}
     return {"status": True, "message": labels[payload.status], "data": serialize_conversation(conversation)}
@@ -285,8 +334,29 @@ def list_messages(db: Session, customer: Customer, conversation_id: int, before:
         rows = q.order_by(WaMessage.id.desc()).limit(limit + 1).all()
         has_more = len(rows) > limit
         rows = list(reversed(rows[:limit]))
+    events = (db.query(WaConversationEvent).filter(WaConversationEvent.conversation_id == conversation.id)
+              .order_by(WaConversationEvent.id.desc()).limit(200).all())
     return {"status": True, "data": _serialize_messages(db, rows), "meta": {"has_more": has_more},
-            "conversation": serialize_conversation(conversation)}
+            "conversation": serialize_conversation(conversation),
+            "events": [{"id": e.id, "kind": e.kind, "text": e.text, "actor": e.actor, "created_at": iso(e.created_at)}
+                       for e in reversed(events)]}
+
+
+def assign_conversation(db: Session, customer: Customer, conversation_id: int, assignee_id: int | None,
+                        team_id: int | None) -> dict:
+    conversation = _conversation(db, customer, conversation_id)
+    before = conversation.assignee_id
+    assigning.assign(db, customer, conversation, assignee_id, team_id, actor_name(customer))
+    db.commit()
+    db.refresh(conversation)
+    if assignee_id and assignee_id != before:
+        text = "Assigned to you" if assignee_id == actor(customer).id else \
+            f"Assigned to {assigning.display(conversation.assignee)}"
+    elif before and not assignee_id:
+        text = "Chat unassigned"
+    else:
+        text = "Saved"
+    return {"status": True, "message": text, "data": serialize_conversation(conversation)}
 
 
 def send_text(db: Session, customer: Customer, conversation_id: int, payload: SendTextSchema) -> dict:
@@ -564,7 +634,7 @@ def list_notes(db: Session, customer: Customer, conversation_id: int) -> dict:
 def add_note(db: Session, customer: Customer, conversation_id: int, payload: NoteSchema) -> dict:
     conversation = _conversation(db, customer, conversation_id)
     note = WaNote(customer_id=customer.id, conversation_id=conversation.id, body=payload.body,
-                  author=customer.name, created_at=now())
+                  author=actor_name(customer), created_at=now())
     db.add(note)
     db.commit()
     return {"status": True, "message": "Note added", "data": _note(note)}

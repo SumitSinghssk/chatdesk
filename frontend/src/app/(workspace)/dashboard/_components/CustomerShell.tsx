@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Lock } from "lucide-react";
 
 import { notifyMemberChange } from "@/app/(customer)/_components/AccountLink";
 import {
@@ -12,11 +13,11 @@ import {
   type CustomerProfile,
 } from "@/app/(customer)/_lib/customerApi";
 import { useSidebarResize } from "@/app/admin/(panel)/_components/shell/useSidebarResize";
-import { ErrorBanner, Spinner } from "@/app/admin/_components/ui/index";
+import { Button, Card, EmptyState, ErrorBanner, Spinner } from "@/app/admin/_components/ui/index";
 import { useThemeStore } from "@/app/admin/_store/themeStore";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 
-import { moduleFor } from "../_lib/nav";
+import { allowed, moduleFor } from "../_lib/nav";
 import { INBOX_QK, inboxApi } from "../_lib/inboxApi";
 import { WORKSPACE_QK } from "../_lib/whatsappApi";
 import { DashboardContext } from "./DashboardContext";
@@ -83,7 +84,9 @@ export function CustomerShell({ children }: { children: ReactNode }) {
   });
 
   const shell = useShellPrefs(me.data?.id ?? "guest");
-  const pagePath = moduleFor(pathname)?.href;
+  const opened = moduleFor(pathname);
+  // pages this person's role can't open don't become tabs
+  const pagePath = opened && me.data && allowed(opened, me.data.role) ? opened.href : undefined;
   const search = searchParams.toString();
   const { visit } = shell;
   useEffect(() => {
@@ -135,6 +138,8 @@ export function CustomerShell({ children }: { children: ReactNode }) {
   };
 
   const setMe = (next: CustomerProfile) => queryClient.setQueryData(WORKSPACE_QK.ME, next);
+  const current = moduleFor(pathname);
+  const blocked = current && me.data && !allowed(current, me.data.role) ? current : null;
 
   if (me.error && !signedOut) {
     return (
@@ -182,7 +187,20 @@ export function CustomerShell({ children }: { children: ReactNode }) {
           <div className="flex min-w-0 flex-1 flex-col">
             <TabsBar shell={shell} />
             <main id="content" className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4">
-              {children}
+              {blocked ? (
+                <Card>
+                  <EmptyState
+                    icon={Lock}
+                    title={`${blocked.label} is for owners and admins`}
+                    description="Your role in this workspace doesn't include this page. Ask an admin of your team if you need it."
+                    action={
+                      <Button onClick={() => router.push(CUSTOMER_ROUTES.INBOX())}>Go to the inbox</Button>
+                    }
+                  />
+                </Card>
+              ) : (
+                children
+              )}
             </main>
           </div>
         </div>

@@ -39,9 +39,18 @@ def _whatsapp(row: Customer) -> dict:
             "quality_rating": account.quality_rating, "last_event_at": iso(account.last_event_at)}
 
 
+def _team_size(row: Customer) -> int:
+    from sqlalchemy.orm import object_session
+
+    db = object_session(row)
+    return (db.query(func.count(Customer.id)).filter(Customer.workspace_id == row.id, Customer.not_deleted())
+            .scalar() or 0) if db else 0
+
+
 def _serialize(row: Customer) -> dict:
     return {
         "id": row.id,
+        "team_members": _team_size(row),
         "name": row.name,
         "business_name": row.business_name,
         "email": row.email,
@@ -135,7 +144,8 @@ GRID_FIELDS = {
 def list_customers(db: Session, page=None, per_page=None, search=None, status=None, method=None,
                    filters: str | None = None, match: str | None = "and", sort: str | None = None,
                    whatsapp: str | None = None):
-    q = db.query(Customer).options(selectinload(Customer.whatsapp_account)).filter(Customer.not_deleted())
+    q = (db.query(Customer).options(selectinload(Customer.whatsapp_account))
+         .filter(Customer.not_deleted(), Customer.workspace_id.is_(None)))
     clause = search_clause([Customer.name, Customer.business_name, Customer.email, Customer.phone], search)
     if clause is not None:
         q = q.filter(clause)
@@ -164,10 +174,12 @@ def stats(db: Session):
     week_start = days_ago_start(6)
 
     def count(*filters) -> int:
-        return db.query(func.count(Customer.id)).filter(Customer.not_deleted(), *filters).scalar() or 0
+        return db.query(func.count(Customer.id)).filter(Customer.not_deleted(), Customer.workspace_id.is_(None),
+                                                       *filters).scalar() or 0
 
     methods = dict(db.query(Customer.signup_method, func.count(Customer.id))
-                   .filter(Customer.not_deleted()).group_by(Customer.signup_method).all())
+                   .filter(Customer.not_deleted(), Customer.workspace_id.is_(None))
+                   .group_by(Customer.signup_method).all())
     return {
         "status": True,
         "data": {

@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage
+from app.modules.customer.team.assign import auto_assign
 from app.modules.customer.templates.service import apply_webhook as apply_template_update
 from app.modules.customer.whatsapp.models import WhatsAppAccount
 from app.shared.utils.datetime import now
@@ -133,10 +134,15 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
         conversation.last_inbound_at = created
     if message.type != "reaction":
         conversation.unread_count = (conversation.unread_count or 0) + 1
+        if conversation.waiting_since is None or created < conversation.waiting_since:
+            conversation.waiting_since = created  # the response-time clock starts
     if conversation.status == "resolved":
         conversation.status = "open"  # a new message reopens a solved chat
         conversation.resolved_at = None
     touch(conversation, message)
+    if message.type != "reaction":
+        db.flush()
+        auto_assign(db, account.customer_id, conversation)  # round-robin, when the workspace turned it on
     return True
 
 

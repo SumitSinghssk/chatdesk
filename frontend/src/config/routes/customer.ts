@@ -19,6 +19,8 @@ export const CUSTOMER_ROUTES = {
   COMMERCE: route("/dashboard/commerce"),
   ANALYTICS: route("/dashboard/analytics"),
   WHATSAPP: route("/dashboard/whatsapp"),
+  TEAM: route("/dashboard/team"),
+  INVITE: (token: string) => `/invite/${token}`,
   ACCOUNT: route("/dashboard/account"),
 } as const;
 

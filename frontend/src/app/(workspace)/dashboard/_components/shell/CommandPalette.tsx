@@ -9,7 +9,8 @@ import { adminPortalTarget } from "@/app/admin/_components/ui/portal";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
-import { NAV_SECTIONS, WORKSPACE_MODULES } from "../../_lib/nav";
+import { NAV_SECTIONS, modulesFor } from "../../_lib/nav";
+import { useDashboard } from "../DashboardContext";
 
 // Mirrors the admin CommandPalette (Ctrl K). Searches workspace pages and account shortcuts;
 // records (contacts, chats, campaigns) join here as those modules are built.
@@ -33,20 +34,23 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [cursor, setCursor] = useState(0);
+  const { me } = useDashboard();
 
   const entries = useMemo<Entry[]>(() => {
     const q = query.trim().toLowerCase();
     const match = (label: string) => !q || label.toLowerCase().includes(q);
-    const pages: Entry[] = WORKSPACE_MODULES.filter((m) => match(`${m.label} ${m.description}`)).map((m) => ({
-      key: `page-${m.key}`,
-      group: "Pages",
-      title: m.label,
-      subtitle:
-        m.status === "planned"
-          ? `Coming in ${m.phase}`
-          : NAV_SECTIONS.find((s) => s.key === m.section)?.label,
-      url: m.href,
-    }));
+    const pages: Entry[] = modulesFor(me.role)
+      .filter((m) => match(`${m.label} ${m.description}`))
+      .map((m) => ({
+        key: `page-${m.key}`,
+        group: "Pages",
+        title: m.label,
+        subtitle:
+          m.status === "planned"
+            ? `Coming in ${m.phase}`
+            : NAV_SECTIONS.find((s) => s.key === m.section)?.label,
+        url: m.href,
+      }));
     const shortcuts: Entry[] = SHORTCUTS.filter((s) => match(s.label)).map((s) => ({
       key: `shortcut-${s.label}`,
       group: "Shortcuts",
@@ -54,7 +58,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }) {
       url: s.url,
     }));
     return [...pages, ...shortcuts];
-  }, [query]);
+  }, [query, me.role]);
 
   if (typeof document === "undefined") return null;
 

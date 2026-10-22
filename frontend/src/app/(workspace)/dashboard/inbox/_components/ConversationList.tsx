@@ -25,6 +25,7 @@ import { listTime } from "./format";
 import { Tooltip } from "../../_components/Tooltip";
 
 export type ListFilter = "open" | "pending" | "resolved" | "all";
+export type OwnerFilter = "all" | "me" | "unassigned";
 
 /** Line icon shown before the preview for non-text messages (no emoji). */
 const TYPE_ICONS: Record<string, LucideIcon> = {
@@ -53,6 +54,8 @@ export function ConversationList({
   summary,
   filter,
   onFilter,
+  owner,
+  onOwner,
   unreadOnly,
   onUnreadOnly,
   search,
@@ -69,6 +72,8 @@ export function ConversationList({
   summary: InboxSummary | undefined;
   filter: ListFilter;
   onFilter: (f: ListFilter) => void;
+  owner: OwnerFilter;
+  onOwner: (o: OwnerFilter) => void;
   unreadOnly: boolean;
   onUnreadOnly: (v: boolean) => void;
   search: string;
@@ -95,6 +100,38 @@ export function ConversationList({
               onClick={onNewChat}
             />
           </Tooltip>
+        </div>
+        <div
+          className="bg-page grid grid-cols-3 gap-1 rounded-lg p-0.5"
+          role="tablist"
+          aria-label="Whose chats"
+        >
+          {(
+            [
+              ["me", "Mine", summary?.mine],
+              ["unassigned", "Unassigned", summary?.unassigned],
+              ["all", "Everyone", undefined],
+            ] as const
+          ).map(([key, label, count]) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={owner === key}
+              onClick={() => onOwner(key)}
+              className={cn(
+                "flex h-7 items-center justify-center gap-1 rounded-md text-xs font-medium transition",
+                owner === key ? "bg-surface text-fg shadow-xs" : "text-fg-subtle hover:text-fg"
+              )}
+            >
+              {label}
+              {!!count && (
+                <span className="tabular bg-primary text-primary-fg rounded-full px-1.5 text-[10px] font-bold">
+                  {count}
+                </span>
+              )}
+            </button>
+          ))}
         </div>
         <label className="border-line bg-page focus-within:border-primary flex h-8 items-center gap-2 rounded-md border px-2">
           <Search className="text-fg-faint h-3.5 w-3.5 shrink-0" />
@@ -175,9 +212,11 @@ export function ConversationList({
             <p className="mt-1 text-xs">
               {search
                 ? "Try a different name, number or word."
-                : filter === "open"
-                  ? "When a customer messages your WhatsApp number, the chat appears here."
-                  : "Nothing in this view."}
+                : owner === "me"
+                  ? "Nothing assigned to you right now. Check Unassigned to pick up a chat."
+                  : filter === "open"
+                    ? "When a customer messages your WhatsApp number, the chat appears here."
+                    : "Nothing in this view."}
             </p>
           </div>
         ) : (
@@ -202,6 +241,14 @@ export function ConversationList({
       </div>
     </div>
   );
+}
+
+/** "4m", "2h", "3d" since the customer started waiting */
+function waited(since: string) {
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(since).getTime()) / 60_000));
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+  return `${Math.floor(minutes / 1440)}d`;
 }
 
 function ConversationRow({
@@ -251,6 +298,19 @@ function ConversationRow({
           <span className={cn("min-w-0 flex-1 truncate text-xs", unread ? "text-fg" : "text-fg-subtle")}>
             {c.last_message_preview ?? "No messages yet"}
           </span>
+          {c.waiting_since && c.status !== "resolved" && (
+            <span
+              className="bg-warning-soft text-warning shrink-0 rounded px-1 text-[10px] font-semibold"
+              title="Waiting for a reply"
+            >
+              {waited(c.waiting_since)}
+            </span>
+          )}
+          {c.assignee && (
+            <span title={`Assigned to ${c.assignee.name}`} className="shrink-0">
+              <Avatar name={c.assignee.name} size={16} />
+            </span>
+          )}
           {c.status === "pending" && (
             <span className="bg-warning-soft text-warning shrink-0 rounded px-1 text-[10px] font-semibold">
               Pending

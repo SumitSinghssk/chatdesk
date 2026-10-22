@@ -10,7 +10,8 @@ import { useDragSort } from "@/app/admin/_hooks/useDragSort";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
-import { breadcrumbsFor, moduleByHref, moduleFor } from "../../_lib/nav";
+import { allowed, breadcrumbsFor, moduleByHref, moduleFor } from "../../_lib/nav";
+import { useDashboard } from "../DashboardContext";
 import type { ShellPrefsApi } from "./useShellPrefs";
 
 // Mirrors app/admin/(panel)/_components/shell/TabsBar.tsx: open pages as draggable tabs + breadcrumbs.
@@ -20,6 +21,7 @@ export function TabsBar({ shell }: { shell: ShellPrefsApi }) {
   const pathname = usePathname();
   const active = moduleFor(pathname)?.href;
   const crumbs = breadcrumbsFor(pathname);
+  const { me } = useDashboard();
   const tabs = shell.prefs.tabs;
   const homeHref = CUSTOMER_ROUTES.DASHBOARD();
   const stripRef = useRef<HTMLDivElement>(null);
@@ -79,7 +81,7 @@ export function TabsBar({ shell }: { shell: ShellPrefsApi }) {
           <div ref={listRef} role="tablist" aria-label="Open pages" className="flex shrink-0 items-stretch">
             {tabs.map((tab, index) => {
               const page = moduleByHref(tab.path);
-              if (!page) return null;
+              if (!page || !allowed(page, me.role)) return null;
               const isActive = tab.path === active;
               const drop = sort.indicator(index);
               return (

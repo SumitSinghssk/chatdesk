@@ -36,6 +36,21 @@ export interface Conversation {
   resolved_at: string | null;
   created_at: string;
   contact: InboxContact;
+  /** Team: who handles the chat and its team */
+  assignee: { id: number; name: string } | null;
+  team: { id: number; name: string } | null;
+  assigned_at: string | null;
+  /** oldest customer message nobody has answered yet */
+  waiting_since: string | null;
+}
+
+/** Something that happened to a chat, shown in its timeline (assigned, resolved…). */
+export interface ConversationEvent {
+  id: number;
+  kind: "assigned" | "unassigned" | "team" | "status";
+  text: string;
+  actor: string | null;
+  created_at: string;
 }
 
 export interface InboxMessage {
@@ -73,6 +88,9 @@ export interface InboxSummary {
   pending: number;
   resolved: number;
   unread: number;
+  mine: number;
+  unassigned: number;
+  role: "owner" | "admin" | "agent";
 }
 
 export interface InboxNote {
@@ -129,13 +147,18 @@ export const inboxApi = {
   conversations: (params: QueryParams) => getFull<Page<Conversation>>(withQuery(I.CONVERSATIONS, params)),
   conversation: (id: number) => request<Conversation>("GET", I.CONVERSATION(id)),
   start: (body: { phone: string; name?: string }) => request<Conversation>("POST", I.CONVERSATIONS, body),
+  assign: (id: number, body: { assignee_id: number | null; team_id: number | null }) =>
+    request<Conversation>("PUT", I.ASSIGN(id), body),
   setStatus: (id: number, status: ConversationStatus) =>
     request<Conversation>("PUT", I.STATUS(id), { status }),
   markRead: (id: number) => request<Conversation>("POST", I.READ(id)),
   messages: (id: number, params: { before?: number; after?: number; limit?: number } = {}) =>
-    getFull<{ data: InboxMessage[]; meta: { has_more: boolean }; conversation: Conversation }>(
-      withQuery(I.MESSAGES(id), params)
-    ),
+    getFull<{
+      data: InboxMessage[];
+      meta: { has_more: boolean };
+      conversation: Conversation;
+      events: ConversationEvent[];
+    }>(withQuery(I.MESSAGES(id), params)),
   sendText: (id: number, text: string, reply_to_id?: number) =>
     request<InboxMessage>("POST", I.MESSAGES(id), { text, reply_to_id }),
   sendTemplate: (id: number, body: SendTemplateInput) => request<InboxMessage>("POST", I.TEMPLATE(id), body),

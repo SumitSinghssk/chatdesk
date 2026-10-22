@@ -14,7 +14,7 @@ import { INBOX_QK, inboxApi, type Conversation, type Page } from "../../_lib/inb
 import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
 import { ChatPanel } from "./ChatPanel";
 import { ContactPanel } from "./ContactPanel";
-import { ConversationList, type ListFilter } from "./ConversationList";
+import { ConversationList, type ListFilter, type OwnerFilter } from "./ConversationList";
 import { NewChatModal } from "./NewChatModal";
 
 const PAGE = 30;
@@ -29,6 +29,7 @@ export function Inbox() {
   const selectedId = Number(searchParams.get("c")) || null;
   const [filter, setFilter] = useState<ListFilter>("open");
   const [unreadOnly, setUnreadOnly] = useState(false);
+  const [owner, setOwner] = useState<OwnerFilter>("all");
   const [search, setSearch] = useState("");
   const [perPage, setPerPage] = useState(PAGE);
   const [contactOpen, setContactOpen] = useState(
@@ -40,6 +41,7 @@ export function Inbox() {
 
   const params = {
     status: filter,
+    assignee: owner === "all" ? undefined : owner,
     unread: unreadOnly || undefined,
     search: debounced || undefined,
     page: 1,
@@ -119,6 +121,11 @@ export function Inbox() {
           filter={filter}
           onFilter={(f) => {
             setFilter(f);
+            setPerPage(PAGE);
+          }}
+          owner={owner}
+          onOwner={(o) => {
+            setOwner(o);
             setPerPage(PAGE);
           }}
           unreadOnly={unreadOnly}
