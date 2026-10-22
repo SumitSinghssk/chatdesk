@@ -9,9 +9,11 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage
+from app.modules.customer.templates.service import apply_webhook as apply_template_update
 from app.modules.customer.whatsapp.models import WhatsAppAccount
 from app.shared.utils.datetime import now
 
+TEMPLATE_FIELDS = ("message_template_status_update", "message_template_quality_update", "template_category_update")
 STATUS_RANK = {"pending": 0, "sent": 1, "delivered": 2, "read": 3}
 MEDIA_TYPES = ("image", "video", "audio", "document", "sticker")
 # Plain words only; the inbox draws an icon from `last_message_type`
@@ -168,10 +170,13 @@ def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
 
 def process_payload(db: Session, account: WhatsAppAccount, payload: dict) -> dict:
     """Applies one webhook payload. Returns counts of what changed (handy for logs and tests)."""
-    counts = {"messages": 0, "statuses": 0}
+    counts = {"messages": 0, "statuses": 0, "templates": 0}
     for entry in payload.get("entry") or []:
         for change in entry.get("changes") or []:
             value = change.get("value") or {}
+            if change.get("field") in TEMPLATE_FIELDS:
+                counts["templates"] += apply_template_update(db, account.customer_id, change["field"], value)
+                continue
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name") for c in value.get("contacts") or []}
             for raw in value.get("messages") or []:
                 counts["messages"] += _inbound(db, account, raw, names)

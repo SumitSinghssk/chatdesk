@@ -8,8 +8,10 @@ import {
   Clock,
   Copy,
   Download,
+  ExternalLink,
   MapPin,
   Mic,
+  Phone,
   Play,
   Reply,
   RotateCw,
@@ -19,9 +21,17 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
 import { downloadUrl, mediaUrl, type InboxMessage } from "../../_lib/inboxApi";
-import { fileKind } from "./fileKind";
+import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, fileSize } from "./format";
 import { Tooltip } from "../../_components/Tooltip";
+
+const TEMPLATE_BUTTON_ICONS: Record<string, typeof Reply> = {
+  quick_reply: Reply,
+  url: ExternalLink,
+  phone_number: Phone,
+  copy_code: Copy,
+  otp: Copy,
+};
 
 function fullTime(iso: string | null) {
   return iso ? new Date(iso).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : null;
@@ -215,7 +225,8 @@ export function MessageBubble({
   retrying: boolean;
 }) {
   const out = message.direction === "out";
-  const visual = !!message.media && ["image", "sticker", "video"].includes(message.type);
+  const type = mediaType(message);
+  const visual = !!message.media && ["image", "sticker", "video"].includes(type);
   const showText = message.text && message.type !== "location";
   const copy = async () => {
     if (!message.text) return;
@@ -254,12 +265,12 @@ export function MessageBubble({
               </p>
             </div>
           )}
-          {message.media && (message.type === "image" || message.type === "sticker") && (
+          {message.media && (type === "image" || type === "sticker") && (
             <ImageMedia message={message} onOpen={open} />
           )}
-          {message.media && message.type === "video" && <VideoMedia message={message} onOpen={open} />}
-          {message.media && message.type === "audio" && <AudioMedia message={message} />}
-          {message.media && message.type === "document" && <DocumentMedia message={message} onOpen={open} />}
+          {message.media && type === "video" && <VideoMedia message={message} onOpen={open} />}
+          {message.media && type === "audio" && <AudioMedia message={message} />}
+          {message.media && type === "document" && <DocumentMedia message={message} onOpen={open} />}
           {message.location && (
             <a
               href={`https://www.google.com/maps?q=${message.location.latitude},${message.location.longitude}`}
@@ -297,6 +308,22 @@ export function MessageBubble({
             {bubbleTime(message.created_at)}
             <Ticks message={message} />
           </span>
+          {!!message.template?.buttons.length && (
+            <div className="clear-both -mx-2.5 mt-1 -mb-1.5">
+              {message.template.buttons.map((b, i) => {
+                const Icon = TEMPLATE_BUTTON_ICONS[b.type] ?? ExternalLink;
+                return (
+                  <span
+                    key={i}
+                    className="flex items-center justify-center gap-1.5 border-t border-black/[0.08] px-2 py-1.5 text-[13px] font-medium text-[#027eb5] dark:border-white/10 dark:text-[#53bdeb]"
+                  >
+                    <Icon className="h-3.5 w-3.5" aria-hidden />
+                    {b.type === "otp" || b.type === "copy_code" ? b.text || "Copy code" : b.text}
+                  </span>
+                );
+              })}
+            </div>
+          )}
           {reactions.length > 0 && (
             <span
               className={cn(

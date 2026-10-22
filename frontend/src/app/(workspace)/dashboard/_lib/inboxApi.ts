@@ -3,6 +3,8 @@ import { CUSTOMER_ENDPOINTS } from "@/config/endpoints/customer";
 import { withQuery, type QueryParams } from "@/config/routes/query";
 import { BROWSER_API_BASE_URL } from "@/config/site";
 
+import type { Template } from "./templatesApi";
+
 export type ConversationStatus = "open" | "pending" | "resolved";
 export type MessageStatus = "received" | "pending" | "sent" | "delivered" | "read" | "failed";
 
@@ -61,6 +63,8 @@ export interface InboxMessage {
   location: { latitude: number; longitude: number; name: string | null; address: string | null } | null;
   reaction_to: string | null;
   reply_to: { id: number; text: string | null; type: string; direction: "in" | "out" } | null;
+  /** Template messages: the header kind and the buttons, to draw them like WhatsApp does */
+  template: { header_format: string | null; buttons: { type: string; text: string }[] } | null;
 }
 
 export interface InboxSummary {
@@ -85,20 +89,17 @@ export interface QuickReply {
   updated_at: string | null;
 }
 
-export interface MessageTemplate {
-  id: string;
+export type { Template as MessageTemplate } from "./templatesApi";
+
+export interface SendTemplateInput {
   name: string;
   language: string;
-  category: string | null;
-  status: string;
-  header: { format: string | null; text: string | null } | null;
-  body: string;
-  footer: string | null;
-  buttons: { type: string; text: string }[];
-  body_params: string[];
-  header_params: string[];
-  supported: boolean;
-  unsupported_reason: string | null;
+  body_params: { text: string }[];
+  header_params: { text: string }[];
+  button_params: { index: number; text: string }[];
+  /** A file uploaded for this send instead of the template's own sample */
+  header_media?: string | null;
+  location?: { latitude: number; longitude: number; name?: string; address?: string } | null;
 }
 
 export interface Page<T> {
@@ -137,15 +138,7 @@ export const inboxApi = {
     ),
   sendText: (id: number, text: string, reply_to_id?: number) =>
     request<InboxMessage>("POST", I.MESSAGES(id), { text, reply_to_id }),
-  sendTemplate: (
-    id: number,
-    body: {
-      name: string;
-      language: string;
-      body_params: { text: string }[];
-      header_params: { text: string }[];
-    }
-  ) => request<InboxMessage>("POST", I.TEMPLATE(id), body),
+  sendTemplate: (id: number, body: SendTemplateInput) => request<InboxMessage>("POST", I.TEMPLATE(id), body),
   async sendMedia(id: number, file: File, caption?: string) {
     const form = new FormData();
     form.append("file", file);
@@ -179,7 +172,7 @@ export const inboxApi = {
       : request<QuickReply>("POST", I.QUICK_REPLIES, body),
   deleteQuickReply: (id: number) => request<null>("DELETE", I.QUICK_REPLY(id)),
   templates: (fresh = false) =>
-    request<MessageTemplate[]>("GET", withQuery(I.TEMPLATES, { fresh: fresh || undefined })),
+    request<Template[]>("GET", withQuery(I.TEMPLATES, { fresh: fresh || undefined })),
   tags: () => request<string[]>("GET", I.TAGS),
 };
 

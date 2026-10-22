@@ -69,3 +69,12 @@ export function fileKind(mime: string | null | undefined, filename?: string | nu
     previewable: false,
   };
 }
+
+/** How a message's attachment is drawn: a template's image/video/PDF header counts as that type. */
+export function mediaType(m: {
+  type: string;
+  media: unknown;
+  template?: { header_format: string | null } | null;
+}) {
+  return m.type === "template" && m.media && m.template?.header_format ? m.template.header_format : m.type;
+}

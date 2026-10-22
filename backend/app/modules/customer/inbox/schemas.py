@@ -19,12 +19,26 @@ class TemplateParam(BaseModel):
     text: str = Field(..., min_length=1, max_length=1024)
 
 
+class ButtonParam(BaseModel):
+    index: int = Field(..., ge=0, le=9)  # position of the button in the template
+    text: str = Field(..., min_length=1, max_length=200)  # end of a dynamic link, or a coupon code
+
+
+class LocationParam(BaseModel):
+    latitude: float = Field(..., ge=-90, le=90)
+    longitude: float = Field(..., ge=-180, le=180)
+    name: Optional[str] = Field(None, max_length=200)
+    address: Optional[str] = Field(None, max_length=300)
+
+
 class SendTemplateSchema(BaseModel):
     name: str = Field(..., min_length=1, max_length=512)
     language: str = Field(..., min_length=2, max_length=15)
     body_params: list[TemplateParam] = Field(default_factory=list, max_length=20)
     header_params: list[TemplateParam] = Field(default_factory=list, max_length=1)
-    preview: Optional[str] = Field(None, max_length=4096)  # rendered text, shown in the chat
+    button_params: list[ButtonParam] = Field(default_factory=list, max_length=10)
+    header_media: Optional[str] = Field(None, max_length=80)  # file from POST /templates/media for this send
+    location: Optional[LocationParam] = None
 
 
 class StatusSchema(BaseModel):

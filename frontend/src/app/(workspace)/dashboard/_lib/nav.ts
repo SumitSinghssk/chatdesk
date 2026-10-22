@@ -113,15 +113,8 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.TEMPLATES(),
     icon: FileText,
     section: "grow",
-    status: "planned",
-    phase: "Phase 1",
+    status: "live",
     description: "Create WhatsApp message templates and track Meta's approval.",
-    features: [
-      "Header, body variables, footer and buttons",
-      "Marketing, utility and authentication categories",
-      "Live WhatsApp preview",
-      "Approval status synced from Meta",
-    ],
   },
   {
     key: "chatbots",

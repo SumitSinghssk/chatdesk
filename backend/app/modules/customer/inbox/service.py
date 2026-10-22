@@ -1,6 +1,4 @@
 import mimetypes
-import re
-import time
 from datetime import timedelta
 from pathlib import Path
 
@@ -24,6 +22,8 @@ from app.modules.customer.inbox.schemas import (
     StartConversationSchema,
     StatusSchema,
 )
+from app.modules.customer.templates import builder
+from app.modules.customer.templates import service as templates_service
 from app.modules.customer.whatsapp.models import WhatsAppAccount
 from app.services.whatsapp import MEDIA_LIMITS, WhatsAppClient, WhatsAppError, media_kind
 from app.shared.pagination import list_response
@@ -38,9 +38,6 @@ ACCEPTED = {
     "video": {"video/mp4", "video/3gpp"},
     "audio": {"audio/aac", "audio/mp4", "audio/mpeg", "audio/amr", "audio/ogg"},
 }
-TEMPLATE_CACHE_SECONDS = 60
-_template_cache: dict[int, tuple[float, list[dict]]] = {}
-PLACEHOLDER = re.compile(r"\{\{\s*([\w]+)\s*\}\}")
 
 
 # Helpers -----------------------------------------------------------------------------
@@ -125,7 +122,10 @@ def serialize_message(message: WaMessage, replied: WaMessage | None = None) -> d
         "location": None,
         "reaction_to": None,
         "reply_to": None,
+        "template": None,
     }
+    if message.type == "template":
+        data["template"] = raw.get("template") or {"header_format": None, "buttons": []}
     if message.media_id:
         data["media"] = {
             "path": f"/customer/inbox/messages/{message.id}/media",
@@ -377,50 +377,21 @@ def media(db: Session, customer: Customer, message_id: int, download: bool = Fal
 
 # Templates ---------------------------------------------------------------------------
 
-def _normalize_template(raw: dict) -> dict:
-    parts = {c.get("type"): c for c in raw.get("components") or []}
-    header = parts.get("HEADER") or {}
-    body = (parts.get("BODY") or {}).get("text") or ""
-    header_text = header.get("text") if header.get("format") == "TEXT" else None
-    supported = header.get("format") in (None, "TEXT")
-    return {
-        "id": f"{raw.get('name')}:{raw.get('language')}",
-        "name": raw.get("name"),
-        "language": raw.get("language"),
-        "category": raw.get("category"),
-        "status": raw.get("status"),
-        "header": {"format": header.get("format"), "text": header_text} if header else None,
-        "body": body,
-        "footer": (parts.get("FOOTER") or {}).get("text"),
-        "buttons": [{"type": b.get("type"), "text": b.get("text")} for b in (parts.get("BUTTONS") or {}).get("buttons", [])],
-        "body_params": PLACEHOLDER.findall(body),
-        "header_params": PLACEHOLDER.findall(header_text or ""),
-        "supported": supported,
-        "unsupported_reason": None if supported else "Templates with a media header can't be sent from the inbox yet",
-    }
-
-
-def _templates(db: Session, customer: Customer, fresh: bool = False) -> list[dict]:
-    account, client = _client(db, customer)
-    cached = _template_cache.get(account.id)
-    if not fresh and cached and time.monotonic() - cached[0] < TEMPLATE_CACHE_SECONDS:
-        return cached[1]
-    try:
-        raw = client.templates(account.waba_id)
-    except WhatsAppError as exc:
-        raise HTTPException(422, detail=f"Couldn't load templates from Meta: {exc.details or exc}") from exc
-    items = [_normalize_template(t) for t in raw if t.get("status") == "APPROVED"]
-    _template_cache[account.id] = (time.monotonic(), items)
-    return items
-
-
 def list_templates(db: Session, customer: Customer, fresh: bool) -> dict:
-    return {"status": True, "data": _templates(db, customer, fresh)}
+    """Approved templates for the "Send template" picker (synced with Meta first when stale)."""
+    if fresh:
+        templates_service.sync(db, customer)
+        error = None
+    else:
+        error = templates_service.auto_sync(db, customer)["data"]["error"]
+    items = templates_service.approved(db, customer)
+    if error and not items:
+        raise HTTPException(422, detail=error)  # nothing to show: say why (e.g. an expired token)
+    return {"status": True, "data": [templates_service.serialize(t) for t in items]}
 
 
-def _fill(text: str, names: list[str], values: list[str]) -> str:
-    lookup = dict(zip(names, values))
-    return PLACEHOLDER.sub(lambda m: lookup.get(m.group(1), m.group(0)), text)
+def _fill(text: str, values: dict[str, str]) -> str:
+    return builder.VAR.sub(lambda m: values.get(m.group(1), m.group(0)), text or "")
 
 
 def _params(names: list[str], values: list[str]) -> list[dict]:
@@ -439,36 +410,76 @@ def send_template(db: Session, customer: Customer, conversation_id: int, payload
     if conversation.contact.opted_out:
         raise HTTPException(422, detail="This contact opted out of messages. Templates can't be sent to them.")
     _, client = _client(db, customer)
-    template = next((t for t in _templates(db, customer)
-                     if t["name"] == payload.name and t["language"] == payload.language), None)
+    template = templates_service.find_approved(db, customer, payload.name, payload.language)
     if template is None:
         raise field_error(422, "name", "This template isn't approved (or no longer exists) on Meta")
-    if not template["supported"]:
-        raise field_error(422, "name", template["unsupported_reason"])
-    body_values = [p.text for p in payload.body_params]
-    header_values = [p.text for p in payload.header_params]
-    if len(body_values) != len(template["body_params"]) or len(header_values) != len(template["header_params"]):
+    form = templates_service.form_of(template)
+    needs = builder.send_params(form)
+    body_values = [p.text.strip() for p in payload.body_params]
+    header_values = [p.text.strip() for p in payload.header_params]
+    button_values = {b.index: b.text.strip() for b in payload.button_params}
+    missing_button = any(not button_values.get(b["index"]) for b in needs["buttons"])
+    if len(body_values) != len(needs["body"]) or len(header_values) != len(needs["header"]) \
+            or not all(body_values + header_values) or missing_button:
         raise field_error(422, "body_params", "Fill in every variable in the template")
-    components = []
-    if header_values:
-        components.append({"type": "header", "parameters": _params(template["header_params"], header_values)})
+
+    components: list[dict] = []
+    header_format = form["header"]["format"]
+    media_fields: dict = {}
+    media_path = None
+    if header_format == "text" and header_values:
+        components.append({"type": "header", "parameters": _params(needs["header"], header_values)})
+    elif header_format in builder.MEDIA_FORMATS:
+        try:
+            media_id, mime, filename, media_path = templates_service.header_media_id(
+                db, customer, client, template, payload.header_media)
+        except WhatsAppError as exc:
+            raise HTTPException(422, detail=f"Couldn't upload the header file: {exc.details or exc}") from exc
+        media: dict = {"id": media_id}
+        if header_format == "document":
+            media["filename"] = filename
+        components.append({"type": "header", "parameters": [{"type": header_format, header_format: media}]})
+        media_fields = {"media_id": media_id, "media_mime": mime, "media_filename": filename,
+                        "media_size": media_path.stat().st_size}
+    elif header_format == "location":
+        if payload.location is None:
+            raise field_error(422, "location", "Add the location to show in the header")
+        components.append({"type": "header", "parameters": [
+            {"type": "location", "location": payload.location.model_dump(exclude_none=True)}]})
     if body_values:
-        components.append({"type": "body", "parameters": _params(template["body_params"], body_values)})
-    header_text = (template.get("header") or {}).get("text")
+        components.append({"type": "body", "parameters": _params(needs["body"], body_values)})
+    for b in needs["buttons"]:
+        value = button_values[b["index"]]
+        param = ({"type": "coupon_code", "coupon_code": value} if b["type"] == "copy_code"
+                 else {"type": "text", "text": value})
+        components.append({"type": "button", "sub_type": b["type"], "index": str(b["index"]), "parameters": [param]})
+    if template.category == "authentication" and body_values:
+        # the copy-code button carries the same one-time code as the body
+        components.append({"type": "button", "sub_type": "url", "index": "0",
+                           "parameters": [{"type": "text", "text": body_values[0]}]})
+
+    header_text = (_fill(form["header"]["text"], dict(zip(needs["header"], header_values)))
+                   if header_format == "text" else None)
     rendered = "\n\n".join(filter(None, [
-        _fill(header_text or "", template["header_params"], header_values) or None,
-        _fill(template["body"], template["body_params"], body_values),
-        template.get("footer"),
+        header_text,
+        _fill(form["body"], dict(zip(needs["body"], body_values))),
+        form.get("footer"),
     ]))
-    request_template = {"name": template["name"], "language": {"code": template["language"]}}
+    request_template = {"name": template.name, "language": {"code": template.language}}
     if components:
         request_template["components"] = components
     message = _outbound(db, customer, conversation, type="template", text=rendered,
-                        template_name=template["name"],
-                        payload={"request": {"type": "template", "template": request_template}})
+                        template_name=template.name, **media_fields,
+                        payload={"request": {"type": "template", "template": request_template},
+                                 "template": {"header_format": header_format,
+                                              "buttons": [{"type": b["type"], "text": b["text"]}
+                                                          for b in form["buttons"]]}})
+    if media_path is not None:
+        _cache_path(message).parent.mkdir(parents=True, exist_ok=True)
+        _cache_path(message).write_bytes(media_path.read_bytes())  # so the chat shows the header right away
     return _deliver(db, conversation, message,
-                    lambda: client.send_template(conversation.contact.wa_id, template["name"],
-                                                 template["language"], components or None))
+                    lambda: client.send_template(conversation.contact.wa_id, template.name,
+                                                 template.language, components or None))
 
 
 # Contact & notes ---------------------------------------------------------------------

@@ -36,7 +36,8 @@ def _kinds(payload: dict) -> list[str]:
                 kinds.append("message")
             elif value.get("statuses"):
                 kinds.append("status")
-            elif field == "message_template_status_update":
+            elif field in ("message_template_status_update", "message_template_quality_update",
+                           "template_category_update"):
                 kinds.append("template")
             else:
                 kinds.append(field or "other")

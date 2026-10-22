@@ -101,7 +101,7 @@ Then open:
    - the phone number ID
    - the access token
    - the app secret (recommended)
-3. Copy the **Callback URL** and **Verify token** into your Meta app (WhatsApp → Configuration). Subscribe to `messages`.
+3. Copy the **Callback URL** and **Verify token** into your Meta app (WhatsApp → Configuration). Subscribe to `messages`, plus `message_template_status_update`, `message_template_quality_update` and `template_category_update` so template approvals show up within seconds (without them, Templates checks Meta every 30 seconds while something is in review).
    - Meta needs a public HTTPS URL. Locally, run `ngrok http 8001` and set `APP_URL` in `backend/.env` to the ngrok URL.
 4. Message your number from a phone. The workspace Overview shows the event, and **Send a test message** replies to you.
 
