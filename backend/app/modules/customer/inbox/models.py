@@ -29,7 +29,10 @@ class WaContact(Base, TimestampMixin):
     wa_id = Column(String(32), nullable=False)  # phone in international format, digits only
     name = Column(String(150), nullable=True)  # name the business saved
     profile_name = Column(String(150), nullable=True)  # name from the person's WhatsApp profile
+    email = Column(String(255), nullable=True)
     tags = Column(JSON, nullable=False, default=list)
+    attributes = Column(JSON, nullable=False, default=dict, server_default="{}")  # custom fields, e.g. city
+    source = Column(String(20), nullable=False, default="inbox", server_default="inbox")  # inbox|manual|import|api
     opted_out = Column(Boolean, nullable=False, default=False)
     blocked = Column(Boolean, nullable=False, default=False)
     last_message_at = Column(DateTime, nullable=True)

@@ -23,6 +23,15 @@ export const CUSTOMER_ENDPOINTS = {
     REFRESH: "/customer/whatsapp/connection/refresh",
     TEST_MESSAGE: "/customer/whatsapp/connection/test-message",
   },
+  CONTACTS: {
+    LIST: "/customer/contacts",
+    STATS: "/customer/contacts/stats",
+    ATTRIBUTES: "/customer/contacts/attributes",
+    EXPORT: "/customer/contacts/export",
+    IMPORT: "/customer/contacts/import",
+    BULK: "/customer/contacts/bulk",
+    ONE: (id: number) => `/customer/contacts/${id}`,
+  },
   INBOX: {
     SUMMARY: "/customer/inbox/summary",
     CONVERSATIONS: "/customer/inbox/conversations",

@@ -81,8 +81,7 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.CONTACTS(),
     icon: Users,
     section: "main",
-    status: "planned",
-    phase: "Phase 1",
+    status: "live",
     description: "Your customer list with tags, attributes and opt-in status.",
     features: [
       "CSV import and export",

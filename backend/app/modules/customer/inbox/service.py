@@ -221,7 +221,11 @@ def get_conversation(db: Session, customer: Customer, conversation_id: int) -> d
 
 
 def start_conversation(db: Session, customer: Customer, payload: StartConversationSchema) -> dict:
-    contact = get_or_create_contact(db, customer.id, payload.phone)
+    from app.modules.customer.contacts.service import to_wa_id  # local import: contacts imports inbox models
+
+    contact = get_or_create_contact(db, customer.id, to_wa_id(db, payload.phone) or payload.phone)
+    if contact.source == "inbox" and not contact.conversation:
+        contact.source = "manual"
     if payload.name and not contact.name:
         contact.name = payload.name.strip()
     conversation = get_or_create_conversation(db, contact)
