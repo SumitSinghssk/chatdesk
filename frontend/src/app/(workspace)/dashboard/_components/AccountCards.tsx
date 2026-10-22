@@ -86,7 +86,7 @@ export function ProfileCard({ me, onSaved }: { me: CustomerProfile; onSaved: (c:
     try {
       const res = await customerApi.updateProfile({
         name: data.name.trim(),
-        business_name: data.business_name.trim() || null,
+        business_name: (data.business_name ?? me.business_name ?? "").trim() || null,
         email: data.email.trim() || null,
       });
       onSaved(res.data);
@@ -102,13 +102,23 @@ export function ProfileCard({ me, onSaved }: { me: CustomerProfile; onSaved: (c:
     <Panel title="Profile" description="Your name, business and email." icon={UserRound}>
       <form onSubmit={submit} className="space-y-4" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Input
-            label="Business name"
-            name="business_name"
-            autoComplete="organization"
-            defaultValue={me.business_name ?? ""}
-            error={errors.business_name}
-          />
+          {me.role === "owner" ? (
+            <Input
+              label="Business name"
+              name="business_name"
+              autoComplete="organization"
+              defaultValue={me.business_name ?? ""}
+              error={errors.business_name}
+            />
+          ) : (
+            <Input
+              label="Workspace"
+              value={me.workspace?.name ?? ""}
+              readOnly
+              disabled
+              hint={`You're ${me.role === "admin" ? "an admin" : "an agent"} here. The owner sets the business name.`}
+            />
+          )}
           <Input
             label="Your name"
             name="name"

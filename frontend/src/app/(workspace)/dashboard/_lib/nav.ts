@@ -11,6 +11,7 @@ import {
   ShoppingBag,
   Sparkles,
   UserRoundCog,
+  UsersRound,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -28,7 +29,11 @@ export type ModuleKey =
   | "commerce"
   | "analytics"
   | "whatsapp"
+  | "team"
   | "account";
+
+export type Role = "owner" | "admin" | "agent";
+const MANAGERS: Role[] = ["owner", "admin"];
 
 export interface WorkspaceModule {
   key: ModuleKey;
@@ -40,6 +45,8 @@ export interface WorkspaceModule {
   status: "live" | "planned";
   /** Live count shown next to the menu item (see CustomerShell). */
   badge?: "inbox";
+  /** Who can open it (everyone when left out) */
+  roles?: Role[];
   /** Build phase from WHATSAPP_PLATFORM_BLUEPRINT.md */
   phase?: string;
   description: string;
@@ -97,6 +104,7 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     icon: Megaphone,
     section: "grow",
     status: "live",
+    roles: MANAGERS,
     description: "Broadcast approved templates to your contacts, now or on a schedule.",
   },
   {
@@ -106,6 +114,7 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     icon: FileText,
     section: "grow",
     status: "live",
+    roles: MANAGERS,
     description: "Create WhatsApp message templates and track Meta's approval.",
   },
   {
@@ -179,7 +188,18 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     icon: MessageCircle,
     section: "settings",
     status: "live",
+    roles: MANAGERS,
     description: "Connect your WhatsApp Business number through the Meta Cloud API.",
+  },
+  {
+    key: "team",
+    label: "Team",
+    href: CUSTOMER_ROUTES.TEAM(),
+    icon: UsersRound,
+    section: "settings",
+    status: "live",
+    roles: MANAGERS,
+    description: "Invite agents, group them in teams, set chat assignment rules and see response times.",
   },
   {
     key: "account",
@@ -197,6 +217,17 @@ export const NAV_SECTIONS: { key: WorkspaceModule["section"]; label: string; ico
   { key: "grow", label: "Grow", icon: Rocket },
   { key: "settings", label: "Settings", icon: Settings },
 ];
+
+/** Can someone with `role` open this module? */
+export function allowed(m: WorkspaceModule, role: Role): boolean {
+  if (role === "agent" && m.status === "planned") return false; // agents only see what they work in
+  return !m.roles || m.roles.includes(role);
+}
+
+/** The modules someone with `role` sees in the sidebar and search. */
+export function modulesFor(role: Role): WorkspaceModule[] {
+  return WORKSPACE_MODULES.filter((m) => allowed(m, role));
+}
 
 export function getModule(key: ModuleKey): WorkspaceModule {
   const found = WORKSPACE_MODULES.find((m) => m.key === key);

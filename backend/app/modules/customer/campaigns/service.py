@@ -23,6 +23,7 @@ from app.modules.customer.contacts.service import to_wa_id
 from app.modules.customer.inbox import service as inbox_service
 from app.modules.customer.inbox.models import WaContact, WaMessage
 from app.modules.customer.inbox.processor import get_or_create_contact, get_or_create_conversation
+from app.modules.customer.team.access import actor_name
 from app.modules.customer.templates import builder
 from app.modules.customer.templates import service as templates_service
 from app.modules.customer.templates.models import WaTemplate
@@ -366,7 +367,7 @@ def _message(campaign: WaCampaign) -> str:
 
 
 def create_campaign(db: Session, customer: Customer, payload: CampaignSchema) -> dict:
-    campaign = WaCampaign(customer_id=customer.id, created_by=customer.name)
+    campaign = WaCampaign(customer_id=customer.id, created_by=actor_name(customer))
     _apply(db, customer, campaign, payload)
     db.add(campaign)
     db.commit()

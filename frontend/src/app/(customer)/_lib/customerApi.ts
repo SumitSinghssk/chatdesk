@@ -25,9 +25,13 @@ export interface CustomerProfile {
   google_linked: boolean;
   email_verified: boolean;
   phone_verified: boolean;
-  signup_method: "password" | "otp" | "google" | "admin";
+  signup_method: "password" | "otp" | "google" | "admin" | "invite";
   last_login_at: string | null;
   created_at: string;
+  /** Team: this person's role in the workspace they work in */
+  role: "owner" | "admin" | "agent";
+  availability: "available" | "away";
+  workspace: { id: number; name: string | null };
 }
 
 export interface CustomerDevice {

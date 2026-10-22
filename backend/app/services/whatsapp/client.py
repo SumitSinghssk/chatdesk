@@ -6,7 +6,8 @@ import uuid
 from urllib.parse import urlencode
 
 GRAPH_API_VERSION = os.getenv("WHATSAPP_GRAPH_API_VERSION", "v23.0")
-GRAPH_URL = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+# WHATSAPP_GRAPH_URL points at a stand-in for Meta (end-to-end tests); leave unset in real use
+GRAPH_URL = os.getenv("WHATSAPP_GRAPH_URL") or f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 
 # WhatsApp media types and the limits Meta enforces on uploads (bytes)
 MEDIA_LIMITS = {

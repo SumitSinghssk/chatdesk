@@ -58,8 +58,15 @@ class WaConversation(Base, TimestampMixin):
     last_message_type = Column(String(30), nullable=True)  # lets the list show the right icon
     last_inbound_at = Column(DateTime, nullable=True)  # starts the 24-hour customer service window
     resolved_at = Column(DateTime, nullable=True)
+    # Team: who handles the chat (a member of the workspace) and which team it belongs to
+    assignee_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    team_id = Column(Integer, ForeignKey("wa_teams.id", ondelete="SET NULL"), nullable=True, index=True)
+    assigned_at = Column(DateTime, nullable=True)
+    waiting_since = Column(DateTime, nullable=True)  # oldest customer message nobody has answered yet
 
     contact = relationship("WaContact", back_populates="conversation")
+    assignee = relationship("Customer", foreign_keys=[assignee_id])
+    team = relationship("WaTeam")
     messages = relationship("WaMessage", back_populates="conversation", cascade="all, delete-orphan",
                             passive_deletes=True)
     notes = relationship("WaNote", back_populates="conversation", cascade="all, delete-orphan",
@@ -93,6 +100,7 @@ class WaMessage(Base):
     error_code = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     sent_by = Column(String(150), nullable=True)  # who replied from the workspace
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=now)
     sent_at = Column(DateTime, nullable=True)
     delivered_at = Column(DateTime, nullable=True)
@@ -127,3 +135,32 @@ class WaQuickReply(Base, TimestampMixin):
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
     shortcut = Column(String(40), nullable=False)
     text = Column(Text, nullable=False)
+
+
+class WaConversationEvent(Base):
+    """Something that happened to a chat (assigned, moved to a team, resolved…), shown in its timeline."""
+
+    __tablename__ = "wa_conversation_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    conversation_id = Column(Integer, ForeignKey("wa_conversations.id", ondelete="CASCADE"), nullable=False,
+                             index=True)
+    kind = Column(String(20), nullable=False)  # assigned | unassigned | team | status
+    text = Column(String(255), nullable=False)
+    actor = Column(String(150), nullable=True)  # who did it; empty for automatic assignment
+    created_at = Column(DateTime, nullable=False, default=now)
+
+
+class WaResponse(Base):
+    """How long a customer waited for a reply (one row per answered wait), for response-time reports."""
+
+    __tablename__ = "wa_responses"
+    __table_args__ = (Index("ix_wa_responses_customer_created", "customer_id", "created_at"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    conversation_id = Column(Integer, ForeignKey("wa_conversations.id", ondelete="CASCADE"), nullable=False,
+                             index=True)
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    seconds = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=now)

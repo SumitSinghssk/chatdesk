@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, SmallInteger, String, text
+from sqlalchemy import JSON, Column, DateTime, ForeignKey, Index, Integer, SmallInteger, String, text
 from sqlalchemy.orm import relationship
 
 from app.core.database import Base
@@ -30,9 +30,19 @@ class Customer(Base, TimestampMixin, SoftDeleteMixin):
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(String(64), nullable=True)
     last_login_method = Column(String(20), nullable=True)
+    # Team: a member belongs to the owner's workspace (workspace_id = owner's id; NULL = an owner)
+    workspace_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True, index=True)
+    role = Column(String(10), nullable=False, default="owner", server_default="owner")  # owner | admin | agent
+    availability = Column(String(10), nullable=False, default="available", server_default="available")
+    last_assigned_at = Column(DateTime, nullable=True)  # round-robin order
+    invite_token_hash = Column(String(64), nullable=True, index=True)
+    invite_expires_at = Column(DateTime, nullable=True)
+    invited_by = Column(String(150), nullable=True)
+    team_settings = Column(JSON, nullable=True)  # owners only: assignment rules and agent visibility
 
     sessions = relationship("CustomerSession", back_populates="customer", cascade="all, delete-orphan",
                             passive_deletes=True)
+    workspace = relationship("Customer", remote_side=[id], foreign_keys=[workspace_id])
 
 
 class CustomerSession(Base):

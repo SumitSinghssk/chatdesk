@@ -31,15 +31,17 @@ import {
   INBOX_QK,
   inboxApi,
   type Conversation,
+  type ConversationEvent,
   type ConversationStatus,
   type InboxMessage,
   type SendTemplateInput,
 } from "../../_lib/inboxApi";
 import { Composer, MAX_FILES } from "./Composer";
 import { fileKind, mediaType } from "./fileKind";
-import { dayLabel, sameDay, windowLeft } from "./format";
+import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
 import { MessageBubble } from "./MessageBubble";
+import { AssignMenu } from "./AssignMenu";
 import { TemplateModal } from "./TemplateModal";
 import { Tooltip } from "../../_components/Tooltip";
 
@@ -58,6 +60,20 @@ function viewable(m: InboxMessage) {
   const type = mediaType(m);
   if (type === "image" || type === "video" || type === "sticker") return true;
   return type === "document" && fileKind(m.media.mime, m.media.filename).label === "PDF";
+}
+
+/** Compare times as numbers, not text: "12:00:05.3Z" sorts before "12:00:05Z" as a string. */
+const at = (iso: string) => new Date(iso).getTime();
+
+function EventChip({ event }: { event: ConversationEvent }) {
+  return (
+    <div className="flex justify-center px-4 py-1" role="note">
+      <span className="bg-surface/90 text-fg-subtle max-w-full truncate rounded-md px-2.5 py-1 text-[11px] shadow-xs">
+        <span className="text-fg font-medium">{event.text}</span>
+        {event.actor ? ` by ${event.actor}` : ""} · {bubbleTime(event.created_at)}
+      </span>
+    </div>
+  );
 }
 
 function WindowChip({ conversation, nowMs }: { conversation: Conversation; nowMs: number }) {
@@ -174,6 +190,19 @@ export function ChatPanel({
   }, [all]);
   const visible = useMemo(() => all.filter((m) => m.type !== "reaction"), [all]);
   const media = useMemo(() => visible.filter(viewable), [visible]);
+  // assignment and status changes, placed between the messages by time
+  const events = useMemo(() => {
+    const list = latest.data?.events ?? [];
+    const first = visible[0]?.created_at;
+    return hasMore && first ? list.filter((e) => at(e.created_at) >= at(first)) : list;
+  }, [latest.data, visible, hasMore]);
+  const eventsBefore = (m: InboxMessage, prev: InboxMessage | undefined) =>
+    events.filter(
+      (e) => at(e.created_at) <= at(m.created_at) && (!prev || at(e.created_at) > at(prev.created_at))
+    );
+  const eventsAfterLast = events.filter(
+    (e) => !visible.length || at(e.created_at) > at(visible[visible.length - 1]!.created_at)
+  );
   const lastId = visible.at(-1)?.id;
 
   // first of the messages that were unread when the chat opened
@@ -358,6 +387,7 @@ export function ChatPanel({
         <div className="hidden sm:block">
           <WindowChip conversation={conversation} nowMs={nowMs} />
         </div>
+        <AssignMenu conversation={conversation} onChanged={onChanged} />
         {conversation.status === "resolved" ? (
           <Button size="sm" variant="secondary" leftIcon={RotateCcw} onClick={() => setStatus("open")}>
             <span className="hidden sm:inline">Reopen</span>
@@ -430,6 +460,9 @@ export function ChatPanel({
               )}
               {visible.map((m, i) => (
                 <Fragment key={m.id}>
+                  {eventsBefore(m, visible[i - 1]).map((e) => (
+                    <EventChip key={`e${e.id}`} event={e} />
+                  ))}
                   {(i === 0 || !sameDay(visible[i - 1]!.created_at, m.created_at)) && (
                     <div className="flex justify-center py-1.5">
                       <span className="bg-surface/90 text-fg-subtle rounded-md px-2.5 py-1 text-[11px] font-medium shadow-xs">
@@ -455,6 +488,9 @@ export function ChatPanel({
                     />
                   </div>
                 </Fragment>
+              ))}
+              {eventsAfterLast.map((e) => (
+                <EventChip key={`e${e.id}`} event={e} />
               ))}
             </div>
           )}

@@ -17,4 +17,11 @@ def serialize_customer(customer: Customer) -> dict:
         "signup_method": customer.signup_method,
         "last_login_at": iso(customer.last_login_at),
         "created_at": iso(customer.created_at),
+        # team: the workspace this person works in and their role there
+        "role": customer.role if customer.workspace_id else "owner",
+        "availability": customer.availability,
+        "workspace": {
+            "id": customer.workspace_id or customer.id,
+            "name": (owner.business_name or owner.name) if (owner := customer.workspace or customer) else None,
+        },
     }

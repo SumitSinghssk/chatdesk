@@ -34,7 +34,8 @@ def update_profile(db: Session, customer: Customer, payload: ProfileUpdateSchema
         customer.email = email
         customer.email_verified_at = None
     customer.name = payload.name.strip()
-    customer.business_name = payload.business_name.strip() if payload.business_name else None
+    if customer.workspace_id is None:  # team members don't own the business name
+        customer.business_name = payload.business_name.strip() if payload.business_name else None
     db.commit()
     return _ok(customer, "Profile saved")
 

@@ -105,6 +105,22 @@ Then open:
    - Meta needs a public HTTPS URL. Locally, run `ngrok http 8001` and set `APP_URL` in `backend/.env` to the ngrok URL.
 4. Message your number from a phone. The workspace Overview shows the event, and **Send a test message** replies to you.
 
+### Team, roles and chat assignment
+
+- **One login per person.** A business owner invites people from **Team**. Each person opens a one-time invite link (valid 7 days) and sets a password.
+- **Roles:**
+  - **Owner:** everything.
+  - **Admin:** everything, including the team, except removing the owner.
+  - **Agent:** the inbox and contacts only.
+- **How it works in the code:** workspace endpoints use `require_workspace` or `require_admin` from `app/modules/customer/team/access.py`. These return the owner's account, so data stays scoped by the owner's id, and the signed-in person is available as `actor(ws)`.
+- **Assigning chats:** chats can be assigned to a person and/or a team. Round-robin auto-assignment is set under **Team → Assignment rules**:
+  - only people who are Available
+  - optionally only one team
+  - optionally a cap on open chats per person
+- **Agent visibility:** all chats, their own plus unassigned, or only their own.
+- **Response time:** measured from a customer's first unanswered message to the team's reply, and shown under **Team → Performance**.
+- **Testing without Meta:** set `WHATSAPP_GRAPH_URL` to point the API at a stand-in for Meta's Graph API, so sends succeed. Never set it in production.
+
 ### How campaigns are sent
 
 - The API sends campaigns in a background thread. It also checks every 15 seconds for scheduled campaigns that are due, and resumes any campaign a restart interrupted.

@@ -9,7 +9,8 @@ import { CUSTOMER_ROUTES } from "@/config/routes";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 
-import { NAV_SECTIONS, WORKSPACE_MODULES, moduleFor, type WorkspaceModule } from "../../_lib/nav";
+import { NAV_SECTIONS, modulesFor, moduleFor, type WorkspaceModule } from "../../_lib/nav";
+import { useDashboard } from "../DashboardContext";
 import type { ShellPrefsApi } from "./useShellPrefs";
 
 // Mirrors app/admin/(panel)/_components/shell/Sidebar.tsx, driven by the workspace module list.
@@ -36,6 +37,8 @@ export function Sidebar({ badges, collapsed, mobileOpen, onCloseMobile, shell, r
   const asideRef = useRef<HTMLElement>(null);
   const pathname = usePathname();
   const active = moduleFor(pathname)?.href;
+  const { me } = useDashboard();
+  const modules = modulesFor(me.role);
   const [query, setQuery] = useState("");
   const [closed, setClosed] = useState<string[]>(() => {
     try {
@@ -56,16 +59,14 @@ export function Sidebar({ badges, collapsed, mobileOpen, onCloseMobile, shell, r
 
   const sections = NAV_SECTIONS.map((s) => ({
     ...s,
-    items: WORKSPACE_MODULES.filter((m) => m.section === s.key),
+    items: modules.filter((m) => m.section === s.key),
   })).filter((s) => s.items.length > 0);
   const favorites = shell.prefs.favorites
-    .map((path) => WORKSPACE_MODULES.find((item) => item.href === path))
+    .map((path) => modules.find((item) => item.href === path))
     .filter((i): i is WorkspaceModule => !!i);
   const q = query.trim().toLowerCase();
   const sectionLabel = (m: WorkspaceModule) => NAV_SECTIONS.find((s) => s.key === m.section)?.label ?? "";
-  const matches = q
-    ? WORKSPACE_MODULES.filter((i) => `${i.label} ${sectionLabel(i)}`.toLowerCase().includes(q))
-    : [];
+  const matches = q ? modules.filter((i) => `${i.label} ${sectionLabel(i)}`.toLowerCase().includes(q)) : [];
 
   const itemProps = { active, badges, collapsed, onNavigate: onCloseMobile, shell };
 
