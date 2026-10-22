@@ -1,4 +1,5 @@
 import logging
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, status
 from fastapi.exceptions import HTTPException, RequestValidationError
@@ -23,6 +24,7 @@ from app.core.monitoring import init_sentry
 from app.core.security_headers import add_security_headers
 from app.core.static_files import UploadStaticFiles
 from app.modules.admin.security.middleware import firewall_middleware
+from app.modules.customer.campaigns import runner as campaign_runner
 
 configure_logging()
 init_sentry("api")
@@ -32,7 +34,16 @@ if settings.is_production and not settings.INTERNAL_API_KEY:
         "INTERNAL_API_KEY is not set: GET /api/v1/website/firewall is public. Set it in the API and frontend .env."
     )
 
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    campaign_runner.start_ticker()  # sends scheduled campaigns and resumes interrupted ones
+    yield
+
+
 app = FastAPI(
+    lifespan=lifespan,
     title=f"{DEFAULT_APP_NAME} API",
     version="1.0.0",
     openapi_url=None if settings.is_production else "/openapi.json",

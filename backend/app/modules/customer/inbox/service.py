@@ -151,16 +151,17 @@ def _serialize_messages(db: Session, messages: list[WaMessage]) -> list[dict]:
     return [serialize_message(m, replied.get(m.context_wamid)) for m in messages]
 
 
-def _outbound(db: Session, customer: Customer, conversation: WaConversation, **fields) -> WaMessage:
+def _outbound(db: Session, customer: Customer, conversation: WaConversation, sent_by: str | None = None,
+              **fields) -> WaMessage:
     message = WaMessage(customer_id=customer.id, conversation_id=conversation.id, direction="out",
-                        status="pending", sent_by=customer.name, created_at=now(), **fields)
+                        status="pending", sent_by=sent_by or customer.name, created_at=now(), **fields)
     db.add(message)
     db.flush()
     return message
 
 
-def _deliver(db: Session, conversation: WaConversation, message: WaMessage, send) -> dict:
-    """Runs `send()` against Meta and records the result on `message`."""
+def _attempt(db: Session, conversation: WaConversation, message: WaMessage, send, reopen: bool = True) -> str:
+    """Runs `send()` against Meta, records the result on `message` and commits. Returns a status line."""
     try:
         result = send()
         message.wamid = (result.get("messages") or [{}])[0].get("id")
@@ -173,10 +174,15 @@ def _deliver(db: Session, conversation: WaConversation, message: WaMessage, send
         message.error_message = exc.details or str(exc)
         text = f"Not sent: {message.error_message}"
     touch(conversation, message)
-    if conversation.status == "resolved":
+    if reopen and conversation.status == "resolved":
         conversation.status = "open"
         conversation.resolved_at = None
     db.commit()
+    return text
+
+
+def _deliver(db: Session, conversation: WaConversation, message: WaMessage, send) -> dict:
+    text = _attempt(db, conversation, message, send)
     return {"status": True, "message": text, "data": serialize_message(message)}
 
 
@@ -413,11 +419,35 @@ def send_template(db: Session, customer: Customer, conversation_id: int, payload
     template = templates_service.find_approved(db, customer, payload.name, payload.language)
     if template is None:
         raise field_error(422, "name", "This template isn't approved (or no longer exists) on Meta")
+    prepared = prepare_template(
+        db, customer, client, template,
+        header=[p.text for p in payload.header_params], body=[p.text for p in payload.body_params],
+        buttons={b.index: b.text for b in payload.button_params}, header_media=payload.header_media,
+        location=payload.location.model_dump(exclude_none=True) if payload.location else None)
+    message, text = send_prepared(db, customer, conversation, template, prepared, client)
+    return {"status": True, "message": text, "data": serialize_message(message)}
+
+
+def upload_header(db: Session, customer: Customer, client: WhatsAppClient, template, key: str | None = None):
+    """(media id, mime, filename, path) for a template's image/video/PDF header, uploaded to WhatsApp."""
+    try:
+        return templates_service.header_media_id(db, customer, client, template, key)
+    except WhatsAppError as exc:
+        raise HTTPException(422, detail=f"Couldn't upload the header file: {exc.details or exc}") from exc
+
+
+def prepare_template(db: Session, customer: Customer, client: WhatsAppClient, template, *, header: list[str],
+                     body: list[str], buttons: dict[int, str], header_media: str | None = None,
+                     location: dict | None = None, media: tuple | None = None) -> dict:
+    """Checks the values for `template` and builds what Meta needs plus the text shown in the chat.
+
+    `media` is an already uploaded header (campaigns upload it once for every recipient).
+    """
     form = templates_service.form_of(template)
     needs = builder.send_params(form)
-    body_values = [p.text.strip() for p in payload.body_params]
-    header_values = [p.text.strip() for p in payload.header_params]
-    button_values = {b.index: b.text.strip() for b in payload.button_params}
+    body_values = [v.strip() for v in body]
+    header_values = [v.strip() for v in header]
+    button_values = {i: (v or "").strip() for i, v in buttons.items()}
     missing_button = any(not button_values.get(b["index"]) for b in needs["buttons"])
     if len(body_values) != len(needs["body"]) or len(header_values) != len(needs["header"]) \
             or not all(body_values + header_values) or missing_button:
@@ -425,27 +455,18 @@ def send_template(db: Session, customer: Customer, conversation_id: int, payload
 
     components: list[dict] = []
     header_format = form["header"]["format"]
-    media_fields: dict = {}
-    media_path = None
     if header_format == "text" and header_values:
         components.append({"type": "header", "parameters": _params(needs["header"], header_values)})
     elif header_format in builder.MEDIA_FORMATS:
-        try:
-            media_id, mime, filename, media_path = templates_service.header_media_id(
-                db, customer, client, template, payload.header_media)
-        except WhatsAppError as exc:
-            raise HTTPException(422, detail=f"Couldn't upload the header file: {exc.details or exc}") from exc
-        media: dict = {"id": media_id}
+        media = media or upload_header(db, customer, client, template, header_media)
+        part: dict = {"id": media[0]}
         if header_format == "document":
-            media["filename"] = filename
-        components.append({"type": "header", "parameters": [{"type": header_format, header_format: media}]})
-        media_fields = {"media_id": media_id, "media_mime": mime, "media_filename": filename,
-                        "media_size": media_path.stat().st_size}
+            part["filename"] = media[2]
+        components.append({"type": "header", "parameters": [{"type": header_format, header_format: part}]})
     elif header_format == "location":
-        if payload.location is None:
+        if not location:
             raise field_error(422, "location", "Add the location to show in the header")
-        components.append({"type": "header", "parameters": [
-            {"type": "location", "location": payload.location.model_dump(exclude_none=True)}]})
+        components.append({"type": "header", "parameters": [{"type": "location", "location": location}]})
     if body_values:
         components.append({"type": "body", "parameters": _params(needs["body"], body_values)})
     for b in needs["buttons"]:
@@ -465,21 +486,43 @@ def send_template(db: Session, customer: Customer, conversation_id: int, payload
         _fill(form["body"], dict(zip(needs["body"], body_values))),
         form.get("footer"),
     ]))
+    return {
+        "components": components,
+        "rendered": rendered,
+        "media": media if header_format in builder.MEDIA_FORMATS else None,
+        "info": {"header_format": header_format,
+                 "buttons": [{"type": b["type"], "text": b["text"]} for b in form["buttons"]]},
+    }
+
+
+def send_prepared(db: Session, customer: Customer, conversation: WaConversation, template, prepared: dict,
+                  client: WhatsAppClient, sent_by: str | None = None, campaign: dict | None = None,
+                  ) -> tuple[WaMessage, str]:
+    """Sends a prepared template into `conversation` and records it there like any other message.
+
+    Campaign messages carry `campaign` ({"id", "name"}) and don't reopen resolved chats.
+    """
+    components = prepared["components"]
     request_template = {"name": template.name, "language": {"code": template.language}}
     if components:
         request_template["components"] = components
-    message = _outbound(db, customer, conversation, type="template", text=rendered,
+    media_fields: dict = {}
+    media = prepared["media"]
+    if media:
+        media_fields = {"media_id": media[0], "media_mime": media[1], "media_filename": media[2],
+                        "media_size": media[3].stat().st_size}
+    info = {**prepared["info"], **({"campaign": campaign} if campaign else {})}
+    message = _outbound(db, customer, conversation, sent_by=sent_by, type="template", text=prepared["rendered"],
                         template_name=template.name, **media_fields,
-                        payload={"request": {"type": "template", "template": request_template},
-                                 "template": {"header_format": header_format,
-                                              "buttons": [{"type": b["type"], "text": b["text"]}
-                                                          for b in form["buttons"]]}})
-    if media_path is not None:
+                        payload={"request": {"type": "template", "template": request_template}, "template": info})
+    if media:
         _cache_path(message).parent.mkdir(parents=True, exist_ok=True)
-        _cache_path(message).write_bytes(media_path.read_bytes())  # so the chat shows the header right away
-    return _deliver(db, conversation, message,
+        _cache_path(message).write_bytes(media[3].read_bytes())  # so the chat shows the header right away
+    text = _attempt(db, conversation, message,
                     lambda: client.send_template(conversation.contact.wa_id, template.name,
-                                                 template.language, components or None))
+                                                 template.language, components or None),
+                    reopen=campaign is None)
+    return message, text
 
 
 # Contact & notes ---------------------------------------------------------------------

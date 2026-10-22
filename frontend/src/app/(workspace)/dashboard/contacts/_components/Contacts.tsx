@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
   Download,
+  Megaphone,
   MessageCircle,
   MessageCircleOff,
   Plus,
@@ -526,6 +527,13 @@ export function Contacts() {
       </Card>
 
       <BulkActionBar count={selection.count} onClear={selection.clear}>
+        <Button
+          size="sm"
+          leftIcon={Megaphone}
+          onClick={() => router.push(CUSTOMER_ROUTES.CAMPAIGN_NEW({ contacts: selection.ids.join(",") }))}
+        >
+          Send campaign
+        </Button>
         <Button size="sm" variant="secondary" leftIcon={Tag} onClick={() => setTagMode("add_tag")}>
           Add tag
         </Button>
