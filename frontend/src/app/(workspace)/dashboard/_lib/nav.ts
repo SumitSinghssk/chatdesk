@@ -177,15 +177,9 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.ANALYTICS(),
     icon: BarChart3,
     section: "grow",
-    status: "planned",
-    phase: "Phase 2–4",
-    description: "Messages, campaigns, agents and ads in numbers.",
-    features: [
-      "Message volume and Meta cost",
-      "Campaign funnel",
-      "Agent response and resolution times",
-      "Click-to-WhatsApp ad attribution",
-    ],
+    status: "live",
+    roles: MANAGERS,
+    description: "Messages, chats, team response times, campaigns and automation in numbers.",
   },
   {
     key: "whatsapp",
