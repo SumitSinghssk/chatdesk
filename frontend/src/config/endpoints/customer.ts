@@ -58,6 +58,15 @@ export const CUSTOMER_ENDPOINTS = {
     TRY: "/customer/automation/try",
   },
   ANALYTICS: "/customer/analytics",
+  AI_AGENT: {
+    PROVIDERS: "/customer/ai-agent/providers",
+    CONNECTIONS: "/customer/ai-agent/connections",
+    CONNECTION: (id: number) => `/customer/ai-agent/connections/${id}`,
+    AGENTS: "/customer/ai-agent/agents",
+    AGENT: (id: number) => `/customer/ai-agent/agents/${id}`,
+    SOURCE: (id: number, sourceId: number) => `/customer/ai-agent/agents/${id}/sources/${sourceId}`,
+    CHAT: (conversationId: number) => `/customer/ai-agent/chat/${conversationId}`,
+  },
   CHATBOTS: {
     LIST: "/customer/chatbots",
     IMPORT: "/customer/chatbots/import",

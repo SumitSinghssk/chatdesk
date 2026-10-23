@@ -1,4 +1,4 @@
-import { forwardRef, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { forwardRef, useId, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { cn } from "@/lib/utils";
@@ -21,7 +21,8 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
   { label, hint, error, wrapperClassName, leftIcon: LeftIcon, rightAddon, className, id, required, ...rest },
   ref
 ) {
-  const inputId = id || rest.name;
+  const autoId = useId();
+  const inputId = id || rest.name || autoId;
   return (
     <Field
       label={label}
@@ -61,7 +62,8 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   { label, hint, error, wrapperClassName, className, id, required, rows = 4, ...rest },
   ref
 ) {
-  const inputId = id || rest.name;
+  const autoId = useId();
+  const inputId = id || rest.name || autoId;
   return (
     <Field
       label={label}

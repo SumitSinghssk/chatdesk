@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { adminPortalTarget } from "./portal";
 import { useEscapeLayer } from "./useEscapeLayer";
@@ -51,6 +51,7 @@ export function Modal({
   headerActions,
 }: ModalProps) {
   useEscapeLayer(open, onClose);
+  const titleId = useId();
 
   useEffect(() => {
     if (!open) return;
@@ -68,6 +69,7 @@ export function Modal({
     <div
       role="dialog"
       aria-modal="true"
+      aria-labelledby={titleId}
       className={cn(
         "drawer-scrim admin-theme fixed inset-0 z-50 flex bg-slate-950/40 backdrop-blur-[2px]",
         drawer ? "justify-end" : "sm:items-center sm:justify-center sm:p-4"
@@ -93,7 +95,9 @@ export function Modal({
             <ArrowLeft className="h-4.5 w-4.5" />
           </button>
           <div className="min-w-0 flex-1">
-            <h3 className="text-fg truncate text-base font-semibold">{title}</h3>
+            <h3 id={titleId} className="text-fg truncate text-base font-semibold">
+              {title}
+            </h3>
             {description && <p className="text-fg-subtle mt-0.5 line-clamp-2 text-sm">{description}</p>}
           </div>
           {headerActions && <div className="flex shrink-0 flex-wrap items-center gap-2">{headerActions}</div>}

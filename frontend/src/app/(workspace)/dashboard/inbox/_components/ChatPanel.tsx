@@ -19,6 +19,7 @@ import {
   Clock3,
   PanelRight,
   RotateCcw,
+  Sparkles,
   TimerOff,
   Upload,
 } from "lucide-react";
@@ -43,6 +44,7 @@ import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
 import { MessageBubble } from "./MessageBubble";
 import { AssignMenu } from "./AssignMenu";
+import { AiBanner } from "./AiControls";
 import { BotBanner, StartBotMenu } from "./BotControls";
 import { TemplateModal } from "./TemplateModal";
 import { Tooltip } from "../../_components/Tooltip";
@@ -74,8 +76,12 @@ function EventChip({ event }: { event: ConversationEvent }) {
         {event.kind === "bot" && (
           <Bot className="text-primary mr-1 inline h-3.5 w-3.5 align-[-3px]" aria-hidden />
         )}
+        {event.kind === "ai" && (
+          <Sparkles className="text-primary mr-1 inline h-3.5 w-3.5 align-[-3px]" aria-hidden />
+        )}
         <span className="text-fg font-medium">{event.text}</span>
-        {event.actor && event.kind !== "bot" ? ` by ${event.actor}` : ""} · {bubbleTime(event.created_at)}
+        {event.actor && event.kind !== "bot" && event.actor !== "AI agent" ? ` by ${event.actor}` : ""} ·{" "}
+        {bubbleTime(event.created_at)}
       </span>
     </div>
   );
@@ -531,6 +537,9 @@ export function ChatPanel({
       </div>
 
       <BotBanner conversation={{ ...conversation, ...(fresh ?? {}) }} />
+      {!(fresh ?? conversation).bot && (
+        <AiBanner conversationId={conversation.id} lastMessageAt={(fresh ?? conversation).last_message_at} />
+      )}
       <Composer
         windowOpen={conversation.window_open}
         blocked={contact.blocked}

@@ -14,3 +14,4 @@ storage/backups/
 storage/imports/
 .env.docker
 storage/whatsapp-media/
+storage/ai-knowledge/

@@ -3,7 +3,8 @@
 Order: opt-out / opt-in keywords, then chatbots (one running in the chat, or one the message starts; see
 chatbots/engine.py), then keyword rules (first match, in the order set on the page),
 then the welcome reply (first message ever), the away reply (outside office hours) and finally the
-default reply when nothing else answered. Each rule's cooldown keeps a person from getting the same
+default reply when nothing else answered. An AI agent answering on WhatsApp takes the place of the
+welcome, away and default replies (see ai_agent/engine.py). Each rule's cooldown keeps a person from getting the same
 automatic reply again and again.
 """
 
@@ -223,6 +224,7 @@ def send(db: Session, owner: Customer, client: WhatsAppClient, conversation: WaC
 def handle(db: Session, account, message_ids: list[int]) -> int:
     """Answers new incoming messages from the webhook. Returns how many replies were sent."""
     from app.core.crypto import decrypt_secret
+    from app.modules.customer.ai_agent import engine as ai
     from app.modules.customer.chatbots import engine as chatbots
     from app.modules.customer.team.assign import event
 
@@ -259,6 +261,12 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
                 if not keyword and chatbots.has_fallback(db, owner.id):
                     fallback = chatbots.fallback_bot(db, owner.id, contact.id)
                     decisions = [d for d in decisions if d["rule"] is None or d["rule"].trigger != "default"]
+                # the AI agent answers in place of the welcome, away and default replies
+                agent = ai.takes(db, owner, conversation) if not keyword and fallback is None else None
+                if agent is not None:
+                    ai.queue_reply(db, owner, client, agent, conversation, message)
+                    sent += 1
+                    continue
             for decision in decisions:
                 if decision["kind"] in ("opt_out", "opt_in"):
                     out = decision["kind"] == "opt_out"

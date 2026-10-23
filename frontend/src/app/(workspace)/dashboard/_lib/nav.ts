@@ -145,15 +145,10 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.AI_AGENT(),
     icon: Sparkles,
     section: "grow",
-    status: "planned",
-    phase: "Phase 3",
-    description: "An AI assistant trained on your website and documents.",
-    features: [
-      "Knowledge base from URLs, PDFs and FAQs",
-      "Order status, bookings and CRM lookups",
-      "Multi-language replies",
-      "Escalates to your team when unsure",
-    ],
+    status: "live",
+    roles: MANAGERS,
+    description:
+      "An AI assistant trained on your documents, website and FAQs that answers on WhatsApp and your website.",
   },
   {
     key: "commerce",

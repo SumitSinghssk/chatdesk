@@ -317,6 +317,9 @@ def set_status(db: Session, customer: Customer, conversation_id: int, payload: S
     if payload.status == "resolved":
         conversation.unread_count = 0
         conversation.waiting_since = None  # nothing left to answer
+        from app.modules.customer.ai_agent.engine import on_resolved
+
+        on_resolved(db, conversation)
     db.commit()
     labels = {"open": "Conversation reopened", "pending": "Marked as pending", "resolved": "Conversation resolved"}
     return {"status": True, "message": labels[payload.status], "data": serialize_conversation(conversation)}
