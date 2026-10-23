@@ -11,6 +11,7 @@ if os.getenv("TEST_DATABASE_URL"):
 os.environ.setdefault("RATE_LIMIT_BACKEND", "memory")
 os.environ["WEBSITE_REVALIDATE"] = "off"
 os.environ["CAMPAIGN_WORKER"] = "off"  # tests run campaigns explicitly
+os.environ["CHATBOT_WORKER"] = "off"  # and chatbot delays / timeouts
 os.environ.pop("SENTRY_DSN", None)
 
 _db_name = urlparse(os.getenv("DATABASE_URL", "")).path.lstrip("/")

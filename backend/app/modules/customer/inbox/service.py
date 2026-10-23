@@ -98,7 +98,7 @@ def _contact(contact: WaContact) -> dict:
     }
 
 
-def serialize_conversation(conversation: WaConversation) -> dict:
+def serialize_conversation(conversation: WaConversation, bot: str | None = None) -> dict:
     return {
         "id": conversation.id,
         "status": conversation.status,
@@ -119,6 +119,7 @@ def serialize_conversation(conversation: WaConversation) -> dict:
                  if conversation.team_id and conversation.team else None),
         "assigned_at": iso(conversation.assigned_at),
         "waiting_since": iso(conversation.waiting_since),
+        "bot": bot,  # name of the chatbot talking in the chat right now
     }
 
 
@@ -205,6 +206,9 @@ def _attempt(db: Session, conversation: WaConversation, message: WaMessage, send
     if reopen and message.status == "sent":  # a person answered (campaign sends don't count)
         member = db.get(Customer, message.member_id) if message.member_id else None
         assigning.record_response(db, conversation, member)
+        from app.modules.customer.chatbots.engine import stop_for
+
+        stop_for(db, conversation, "agent", f"Chatbot stopped: {message.sent_by or 'a person'} replied")
     if reopen and conversation.status == "resolved":
         conversation.status = "open"
         conversation.resolved_at = None
@@ -247,7 +251,13 @@ def list_conversations(db: Session, customer: Customer, status: str | None, sear
     if clause is not None:
         q = q.filter(clause)
     q = q.order_by(WaConversation.last_message_at.desc().nulls_last(), WaConversation.id.desc())
-    return list_response(q, serialize_conversation, page or 1, per_page or 30, search)
+    result = list_response(q, serialize_conversation, page or 1, per_page or 30, search)
+    from app.modules.customer.chatbots.service import running_in
+
+    bots = running_in(db, [c["id"] for c in result["data"]])
+    for row in result["data"]:
+        row["bot"] = bots.get(row["id"])
+    return result
 
 
 def summary(db: Session, customer: Customer) -> dict:
@@ -269,8 +279,15 @@ def summary(db: Session, customer: Customer) -> dict:
                                      "role": role_of(customer)}}
 
 
+def _with_bot(db: Session, conversation: WaConversation) -> dict:
+    from app.modules.customer.chatbots.service import session_info
+
+    bot = session_info(db, conversation.id)
+    return {**serialize_conversation(conversation, bot["name"] if bot else None), "bot_session": bot}
+
+
 def get_conversation(db: Session, customer: Customer, conversation_id: int) -> dict:
-    return {"status": True, "data": serialize_conversation(_conversation(db, customer, conversation_id))}
+    return {"status": True, "data": _with_bot(db, _conversation(db, customer, conversation_id))}
 
 
 def start_conversation(db: Session, customer: Customer, payload: StartConversationSchema) -> dict:
@@ -342,7 +359,7 @@ def list_messages(db: Session, customer: Customer, conversation_id: int, before:
     events = (db.query(WaConversationEvent).filter(WaConversationEvent.conversation_id == conversation.id)
               .order_by(WaConversationEvent.id.desc()).limit(200).all())
     return {"status": True, "data": _serialize_messages(db, rows), "meta": {"has_more": has_more},
-            "conversation": serialize_conversation(conversation),
+            "conversation": _with_bot(db, conversation),
             "events": [{"id": e.id, "kind": e.kind, "text": e.text, "actor": e.actor, "created_at": iso(e.created_at)}
                        for e in reversed(events)]}
 

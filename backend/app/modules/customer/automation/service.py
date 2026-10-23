@@ -120,9 +120,24 @@ def save_settings(db: Session, ws: Customer, payload: SettingsSchema) -> dict:
 
 def try_message(db: Session, ws: Customer, payload: TryMessageSchema) -> dict:
     """What would answer `text` right now (no cooldowns, nothing is sent)."""
+    from app.modules.customer.chatbots import engine as chatbots
+
     sample = WaContact(name="Asha Verma", wa_id="919800000000")
     out = []
-    for d in engine.decide(db, ws, payload.text, payload.first_message, None, now()):
+    decisions = engine.decide(db, ws, payload.text, payload.first_message, None, now())
+    if not any(d["kind"] in ("opt_out", "opt_in") for d in decisions):
+        bot = chatbots.trigger_for(db, chatbots.live_bots(db, ws.id), None, payload.text, payload.first_message, None)
+        if bot is not None:
+            how = {"keyword": "a keyword", "new_chat": "a first message"}.get(bot.trigger, bot.trigger)
+            welcome = [d for d in decisions if d["rule"] is not None and d["rule"].trigger == "welcome"]
+            decisions = welcome if bot.trigger != "new_chat" else []
+            out_bot = {"kind": "chatbot", "reason": f"Chatbot “{bot.name}” starts ({how})", "rule": None,
+                       "reply": None, "chatbot": {"id": bot.id, "name": bot.name}}
+        else:
+            out_bot = None
+    else:
+        out_bot = None
+    for d in decisions:
         rule = d["rule"]
         reply = rule.reply if rule is not None else None
         if d["kind"] in ("opt_out", "opt_in"):
@@ -132,4 +147,6 @@ def try_message(db: Session, ws: Customer, payload: TryMessageSchema) -> dict:
             reply = {**reply, "text": engine.personalise(reply.get("text"), sample)}
         out.append({"kind": d["kind"], "reason": d["reason"], "rule": serialize(rule) if rule else None,
                     "reply": reply})
+    if out_bot is not None:
+        out.append(out_bot)
     return {"status": True, "data": {"matches": out, "open_now": engine.is_open(engine.settings_of(ws))}}

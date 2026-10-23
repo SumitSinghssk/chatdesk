@@ -88,10 +88,15 @@ export function ReplyFields({
   reply,
   onChange,
   error,
+  types,
+  hint = "Use {{first_name}} or {{name}} for the person's name, and *bold*, _italic_ like in WhatsApp.",
 }: {
   reply: Reply;
   onChange: (r: Reply) => void;
   error?: string;
+  /** Limit the reply types offered (all by default). */
+  types?: ReplyType[];
+  hint?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -122,7 +127,7 @@ export function ReplyFields({
         label="Reply type"
         value={reply.type}
         onChange={(type) => set({ type })}
-        options={REPLY_TYPES}
+        options={types ? REPLY_TYPES.filter((t) => types.includes(t.value)) : REPLY_TYPES}
       />
 
       {reply.type === "media" && (
@@ -178,7 +183,7 @@ export function ReplyFields({
           value={reply.text ?? ""}
           error={error}
           placeholder="Hi {{first_name}}! Thanks for writing to us…"
-          hint="Use {{first_name}} or {{name}} for the person's name, and *bold*, _italic_ like in WhatsApp."
+          hint={hint}
           onChange={(e) => set({ text: e.target.value })}
         />
       )}

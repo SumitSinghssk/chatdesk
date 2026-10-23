@@ -16,7 +16,7 @@ from app.core.logging_config import configure_logging  # noqa: E402
 from app.core.monitoring import capture_exception, init_sentry  # noqa: E402
 from app.shared.utils.datetime import now  # noqa: E402
 
-TASKS = ("publish", "campaigns", "backup", "trash", "not_found", "security", "customers")
+TASKS = ("publish", "campaigns", "chatbots", "backup", "trash", "not_found", "security", "customers")
 HOUSEKEEPING = ("trash", "not_found", "security", "customers")
 HOUSEKEEPING_EVERY = timedelta(hours=1)
 TRASH_DAYS = 30
@@ -89,6 +89,13 @@ def task_campaigns(db) -> str:
 
     done = runner.run_due()
     return ", ".join(f"campaign {i}: {status}" for i, status in done) if done else "no campaigns due"
+
+
+def task_chatbots(db) -> str:
+    from app.modules.customer.chatbots import engine
+
+    touched = engine.run_due(db)
+    return f"{touched} chatbot chat(s) moved on" if touched else "no chatbot delays or timeouts due"
 
 
 def task_trash(db) -> str:
@@ -179,6 +186,8 @@ def main(argv: list[str] | None = None) -> int:
                     message = task_publish(db)
                 elif task == "campaigns":
                     message = task_campaigns(db)
+                elif task == "chatbots":
+                    message = task_chatbots(db)
                 else:
                     message = {"trash": task_trash, "not_found": task_not_found, "security": task_security,
                                "customers": task_customers}[task](db)

@@ -66,3 +66,21 @@
 @utility tabular {
   font-variant-numeric: tabular-nums;
 }
+
+/* Chatbot builder: the path a test chat took */
+@keyframes chatbot-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+.chatbot-canvas .react-flow__node {
+  cursor: grab;
+}
+.chatbot-canvas .react-flow__node.dragging {
+  cursor: grabbing;
+}
+.chatbot-canvas .react-flow__controls {
+  box-shadow: 0 4px 12px rgb(0 0 0 / 0.08);
+  border-radius: 10px;
+  overflow: hidden;
+}

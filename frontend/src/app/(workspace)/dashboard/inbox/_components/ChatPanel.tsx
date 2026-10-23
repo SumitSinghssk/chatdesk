@@ -13,6 +13,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  Bot,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -42,6 +43,7 @@ import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
 import { MessageBubble } from "./MessageBubble";
 import { AssignMenu } from "./AssignMenu";
+import { BotBanner, StartBotMenu } from "./BotControls";
 import { TemplateModal } from "./TemplateModal";
 import { Tooltip } from "../../_components/Tooltip";
 
@@ -69,8 +71,11 @@ function EventChip({ event }: { event: ConversationEvent }) {
   return (
     <div className="flex justify-center px-4 py-1" role="note">
       <span className="bg-surface/90 text-fg-subtle max-w-full truncate rounded-md px-2.5 py-1 text-[11px] shadow-xs">
+        {event.kind === "bot" && (
+          <Bot className="text-primary mr-1 inline h-3.5 w-3.5 align-[-3px]" aria-hidden />
+        )}
         <span className="text-fg font-medium">{event.text}</span>
-        {event.actor ? ` by ${event.actor}` : ""} · {bubbleTime(event.created_at)}
+        {event.actor && event.kind !== "bot" ? ` by ${event.actor}` : ""} · {bubbleTime(event.created_at)}
       </span>
     </div>
   );
@@ -370,7 +375,7 @@ export function ChatPanel({
           size="sm"
           leftIcon={ArrowLeft}
           aria-label="Back to chats"
-          className="lg:hidden"
+          className="shrink-0 lg:hidden"
           onClick={onBack}
         />
         <button
@@ -387,6 +392,11 @@ export function ChatPanel({
         <div className="hidden sm:block">
           <WindowChip conversation={conversation} nowMs={nowMs} />
         </div>
+        {!conversation.bot && (
+          <div className="hidden sm:block">
+            <StartBotMenu conversation={conversation} />
+          </div>
+        )}
         <AssignMenu conversation={conversation} onChanged={onChanged} />
         {conversation.status === "resolved" ? (
           <Button size="sm" variant="secondary" leftIcon={RotateCcw} onClick={() => setStatus("open")}>
@@ -520,6 +530,7 @@ export function ChatPanel({
         )}
       </div>
 
+      <BotBanner conversation={{ ...conversation, ...(fresh ?? {}) }} />
       <Composer
         windowOpen={conversation.window_open}
         blocked={contact.blocked}
