@@ -38,3 +38,17 @@
   --info: #5cc9aa;
   --info-soft: rgb(0 168 132 / 0.14);
 }
+
+/* Chart colours (validated categorical slots 1-4: blue, orange, aqua, yellow), stepped per mode */
+.customer-theme {
+  --viz-1: #2a78d6;
+  --viz-2: #eb6834;
+  --viz-3: #1baf7a;
+  --viz-4: #eda100;
+}
+.dark .customer-theme {
+  --viz-1: #3987e5;
+  --viz-2: #d95926;
+  --viz-3: #199e70;
+  --viz-4: #c98500;
+}

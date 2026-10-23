@@ -57,6 +57,7 @@ export const CUSTOMER_ENDPOINTS = {
     SETTINGS: "/customer/automation/settings",
     TRY: "/customer/automation/try",
   },
+  ANALYTICS: "/customer/analytics",
   CHATBOTS: {
     LIST: "/customer/chatbots",
     IMPORT: "/customer/chatbots/import",
