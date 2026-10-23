@@ -342,6 +342,7 @@ export function Analytics() {
             onChange={(v) => v.from && v.to && setParams({ range: null, start: v.from, end: v.to })}
             max={new Date().toISOString().slice(0, 10)}
             wrapperClassName="w-64"
+            openOnMount
           />
         )}
         {r && (

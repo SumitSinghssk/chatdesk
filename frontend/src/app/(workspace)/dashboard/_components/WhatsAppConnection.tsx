@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Copy, MessageCircle, Pencil, RefreshCw, Send, Unplug } from "lucide-react";
+import { Check, Copy, Pencil, RefreshCw, Send, Unplug } from "lucide-react";
 import { toast } from "sonner";
 
 import { useConfirm } from "@/app/admin/_components/ConfirmProvider";
@@ -13,7 +13,6 @@ import {
   CardBody,
   ErrorBanner,
   Input,
-  PageHeader,
   Skeleton,
 } from "@/app/admin/_components/ui/index";
 import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
@@ -170,41 +169,13 @@ export function WhatsAppConnection() {
   };
 
   if (isLoading) {
-    return (
-      <>
-        <PageHeader icon={MessageCircle} title="WhatsApp setup" />
-        <Skeleton className="h-64 max-w-4xl rounded-xl" />
-      </>
-    );
+    return <Skeleton className="h-64 max-w-4xl rounded-xl" />;
   }
 
   const status = connection ? STATUS[connection.status] : null;
 
   return (
     <>
-      <PageHeader
-        icon={MessageCircle}
-        title="WhatsApp setup"
-        description="Connect your WhatsApp Business number through the official Meta Cloud API."
-        actions={
-          connection && (
-            <>
-              <Button
-                variant="secondary"
-                leftIcon={RefreshCw}
-                loading={busy === "refresh"}
-                onClick={() => run("refresh", () => whatsappApi.refresh())}
-              >
-                Refresh
-              </Button>
-              <Button variant="secondary" leftIcon={Pencil} onClick={toggleEditing}>
-                {editing ? "Cancel editing" : "Edit details"}
-              </Button>
-            </>
-          )
-        }
-      />
-
       {error && <ErrorBanner className="mb-4" message={errorMessage(error)} />}
 
       <div className="grid max-w-6xl grid-cols-1 gap-5 xl:grid-cols-2">
@@ -214,11 +185,25 @@ export function WhatsAppConnection() {
               title="Your WhatsApp number"
               description="Details come straight from Meta."
               actions={
-                status && (
-                  <Badge tone={status.tone} dot>
-                    {status.label}
-                  </Badge>
-                )
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {status && (
+                    <Badge tone={status.tone} dot>
+                      {status.label}
+                    </Badge>
+                  )}
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    leftIcon={RefreshCw}
+                    loading={busy === "refresh"}
+                    onClick={() => run("refresh", () => whatsappApi.refresh())}
+                  >
+                    Refresh
+                  </Button>
+                  <Button variant="secondary" size="sm" leftIcon={Pencil} onClick={toggleEditing}>
+                    {editing ? "Cancel editing" : "Edit details"}
+                  </Button>
+                </div>
               }
             />
             <CardBody className="space-y-4">

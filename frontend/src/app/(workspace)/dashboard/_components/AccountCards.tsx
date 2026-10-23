@@ -70,7 +70,15 @@ const Verified = () => (
   </Badge>
 );
 
-export function ProfileCard({ me, onSaved }: { me: CustomerProfile; onSaved: (c: CustomerProfile) => void }) {
+export function ProfileCard({
+  me,
+  options,
+  onSaved,
+}: {
+  me: CustomerProfile;
+  options: AuthOptions;
+  onSaved: (c: CustomerProfile) => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -99,7 +107,7 @@ export function ProfileCard({ me, onSaved }: { me: CustomerProfile; onSaved: (c:
   };
 
   return (
-    <Panel title="Profile" description="Your name, business and email." icon={UserRound}>
+    <Panel title="Profile" description="Your name, business, email and mobile number." icon={UserRound}>
       <form onSubmit={submit} className="space-y-4" noValidate>
         <div className="grid gap-4 sm:grid-cols-2">
           {me.role === "owner" ? (
@@ -142,11 +150,14 @@ export function ProfileCard({ me, onSaved }: { me: CustomerProfile; onSaved: (c:
           Save profile
         </Button>
       </form>
+      <div className="border-line mt-6 border-t pt-5">
+        <PhoneSettings me={me} options={options} onSaved={onSaved} />
+      </div>
     </Panel>
   );
 }
 
-export function PhoneCard({
+function PhoneSettings({
   me,
   options,
   onSaved,
@@ -209,12 +220,14 @@ export function PhoneCard({
   };
 
   return (
-    <Panel
-      title="Mobile number"
-      description="Used to sign in with a one-time code and to reach you."
-      icon={Smartphone}
-      badge={me.phone && (me.phone_verified ? <Verified /> : <Badge tone="warning">Not verified</Badge>)}
-    >
+    <div>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-fg text-sm font-semibold">Mobile number</p>
+          <p className="text-fg-subtle text-xs">Used to sign in with a one-time code and to reach you.</p>
+        </div>
+        {me.phone && (me.phone_verified ? <Verified /> : <Badge tone="warning">Not verified</Badge>)}
+      </div>
       {!editing && !sent && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-fg text-sm font-medium">
@@ -288,7 +301,7 @@ export function PhoneCard({
           </div>
         </form>
       )}
-    </Panel>
+    </div>
   );
 }
 

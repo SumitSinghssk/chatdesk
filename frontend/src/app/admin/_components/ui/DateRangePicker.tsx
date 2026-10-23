@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { CalendarRange } from "lucide-react";
 
@@ -141,6 +141,7 @@ export function DateRangePicker({
   size,
   wrapperClassName,
   className,
+  openOnMount,
   ...rest
 }: {
   value: DateRange;
@@ -155,6 +156,8 @@ export function DateRangePicker({
   size?: "sm" | "md";
   wrapperClassName?: string;
   className?: string;
+  /** Open the range-selection dialog as soon as this picker is mounted. */
+  openOnMount?: boolean;
   "aria-label"?: string;
 }) {
   const autoId = useId();
@@ -174,6 +177,7 @@ export function DateRangePicker({
   const [hover, setHover] = useState<string | null>(null);
   const [fromText, setFromText] = useState("");
   const [toText, setToText] = useState("");
+  const openedOnMount = useRef(false);
 
   const valuePreset = presetFor(value);
   const text = valuePreset
@@ -214,6 +218,12 @@ export function DateRangePicker({
     setPopoverOpen(true);
     scrollToMonth(value.from || toYmd(today()));
   };
+
+  useEffect(() => {
+    if (!openOnMount || openedOnMount.current) return;
+    openedOnMount.current = true;
+    openPanel();
+  }, [openOnMount, openPanel]);
 
   const apply = () => {
     onChange(draft.from && !draft.to ? { from: draft.from, to: draft.from } : draft);
