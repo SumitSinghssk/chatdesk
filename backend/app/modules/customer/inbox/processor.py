@@ -116,10 +116,10 @@ def _content(raw: dict) -> dict:
     return fields
 
 
-def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, str]) -> bool:
+def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, str]) -> WaMessage | None:
     wamid = raw.get("id")
     if not wamid or db.query(WaMessage.id).filter(WaMessage.wamid == wamid).first():
-        return False
+        return None
     wa_id = raw.get("from") or ""
     contact = get_or_create_contact(db, account.customer_id, wa_id, names.get(wa_id))
     conversation = get_or_create_conversation(db, contact)
@@ -143,7 +143,8 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
     if message.type != "reaction":
         db.flush()
         auto_assign(db, account.customer_id, conversation)  # round-robin, when the workspace turned it on
-    return True
+    db.flush()
+    return message
 
 
 def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
@@ -176,7 +177,7 @@ def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
 
 def process_payload(db: Session, account: WhatsAppAccount, payload: dict) -> dict:
     """Applies one webhook payload. Returns counts of what changed (handy for logs and tests)."""
-    counts = {"messages": 0, "statuses": 0, "templates": 0}
+    counts = {"messages": 0, "statuses": 0, "templates": 0, "new_message_ids": []}
     for entry in payload.get("entry") or []:
         for change in entry.get("changes") or []:
             value = change.get("value") or {}
@@ -185,7 +186,10 @@ def process_payload(db: Session, account: WhatsAppAccount, payload: dict) -> dic
                 continue
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name") for c in value.get("contacts") or []}
             for raw in value.get("messages") or []:
-                counts["messages"] += _inbound(db, account, raw, names)
+                message = _inbound(db, account, raw, names)
+                if message is not None:
+                    counts["messages"] += 1
+                    counts["new_message_ids"].append(message.id)
             for raw in value.get("statuses") or []:
                 counts["statuses"] += _status(db, account, raw)
     return counts

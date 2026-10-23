@@ -45,6 +45,7 @@ const BUTTON_ICONS: Record<string, LucideIcon> = {
   phone_number: Phone,
   copy_code: Copy,
   otp: Copy,
+  list: List, // the "open list" button of a list message
 };
 
 function buttonLabel(b: { type: string; text: string }) {

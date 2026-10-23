@@ -39,6 +39,7 @@ class Customer(Base, TimestampMixin, SoftDeleteMixin):
     invite_expires_at = Column(DateTime, nullable=True)
     invited_by = Column(String(150), nullable=True)
     team_settings = Column(JSON, nullable=True)  # owners only: assignment rules and agent visibility
+    automation_settings = Column(JSON, nullable=True)  # owners only: office hours and opt-out keywords
 
     sessions = relationship("CustomerSession", back_populates="customer", cascade="all, delete-orphan",
                             passive_deletes=True)

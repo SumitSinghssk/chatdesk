@@ -14,6 +14,7 @@ export const CUSTOMER_ROUTES = {
   TEMPLATES: route("/dashboard/templates"),
   TEMPLATE_NEW: route("/dashboard/templates/new"),
   TEMPLATE_EDIT: (id: number) => `/dashboard/templates/${id}/edit`,
+  AUTOMATION: route("/dashboard/automation"),
   CHATBOTS: route("/dashboard/chatbots"),
   AI_AGENT: route("/dashboard/ai-agent"),
   COMMERCE: route("/dashboard/commerce"),

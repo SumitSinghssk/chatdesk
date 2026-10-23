@@ -4,6 +4,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt_secret
+from app.modules.customer.automation import engine as auto_replies
 from app.modules.customer.inbox.processor import process_payload
 from app.modules.customer.whatsapp.models import WhatsAppAccount, WhatsAppWebhookEvent
 from app.services.whatsapp import verify_signature
@@ -69,13 +70,19 @@ def receive(db: Session, webhook_key: str, body: bytes, signature: str | None) -
     db.commit()
 
     try:
-        process_payload(db, account, payload)
+        counts = process_payload(db, account, payload)
         for event in events:
             event.processed = True
         db.commit()
     except Exception:
         db.rollback()
         logger.exception("WhatsApp webhook processing failed for account %s", account.id)
+        return 200, "ok"
+    try:
+        auto_replies.handle(db, account, counts["new_message_ids"])  # welcome, keywords, away, opt-out…
+    except Exception:
+        db.rollback()
+        logger.exception("Automatic replies failed for account %s", account.id)
     return 200, "ok"
 
 

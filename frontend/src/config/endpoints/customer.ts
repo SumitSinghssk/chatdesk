@@ -49,6 +49,14 @@ export const CUSTOMER_ENDPOINTS = {
     RECIPIENTS: (id: number) => `/customer/campaigns/${id}/recipients`,
     EXPORT: (id: number) => `/customer/campaigns/${id}/recipients/export`,
   },
+  AUTOMATION: {
+    RULES: "/customer/automation/rules",
+    RULE: (id: number) => `/customer/automation/rules/${id}`,
+    ACTIVE: (id: number) => `/customer/automation/rules/${id}/active`,
+    ORDER: "/customer/automation/rules/order",
+    SETTINGS: "/customer/automation/settings",
+    TRY: "/customer/automation/try",
+  },
   TEAM: {
     MEMBERS: "/customer/team/members",
     MEMBER: (id: number) => `/customer/team/members/${id}`,
