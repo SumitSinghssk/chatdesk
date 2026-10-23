@@ -12,6 +12,7 @@ import {
   Sparkles,
   UserRoundCog,
   UsersRound,
+  Zap,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -24,6 +25,7 @@ export type ModuleKey =
   | "contacts"
   | "campaigns"
   | "templates"
+  | "automation"
   | "chatbots"
   | "ai-agent"
   | "commerce"
@@ -118,6 +120,16 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     description: "Create WhatsApp message templates and track Meta's approval.",
   },
   {
+    key: "automation",
+    label: "Automation",
+    href: CUSTOMER_ROUTES.AUTOMATION(),
+    icon: Zap,
+    section: "grow",
+    status: "live",
+    roles: MANAGERS,
+    description: "Welcome, away and keyword replies that answer customers 24/7, office hours and opt-out.",
+  },
+  {
     key: "chatbots",
     label: "Chatbots",
     href: CUSTOMER_ROUTES.CHATBOTS(),
@@ -125,9 +137,8 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     section: "grow",
     status: "planned",
     phase: "Phase 2–4",
-    description: "Keyword replies and no-code flows that run 24/7.",
+    description: "No-code conversation flows that run 24/7.",
     features: [
-      "Welcome, away and keyword replies",
       "Drag-and-drop flow builder",
       "Questions, conditions, delays and API calls",
       "Hand over to a human with context",

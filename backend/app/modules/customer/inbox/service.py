@@ -143,10 +143,15 @@ def serialize_message(message: WaMessage, replied: WaMessage | None = None) -> d
         "location": None,
         "reaction_to": None,
         "reply_to": None,
+        "auto_reply": None,  # name of the automatic reply that sent it
         "template": None,
     }
     if message.type == "template":
         data["template"] = raw.get("template") or {"header_format": None, "buttons": []}
+    elif message.direction == "out" and raw.get("template"):
+        data["template"] = raw["template"]  # buttons / list of an automatic reply
+    if raw.get("auto_reply"):
+        data["auto_reply"] = raw["auto_reply"]["name"]
     if message.media_id:
         data["media"] = {
             "path": f"/customer/inbox/messages/{message.id}/media",

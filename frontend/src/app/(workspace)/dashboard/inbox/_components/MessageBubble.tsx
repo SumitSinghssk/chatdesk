@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  List,
   MapPin,
   Mic,
   Phone,
@@ -31,6 +32,7 @@ const TEMPLATE_BUTTON_ICONS: Record<string, typeof Reply> = {
   phone_number: Phone,
   copy_code: Copy,
   otp: Copy,
+  list: List, // an automatic reply's list menu
 };
 
 function fullTime(iso: string | null) {
