@@ -25,6 +25,7 @@ from app.core.security_headers import add_security_headers
 from app.core.static_files import UploadStaticFiles
 from app.modules.admin.security.middleware import firewall_middleware
 from app.modules.customer.campaigns import runner as campaign_runner
+from app.modules.customer.chatbots import engine as chatbot_engine
 
 configure_logging()
 init_sentry("api")
@@ -39,6 +40,7 @@ if settings.is_production and not settings.INTERNAL_API_KEY:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     campaign_runner.start_ticker()  # sends scheduled campaigns and resumes interrupted ones
+    chatbot_engine.start_ticker()  # carries chatbots on after a delay, closes ones customers left
     yield
 
 

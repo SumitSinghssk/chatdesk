@@ -134,7 +134,13 @@ function TryPanel() {
                   <p className="text-sm">
                     <span className="text-fg font-semibold">
                       {m.rule?.name ??
-                        (m.kind === "opt_out" ? "Opt-out" : m.kind === "opt_in" ? "Opt-in" : "Reply")}
+                        (m.kind === "opt_out"
+                          ? "Opt-out"
+                          : m.kind === "opt_in"
+                            ? "Opt-in"
+                            : m.kind === "chatbot"
+                              ? "Chatbot"
+                              : "Reply")}
                     </span>
                     <span className="text-fg-subtle"> · {m.reason}</span>
                   </p>

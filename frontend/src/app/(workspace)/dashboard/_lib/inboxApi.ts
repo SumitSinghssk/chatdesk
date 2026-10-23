@@ -42,12 +42,16 @@ export interface Conversation {
   assigned_at: string | null;
   /** oldest customer message nobody has answered yet */
   waiting_since: string | null;
+  /** name of the chatbot talking in the chat right now */
+  bot?: string | null;
+  /** details of that chatbot (single chat responses only) */
+  bot_session?: { id: number; chatbot_id: number; name: string; wait: string | null; node: string } | null;
 }
 
 /** Something that happened to a chat, shown in its timeline (assigned, resolved…). */
 export interface ConversationEvent {
   id: number;
-  kind: "assigned" | "unassigned" | "team" | "status";
+  kind: "assigned" | "unassigned" | "team" | "status" | "bot";
   text: string;
   actor: string | null;
   created_at: string;

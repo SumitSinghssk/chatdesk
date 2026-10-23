@@ -57,6 +57,15 @@ export const CUSTOMER_ENDPOINTS = {
     SETTINGS: "/customer/automation/settings",
     TRY: "/customer/automation/try",
   },
+  CHATBOTS: {
+    LIST: "/customer/chatbots",
+    IMPORT: "/customer/chatbots/import",
+    STARTERS: "/customer/chatbots/starters",
+    LIVE: "/customer/chatbots/live",
+    STOP: "/customer/chatbots/stop",
+    ONE: (id: number) => `/customer/chatbots/${id}`,
+    ACTION: (id: number, action: string) => `/customer/chatbots/${id}/${action}`,
+  },
   TEAM: {
     MEMBERS: "/customer/team/members",
     MEMBER: (id: number) => `/customer/team/members/${id}`,

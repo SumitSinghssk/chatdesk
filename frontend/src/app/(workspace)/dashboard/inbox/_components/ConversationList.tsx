@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Bot,
   Check,
   Contact,
   FileText,
@@ -304,6 +305,15 @@ function ConversationRow({
               title="Waiting for a reply"
             >
               {waited(c.waiting_since)}
+            </span>
+          )}
+          {c.bot && (
+            <span
+              title={`Chatbot ${c.bot} is talking`}
+              className="text-primary shrink-0"
+              aria-label="Chatbot running"
+            >
+              <Bot className="h-3.5 w-3.5" />
             </span>
           )}
           {c.assignee && (

@@ -135,14 +135,9 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.CHATBOTS(),
     icon: Bot,
     section: "grow",
-    status: "planned",
-    phase: "Phase 2–4",
-    description: "No-code conversation flows that run 24/7.",
-    features: [
-      "Drag-and-drop flow builder",
-      "Questions, conditions, delays and API calls",
-      "Hand over to a human with context",
-    ],
+    status: "live",
+    roles: MANAGERS,
+    description: "Drag-and-drop conversation flows with buttons, lists, questions, conditions and API calls.",
   },
   {
     key: "ai-agent",

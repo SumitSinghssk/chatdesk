@@ -1,6 +1,7 @@
 """Automatic replies: decides what (if anything) answers an incoming message, and sends it.
 
-Order: opt-out / opt-in keywords, then keyword rules (first match, in the order set on the page),
+Order: opt-out / opt-in keywords, then chatbots (one running in the chat, or one the message starts; see
+chatbots/engine.py), then keyword rules (first match, in the order set on the page),
 then the welcome reply (first message ever), the away reply (outside office hours) and finally the
 default reply when nothing else answered. Each rule's cooldown keeps a person from getting the same
 automatic reply again and again.
@@ -222,6 +223,7 @@ def send(db: Session, owner: Customer, client: WhatsAppClient, conversation: WaC
 def handle(db: Session, account, message_ids: list[int]) -> int:
     """Answers new incoming messages from the webhook. Returns how many replies were sent."""
     from app.core.crypto import decrypt_secret
+    from app.modules.customer.chatbots import engine as chatbots
     from app.modules.customer.team.assign import event
 
     if not message_ids or account.status != "connected":
@@ -239,7 +241,25 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
         first = not db.query(WaMessage.id).filter(WaMessage.conversation_id == conversation.id,
                                                   WaMessage.direction == "in", WaMessage.id < message.id).first()
         try:
-            for decision in decide(db, owner, message.text or "", first, contact):
+            decisions = decide(db, owner, message.text or "", first, contact)
+            fallback = None
+            opting = any(d["kind"] in ("opt_out", "opt_in") for d in decisions)
+            if opting:
+                chatbots.stop_for(db, conversation, "opted_out")
+            else:
+                # a chatbot running in the chat, or one this message starts, answers instead
+                welcome = next((d["rule"] for d in decisions if d["kind"] == "rule" and d["rule"].trigger == "welcome"),
+                               None)
+                greet = (lambda w=welcome: send(db, owner, client, conversation, w.reply, w.name, w)) if welcome else None
+                if chatbots.on_message(db, owner, client, conversation, message, first, greet):
+                    sent += 1
+                    continue
+                # an "any message" chatbot takes the place of the default reply (even while it rests)
+                keyword = any(d["rule"] is not None and d["rule"].trigger == "keyword" for d in decisions)
+                if not keyword and chatbots.has_fallback(db, owner.id):
+                    fallback = chatbots.fallback_bot(db, owner.id, contact.id)
+                    decisions = [d for d in decisions if d["rule"] is None or d["rule"].trigger != "default"]
+            for decision in decisions:
                 if decision["kind"] in ("opt_out", "opt_in"):
                     out = decision["kind"] == "opt_out"
                     contact.opted_out = out
@@ -255,6 +275,9 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
                     send(db, owner, client, conversation, decision["rule"].reply, decision["rule"].name,
                          decision["rule"])
                     sent += 1
+            if not opting and fallback is not None:
+                chatbots.start(db, owner, client, conversation, fallback, "any", text=message.text or "")
+                sent += 1
         except (WhatsAppError, OSError, KeyError) as exc:  # a broken reply must never break the webhook
             db.rollback()
             logger.warning("Auto-reply for message %s failed: %s", message.id, exc)

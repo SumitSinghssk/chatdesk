@@ -130,6 +130,15 @@ Then open:
 - If Meta rejects the token or can't be reached, the campaign pauses with the reason instead of failing everyone. Press **Resume** once the token is fixed.
 - Set `CAMPAIGN_WORKER=off` to turn the in-API sender off, for example when only `scheduler.py` should send.
 
+### How chatbots run
+
+- A chatbot is a flow drawn on the canvas (**Grow → Chatbots**). Edits save as a draft automatically; customers get the version last **published**, so half-done edits never reach a chat.
+- **What starts one:** keywords, a customer's first message, any message (it then takes the place of the default automatic reply), a Click-to-WhatsApp ad, or a person / auto-reply / another chatbot. Two live chatbots can't share a keyword or a trigger.
+- **Order on each incoming message:** opt-out / opt-in words first, then a chatbot already talking in the chat (or one the message starts), then the automatic replies.
+- **While it talks:** wrong answers are explained and asked again (Settings → retries), exit words such as “agent” hand the chat over, and it gives up after the timeout. When someone from the team replies in the chat, the chatbot stops by itself.
+- **Delays and timeouts** run in a background thread of the API (every 3 seconds). `scheduler.py`'s `chatbots` task does the same job. Set `CHATBOT_WORKER=off` to turn the in-API thread off.
+- **API request blocks** only call public internet addresses (not this server or its private network) and wait at most 8 seconds. For local testing only, `CHATBOT_ALLOW_PRIVATE_URLS=1` lifts that limit; never set it in production.
+
 ## Everyday commands
 
 | Task | Command (from the folder shown) |
