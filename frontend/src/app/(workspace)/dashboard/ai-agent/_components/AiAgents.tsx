@@ -34,7 +34,6 @@ import {
   Badge,
   Button,
   Card,
-  CardHeader,
   Dropdown,
   Input,
   Modal,
@@ -311,10 +310,14 @@ function AgentCard({
 }
 
 function Connections({
+  open,
+  onClose,
   connections,
   onAdd,
   onEdit,
 }: {
+  open: boolean;
+  onClose: () => void;
   connections: Connection[];
   onAdd: () => void;
   onEdit: (c: Connection) => void;
@@ -356,19 +359,24 @@ function Connections({
   };
 
   return (
-    <Card>
-      <CardHeader
-        icon={KeyRound}
-        title="AI connections"
-        description="Your own keys for Claude, ChatGPT, Gemini and others. Encrypted, never shown again."
-        actions={
-          <Button size="sm" variant="secondary" leftIcon={Plus} onClick={onAdd}>
-            Add key
-          </Button>
-        }
-      />
+    <Modal
+      open={open}
+      onClose={onClose}
+      variant="drawer"
+      size="md"
+      title="AI connections"
+      description="Your own keys for Claude, ChatGPT, Gemini and others. Encrypted, never shown again."
+      headerActions={
+        <Button size="sm" variant="secondary" leftIcon={Plus} onClick={onAdd}>
+          Add key
+        </Button>
+      }
+      bodyClassName="p-0"
+    >
       {connections.length === 0 ? (
-        <p className="text-fg-subtle p-5 text-sm">No AI keys yet.</p>
+        <p className="text-fg-subtle p-5 text-sm">
+          No AI keys yet. Add a key to use your preferred AI provider.
+        </p>
       ) : (
         <ul className="divide-line divide-y" aria-label="AI connections">
           {connections.map((c) => (
@@ -427,7 +435,7 @@ function Connections({
           ))}
         </ul>
       )}
-    </Card>
+    </Modal>
   );
 }
 
@@ -501,6 +509,7 @@ export function AiAgents() {
   const connections = useConnections();
   const agents = useQuery({ queryKey: AI_QK.AGENTS, queryFn: () => aiAgentApi.agents().then((r) => r.data) });
   const [creating, setCreating] = useState(false);
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [editing, setEditing] = useState<Connection | null>(null);
   const list = agents.data ?? [];
@@ -595,9 +604,18 @@ export function AiAgents() {
               <p className="text-fg-subtle max-w-md text-sm">
                 Your AI key is connected. Now create an agent and teach it about your business.
               </p>
-              <Button leftIcon={Plus} onClick={() => setCreating(true)}>
-                New agent
-              </Button>
+              <div className="flex flex-wrap justify-center gap-2">
+                <Button
+                  variant="secondary"
+                  leftIcon={KeyRound}
+                  onClick={() => setConnectionsOpen(true)}
+                >
+                  AI connections
+                </Button>
+                <Button leftIcon={Plus} onClick={() => setCreating(true)}>
+                  New agent
+                </Button>
+              </div>
             </Card>
           ) : (
             <section className="mt-5">
@@ -606,9 +624,18 @@ export function AiAgents() {
                   Your agents{" "}
                   <span className="text-fg-faint ml-1 font-normal tabular-nums">{list.length}</span>
                 </h2>
-                <Button leftIcon={Plus} onClick={() => setCreating(true)}>
-                  New agent
-                </Button>
+                <div className="flex flex-wrap justify-end gap-2">
+                  <Button
+                    variant="secondary"
+                    leftIcon={KeyRound}
+                    onClick={() => setConnectionsOpen(true)}
+                  >
+                    AI connections
+                  </Button>
+                  <Button leftIcon={Plus} onClick={() => setCreating(true)}>
+                    New agent
+                  </Button>
+                </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="AI agents">
                 {list.map((a) => (
@@ -622,9 +649,15 @@ export function AiAgents() {
               </div>
             </section>
           )}
-          <Connections connections={keys} onAdd={() => setConnecting(true)} onEdit={setEditing} />
         </>
       )}
+      <Connections
+        open={connectionsOpen}
+        onClose={() => setConnectionsOpen(false)}
+        connections={keys}
+        onAdd={() => setConnecting(true)}
+        onEdit={setEditing}
+      />
       {creating && <NewAgentModal open onClose={() => setCreating(false)} />}
       {(connecting || editing) && (
         <ConnectionModal
@@ -635,7 +668,10 @@ export function AiAgents() {
             setEditing(null);
           }}
           onSaved={() => {
-            if (!list.length && !editing) setCreating(true);
+            if (!list.length && !editing) {
+              setConnectionsOpen(false);
+              setCreating(true);
+            }
           }}
         />
       )}
