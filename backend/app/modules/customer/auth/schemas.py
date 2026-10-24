@@ -46,3 +46,9 @@ class OtpVerifySchema(BaseModel):
 
 class GoogleLoginSchema(BaseModel):
     credential: str = Field(..., min_length=20, max_length=5000)
+
+
+class TwoFactorChallengeSchema(BaseModel):
+    two_factor_token: str = Field(..., max_length=2000)
+    code: Optional[str] = Field(None, max_length=10)
+    recovery_code: Optional[str] = Field(None, max_length=20)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { KeyRound, LogOut, Monitor, Smartphone, UserRound, type LucideIcon } from "lucide-react";
+import { KeyRound, LogOut, Monitor, Smartphone, type LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { OtpCodeField, useCountdown } from "@/app/(customer)/_components/OtpForm";
@@ -24,6 +24,7 @@ import {
   type OtpSent,
 } from "@/app/(customer)/_lib/customerApi";
 import { timeAgo } from "@/lib/utils";
+import { accountApi } from "../_lib/accountApi";
 import { CardHeader } from "./CardHeader";
 
 const METHOD_LABELS: Record<string, string> = {
@@ -64,100 +65,13 @@ function Panel({
   );
 }
 
-const Verified = () => (
+export const Verified = () => (
   <Badge tone="success" dot>
     Verified
   </Badge>
 );
 
-export function ProfileCard({
-  me,
-  options,
-  onSaved,
-}: {
-  me: CustomerProfile;
-  options: AuthOptions;
-  onSaved: (c: CustomerProfile) => void;
-}) {
-  const [busy, setBusy] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const submit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    const data = Object.fromEntries(new FormData(e.currentTarget)) as Record<string, string>;
-    if (data.name.trim().length < 2) {
-      setErrors({ name: "Enter your name" });
-      return;
-    }
-    setBusy(true);
-    setErrors({});
-    try {
-      const res = await customerApi.updateProfile({
-        name: data.name.trim(),
-        business_name: (data.business_name ?? me.business_name ?? "").trim() || null,
-        email: data.email.trim() || null,
-      });
-      onSaved(res.data);
-      toast.success(res.message ?? "Profile saved");
-    } catch (err) {
-      report(err, setErrors);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <Panel title="Profile" description="Your name, business, email and mobile number." icon={UserRound}>
-      <form onSubmit={submit} className="space-y-4" noValidate>
-        <div className="grid gap-4 sm:grid-cols-2">
-          {me.role === "owner" ? (
-            <Input
-              label="Business name"
-              name="business_name"
-              autoComplete="organization"
-              defaultValue={me.business_name ?? ""}
-              error={errors.business_name}
-            />
-          ) : (
-            <Input
-              label="Workspace"
-              value={me.workspace?.name ?? ""}
-              readOnly
-              disabled
-              hint={`You're ${me.role === "admin" ? "an admin" : "an agent"} here. The owner sets the business name.`}
-            />
-          )}
-          <Input
-            label="Your name"
-            name="name"
-            required
-            autoComplete="name"
-            defaultValue={me.name ?? ""}
-            error={errors.name}
-          />
-        </div>
-        <Input
-          label={
-            <span className="inline-flex items-center gap-2">Email {me.email_verified && <Verified />}</span>
-          }
-          name="email"
-          type="email"
-          autoComplete="email"
-          defaultValue={me.email ?? ""}
-          error={errors.email}
-        />
-        <Button type="submit" loading={busy}>
-          Save profile
-        </Button>
-      </form>
-      <div className="border-line mt-6 border-t pt-5">
-        <PhoneSettings me={me} options={options} onSaved={onSaved} />
-      </div>
-    </Panel>
-  );
-}
-
-function PhoneSettings({
+export function PhoneSettings({
   me,
   options,
   onSaved,
@@ -413,12 +327,33 @@ export function DevicesCard() {
     }
   };
 
+  const others = devices?.filter((d) => !d.current).length ?? 0;
+  const signOutOthers = async () => {
+    setBusyId(-1);
+    try {
+      const res = await accountApi.signOutOthers();
+      setDevices((list) => list?.filter((d) => d.current) ?? null);
+      toast.success(res.message ?? "Signed out of other devices");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   return (
     <Card>
       <CardHeader
         title="Signed-in devices"
         description="Sign out of any device you don't recognise."
         icon={Monitor}
+        actions={
+          others > 0 ? (
+            <Button variant="danger-outline" size="sm" leftIcon={LogOut} loading={busyId === -1} onClick={signOutOthers}>
+              Sign out all others
+            </Button>
+          ) : undefined
+        }
       />
       {error && <ErrorBanner className="m-4" message={error} />}
       {!devices ? (

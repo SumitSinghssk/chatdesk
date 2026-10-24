@@ -10,6 +10,7 @@ from app.core.config import settings
 ACCESS = "access"
 REFRESH = "refresh"
 TWO_FACTOR = "two_factor"
+CUSTOMER_TWO_FACTOR = "customer_two_factor"  # a workspace sign-in waiting for its 2FA code
 
 
 def _password_bytes(password: str) -> bytes:
@@ -51,6 +52,10 @@ def create_refresh_token(data: dict, days: int) -> str:
 
 def create_two_factor_token(user_id: int, remember: bool) -> str:
     return _encode({"sub": str(user_id), "remember": remember}, TWO_FACTOR, timedelta(minutes=10))
+
+
+def create_customer_two_factor_token(customer_id: int, method: str) -> str:
+    return _encode({"sub": str(customer_id), "method": method}, CUSTOMER_TWO_FACTOR, timedelta(minutes=10))
 
 
 def decode_token(token: str, expected_type: str | None = None) -> dict | None:

@@ -702,6 +702,9 @@ def _hand_over(db: Session, owner: Customer, conversation: WaConversation, reaso
         conversation.status, conversation.resolved_at = "open", None
     conversation.waiting_since = conversation.waiting_since or now()
     _event(db, conversation, f"AI agent handed over: {reason}")
+    from app.modules.customer.account import notify
+
+    notify.ai_handover(db, owner.id, conversation, reason)
     db.commit()
 
 

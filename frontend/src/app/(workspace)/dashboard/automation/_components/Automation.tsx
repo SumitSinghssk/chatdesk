@@ -4,9 +4,8 @@ import { useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowDown,
-  ArrowUp,
   Clock,
+  GripVertical,
   Hand,
   KeyRound,
   MessageSquareReply,
@@ -39,6 +38,7 @@ import { cn, timeAgo } from "@/lib/utils";
 
 import { CardHeader } from "../../_components/CardHeader";
 import { Tooltip } from "../../_components/Tooltip";
+import { useSortable } from "../../_components/useSortable";
 import { ChatBackdrop, TemplateBubble } from "../../_components/whatsapp/TemplatePreview";
 import {
   AUTOMATION_QK,
@@ -215,17 +215,19 @@ export function Automation() {
       toast.error(errorMessage(err));
     }
   };
-  const move = async (index: number, by: number) => {
-    const ids = keywordRules.map((r) => r.id);
-    [ids[index], ids[index + by]] = [ids[index + by], ids[index]];
-    const specials = (rules ?? []).filter((r) => r.trigger !== "keyword").map((r) => r.id);
-    try {
-      await automationApi.reorder([...ids, ...specials]);
-      refresh();
-    } catch (err) {
-      toast.error(errorMessage(err));
+  const sort = useSortable(
+    keywordRules.map((r) => r.id),
+    async (ids) => {
+      const specials = (rules ?? []).filter((r) => r.trigger !== "keyword").map((r) => r.id);
+      try {
+        await automationApi.reorder([...ids, ...specials]);
+        await queryClient.invalidateQueries({ queryKey: AUTOMATION_QK.ALL });
+      } catch (err) {
+        toast.error(errorMessage(err));
+      }
     }
-  };
+  );
+  const byId = new Map(keywordRules.map((r) => [r.id, r]));
 
   return (
     <>
@@ -363,33 +365,33 @@ export function Automation() {
                     className="divide-line border-line divide-y rounded-xl border"
                     aria-label="Keyword replies"
                   >
-                    {keywordRules.map((r, i) => {
+                    {sort.order.map((id) => {
+                      const r = byId.get(id);
+                      if (!r) return null;
                       const s = summary(r);
+                      const lifted = sort.dragging === r.id;
                       return (
                         <li
                           key={r.id}
-                          className={cn("flex items-center gap-3 px-3 py-3", !r.active && "opacity-60")}
+                          ref={sort.rowRef(r.id)}
+                          className={cn(
+                            "bg-surface flex items-center gap-3 px-3 py-3 transition-shadow first:rounded-t-xl last:rounded-b-xl",
+                            !r.active && !lifted && "opacity-60",
+                            lifted && "ring-primary/40 relative z-10 shadow-lg ring-2"
+                          )}
                         >
-                          <span className="flex flex-col">
-                            <button
-                              type="button"
-                              aria-label={`Move ${r.name} up`}
-                              disabled={i === 0}
-                              onClick={() => move(i, -1)}
-                              className="text-fg-faint hover:text-fg disabled:opacity-30"
-                            >
-                              <ArrowUp className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              aria-label={`Move ${r.name} down`}
-                              disabled={i === keywordRules.length - 1}
-                              onClick={() => move(i, 1)}
-                              className="text-fg-faint hover:text-fg disabled:opacity-30"
-                            >
-                              <ArrowDown className="h-3.5 w-3.5" />
-                            </button>
-                          </span>
+                          <button
+                            type="button"
+                            aria-label={`Reorder ${r.name}: drag, or use the arrow keys`}
+                            title="Drag to reorder"
+                            {...sort.handleProps(r.id)}
+                            className={cn(
+                              "text-fg-faint hover:text-fg hover:bg-hover -ml-1 rounded p-1 select-none",
+                              lifted ? "cursor-grabbing" : "cursor-grab"
+                            )}
+                          >
+                            <GripVertical className="h-4 w-4" />
+                          </button>
                           <div className="min-w-0 flex-1">
                             <p className="text-fg flex items-center gap-2 text-sm font-medium">
                               <span className="truncate">{r.name}</span>

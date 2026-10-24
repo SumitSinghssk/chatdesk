@@ -21,6 +21,10 @@ export interface CustomerProfile {
   email: string | null;
   phone: string | null;
   avatar: string | null;
+  job_title: string | null;
+  pending_email: string | null;
+  two_factor_enabled: boolean;
+  preferences: Preferences;
   has_password: boolean;
   google_linked: boolean;
   email_verified: boolean;
@@ -32,6 +36,21 @@ export interface CustomerProfile {
   role: "owner" | "admin" | "agent";
   availability: "available" | "away";
   workspace: { id: number; name: string | null };
+}
+
+export interface Preferences {
+  timezone: string;
+  theme: "system" | "light" | "dark";
+  sound: boolean;
+  date_format: "day_first" | "month_first";
+}
+
+/** A sign-in either finishes (customer) or needs the two-step code first. */
+export interface SignInResult {
+  customer?: CustomerProfile;
+  two_factor_required?: boolean;
+  two_factor_token?: string;
+  recovery_left?: number;
 }
 
 export interface CustomerDevice {
@@ -114,17 +133,23 @@ export const customerApi = {
     phone?: string;
     password: string;
     password_confirmation: string;
-  }) => request<{ customer: CustomerProfile }>("POST", A.REGISTER, body),
-  login: (body: { login: string; password: string }) =>
-    request<{ customer: CustomerProfile }>("POST", A.LOGIN, body),
+  }) => request<SignInResult>("POST", A.REGISTER, body),
+  login: (body: { login: string; password: string }) => request<SignInResult>("POST", A.LOGIN, body),
   sendOtp: (phone: string) => request<OtpSent>("POST", A.OTP_SEND, { phone }),
   verifyOtp: (body: { phone: string; code: string; name?: string }) =>
-    request<{ customer: CustomerProfile }>("POST", A.OTP_VERIFY, body),
-  google: (credential: string) => request<{ customer: CustomerProfile }>("POST", A.GOOGLE, { credential }),
+    request<SignInResult>("POST", A.OTP_VERIFY, body),
+  google: (credential: string) => request<SignInResult>("POST", A.GOOGLE, { credential }),
+  twoFactor: (body: { two_factor_token: string; code?: string; recovery_code?: string }) =>
+    request<SignInResult>("POST", A.TWO_FACTOR, body),
   logout: () => request<null>("POST", A.LOGOUT),
 
   me: () => request<CustomerProfile>("GET", C.ME),
-  updateProfile: (body: { name: string; business_name: string | null; email: string | null }) =>
+  updateProfile: (body: {
+    name: string;
+    business_name: string | null;
+    email: string | null;
+    job_title?: string | null;
+  }) =>
     request<CustomerProfile>("PUT", C.PROFILE, body),
   updatePassword: (body: { current_password?: string; password: string; password_confirmation: string }) =>
     request<CustomerProfile>("PUT", C.PASSWORD, body),

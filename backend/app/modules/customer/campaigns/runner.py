@@ -81,7 +81,20 @@ def _materialize(db: Session, campaign: WaCampaign, customer: Customer) -> None:
 
 def _fail(db: Session, campaign: WaCampaign, error: str) -> None:
     campaign.status, campaign.error, campaign.completed_at = "failed", error, now()
+    _tell(db, campaign)
     db.commit()
+
+
+def _tell(db: Session, campaign: WaCampaign, problem: str | None = None) -> None:
+    from app.modules.customer.account import notify
+
+    try:
+        if problem:
+            notify.whatsapp_problem(db, campaign.customer_id, problem)
+        else:
+            notify.campaign_finished(db, campaign)
+    except Exception:  # noqa: BLE001 - telling people never stops a campaign
+        logger.exception("Campaign %s notification failed", campaign.id)
 
 
 def run(campaign_id: int) -> str:
@@ -180,10 +193,12 @@ def _run(db: Session, campaign_id: int) -> str:
                 # queue with everyone else and Resume sends to them again
                 recipient.status, recipient.message_id, recipient.sent_at, recipient.error = "pending", None, None, None
                 campaign.status, campaign.error = "paused", f"Paused: {message.error_message}"
+                _tell(db, campaign, f"Campaign “{campaign.name}” paused: {message.error_message}")
                 db.commit()
                 return "paused"
             time.sleep(SEND_GAP)
     campaign.status, campaign.completed_at, campaign.heartbeat_at = "completed", now(), now()
+    _tell(db, campaign)
     db.commit()
     return "completed"
 

@@ -10,7 +10,13 @@ const DATE_OPTIONS: Intl.DateTimeFormatOptions = { day: "2-digit", month: "short
 const DATE_TIME_OPTIONS: Intl.DateTimeFormatOptions = { ...DATE_OPTIONS, hour: "numeric", minute: "2-digit" };
 
 let displayTimeZone: string | undefined;
+let displayLocale = "en-IN"; // 24 Oct 2026; "en-US" gives Oct 24, 2026
 const formatters = new Map<string, Intl.DateTimeFormat>();
+
+/** "day_first" (24 Oct 2026) or "month_first" (Oct 24, 2026), from the person's preferences. */
+export function setDateOrder(order: "day_first" | "month_first" | null | undefined) {
+  displayLocale = order === "month_first" ? "en-US" : "en-IN";
+}
 
 export function setDisplayTimeZone(timeZone: string | null | undefined) {
   if (!timeZone || timeZone === displayTimeZone) return;
@@ -27,7 +33,7 @@ export function getDisplayTimeZone(): string | undefined {
 }
 
 function formatter(kind: "date" | "datetime" | "parts", timeZone: string | undefined) {
-  const key = `${kind}|${timeZone ?? ""}`;
+  const key = `${kind}|${timeZone ?? ""}|${displayLocale}`;
   let fmt = formatters.get(key);
   if (!fmt) {
     const options =
@@ -43,7 +49,7 @@ function formatter(kind: "date" | "datetime" | "parts", timeZone: string | undef
               minute: "2-digit",
               hourCycle: "h23",
             } as Intl.DateTimeFormatOptions);
-    fmt = new Intl.DateTimeFormat("en-IN", { ...options, timeZone });
+    fmt = new Intl.DateTimeFormat(kind === "parts" ? "en-IN" : displayLocale, { ...options, timeZone });
     formatters.set(key, fmt);
   }
   return fmt;

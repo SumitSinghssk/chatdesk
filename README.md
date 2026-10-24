@@ -76,7 +76,7 @@ venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 copy .env.example .env          # set DATABASE_URL, SECRET_KEY, ADMIN_HINT_SECRET, INTERNAL_API_KEY
 python create_db.py
-alembic upgrade head
+python migrate.py
 python seed.py all
 python run.py
 
@@ -152,7 +152,9 @@ Then open:
 
 | Task | Command (from the folder shown) |
 | --- | --- |
-| New DB migration after changing models | `backend> alembic revision --autogenerate -m "what changed"` then `alembic upgrade head` |
+| New DB migration after changing models | `backend> alembic revision --autogenerate -m "what changed"` then `python migrate.py` |
+| Migrate the test DB too | `backend> python migrate.py --test` |
+| Scheduled jobs (cron every minute) | `backend> python scheduler.py` · `python scheduler.py list` · `run <job>` |
 | Backend tests (uses `wati_test` DB from `TEST_DATABASE_URL`) | `backend> python -m pytest -q` |
 | Backend lint | `backend> ruff check app tests` |
 | Frontend type check / lint / format | `frontend> npm run typecheck` · `npm run lint` · `npx prettier --write src` |

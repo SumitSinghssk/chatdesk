@@ -6,6 +6,7 @@ export const CUSTOMER_ENDPOINTS = {
     OTP_SEND: "/customer/auth/otp/send",
     OTP_VERIFY: "/customer/auth/otp/verify",
     GOOGLE: "/customer/auth/google",
+    TWO_FACTOR: "/customer/auth/two-factor",
     LOGOUT: "/customer/auth/logout",
   },
   ACCOUNT: {
@@ -16,6 +17,20 @@ export const CUSTOMER_ENDPOINTS = {
     PHONE_VERIFY: "/customer/account/phone/verify",
     SESSIONS: "/customer/account/sessions",
     SESSION: (id: number) => `/customer/account/sessions/${id}`,
+    AVATAR: "/customer/account/avatar",
+    EMAIL: "/customer/account/email",
+    EMAIL_VERIFY: "/customer/account/email/verify",
+    SECURITY: "/customer/account/security",
+    TWO_FACTOR: (action: "setup" | "confirm" | "recovery-codes" | "disable") =>
+      `/customer/account/two-factor/${action}`,
+    LOGIN_HISTORY: "/customer/account/login-history",
+    GOOGLE: "/customer/account/google",
+    PREFERENCES: "/customer/account/preferences",
+    NOTIFICATION_SETTINGS: "/customer/account/notification-settings",
+    NOTIFICATIONS: "/customer/account/notifications",
+    NOTIFICATIONS_READ: "/customer/account/notifications/read",
+    EXPORT: "/customer/account/export",
+    DELETE: "/customer/account/delete",
   },
   WHATSAPP: {
     OVERVIEW: "/customer/whatsapp/overview",

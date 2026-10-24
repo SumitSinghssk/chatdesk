@@ -6,7 +6,7 @@ from app.core.database import get_db
 from app.core.rate_limiter import RateLimit
 from app.modules.customer.auth import service
 from app.modules.customer.auth.schemas import (
-    GoogleLoginSchema, LoginSchema, OtpSendSchema, OtpVerifySchema, RegisterSchema,
+    GoogleLoginSchema, LoginSchema, OtpSendSchema, OtpVerifySchema, RegisterSchema, TwoFactorChallengeSchema,
 )
 
 public_router = APIRouter(prefix="/auth", tags=["Customer Auth"])
@@ -46,3 +46,11 @@ def google(payload: GoogleLoginSchema, request: Request, response: Response, db:
 @public_router.post("/logout", dependencies=[_csrf])
 def logout(request: Request, response: Response, db: Session = Depends(get_db)):
     return service.logout(db, request, response)
+
+
+@public_router.post("/two-factor", dependencies=[Depends(RateLimit(10, 60)), _csrf])
+def two_factor(payload: TwoFactorChallengeSchema, request: Request, response: Response,
+               db: Session = Depends(get_db)):
+    from app.modules.customer.account import security
+
+    return security.challenge(db, payload.two_factor_token, payload.code, payload.recovery_code, request, response)

@@ -1,22 +1,20 @@
+import { Plug } from "lucide-react";
+
 import { cn } from "@/lib/utils";
 
 import type { ProviderKey } from "../../_lib/aiAgentApi";
+import { LOGOS } from "./providerLogos";
 
-const MARKS: Record<ProviderKey, { letter: string; className: string }> = {
-  anthropic: { letter: "C", className: "bg-[#d97757] text-white" },
-  openai: { letter: "G", className: "bg-[#10a37f] text-white" },
-  gemini: {
-    letter: "G",
-    className: "bg-gradient-to-br from-[#4285f4] via-[#9b72cb] to-[#d96570] text-white",
-  },
-  groq: { letter: "Q", className: "bg-[#f55036] text-white" },
-  deepseek: { letter: "D", className: "bg-[#4d6bfe] text-white" },
-  mistral: { letter: "M", className: "bg-[#fa520f] text-white" },
-  openrouter: { letter: "R", className: "bg-slate-800 text-white dark:bg-slate-200 dark:text-slate-900" },
-  custom: { letter: "+", className: "bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-100" },
+// one-colour logos take this colour; the others keep their own
+const INK: Partial<Record<ProviderKey, string>> = {
+  openai: "text-[#0d0d0d] dark:text-white",
+  groq: "text-[#f55036]",
+  openrouter: "text-[#4b5563] dark:text-slate-200",
 };
 
-/** A small coloured initial for each AI provider (not their logo). */
+const BOX = { sm: "h-6 w-6 rounded-md p-1", md: "h-9 w-9 rounded-lg p-1.5", lg: "h-11 w-11 rounded-xl p-2" };
+
+/** The AI provider's logo on a small tile. */
 export function ProviderMark({
   provider,
   size = "md",
@@ -24,17 +22,21 @@ export function ProviderMark({
   provider: ProviderKey;
   size?: "sm" | "md" | "lg";
 }) {
-  const mark = MARKS[provider] ?? MARKS.custom;
+  const logo = LOGOS[provider];
   return (
     <span
       aria-hidden
       className={cn(
-        "inline-flex shrink-0 items-center justify-center rounded-lg font-bold",
-        { sm: "h-6 w-6 text-xs", md: "h-9 w-9 text-sm", lg: "h-11 w-11 text-base" }[size],
-        mark.className
+        "border-line inline-flex shrink-0 items-center justify-center border bg-white dark:bg-slate-900",
+        BOX[size],
+        INK[provider]
       )}
     >
-      {mark.letter}
+      {logo ? (
+        <span className="block h-full w-full" dangerouslySetInnerHTML={{ __html: logo }} />
+      ) : (
+        <Plug className="text-fg-subtle h-full w-full" />
+      )}
     </span>
   );
 }
