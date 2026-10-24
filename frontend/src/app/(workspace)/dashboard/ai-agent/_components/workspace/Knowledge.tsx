@@ -168,7 +168,7 @@ function AddKnowledge({
         title="Add knowledge"
         description="Everything here is read once and remembered. Nothing is re-read for each question."
       />
-      <div className="px-5 pb-5">
+      <div className="p-5">
         <div className="bg-hover mb-4 grid grid-cols-4 gap-1 rounded-xl p-1" role="tablist" aria-label="Add">
           {tabs.map((t) => (
             <button
@@ -419,7 +419,7 @@ function TrySearch({ agentId }: { agentId: number }) {
         title="Try a search"
         description="See which passages the agent would read for a question. Free: no AI is used."
       />
-      <div className="px-5 pb-5">
+      <div className="p-5">
         <form
           className="flex gap-2"
           onSubmit={(e) => {

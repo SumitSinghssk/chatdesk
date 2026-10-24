@@ -77,6 +77,7 @@ export const ADMIN_ENDPOINTS = {
     UPLOAD: "/admin/media/",
     FOLDERS: "/admin/media/folders",
     BULK_DELETE: "/admin/media/bulk-delete",
+    REPLACE: (id: number) => `/admin/media/${id}/replace`,
   },
   MENUS: {
     LIST: "/admin/menus/",

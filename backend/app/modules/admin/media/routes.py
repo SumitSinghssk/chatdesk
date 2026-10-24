@@ -65,6 +65,11 @@ def bulk_delete(payload: IdsSchema, request: Request, db: Session = Depends(get_
     return service.bulk_delete(db, payload, request)
 
 
+@router.post("/{media_id}/replace", dependencies=[Depends(require_admin_permission(P.MEDIA_UPLOAD))])
+def replace(media_id: int, request: Request, file: UploadFile = File(...), db: Session = Depends(get_db)):
+    return service.replace_media(db, media_id, file, request)
+
+
 @router.get("/{media_id}", dependencies=[Depends(require_admin_permission(P.MEDIA_VIEW))])
 def show(media_id: int, db: Session = Depends(get_db)):
     return service.get_media(db, media_id)

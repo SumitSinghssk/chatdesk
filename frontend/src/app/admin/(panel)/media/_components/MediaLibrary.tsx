@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Images, Trash2, Upload, X } from "lucide-react";
+import { Images, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { DataGrid, useGridUrlState, type FilterRule, type GridColumn } from "@/app/admin/_components/grid";
@@ -12,6 +12,7 @@ import {
   BulkActionBar,
   Card,
   EmptyState,
+  Modal,
   Pagination,
   RowActions,
   Tooltip,
@@ -330,17 +331,6 @@ export default function MediaLibrary() {
       <h1 className="sr-only">Media library</h1>
       <MediaKpis stats={stats} active={active} onSelect={selectKpi} />
 
-      {canUpload && (showUpload || progress !== null) && (
-        <div className="mb-4">
-          <UploadZone
-            onFiles={upload}
-            progress={progress}
-            title="Click to choose files or drag them here"
-            hint={`Images and documents up to 10 MB · uploads go to “${uploadFolder}”`}
-          />
-        </div>
-      )}
-
       <Card>
         <DataGrid
           id="media"
@@ -359,13 +349,13 @@ export default function MediaLibrary() {
           countLabel={data?.meta.total === 1 ? "file" : "files"}
           actions={
             canUpload && (
-              <Tooltip label={showUpload ? "Hide uploader" : "Upload files"} align="end">
+              <Tooltip label="Upload files" align="end">
                 <Button
                   iconOnly
-                  leftIcon={showUpload ? X : Upload}
-                  aria-label={showUpload ? "Hide uploader" : "Upload files"}
-                  aria-expanded={showUpload}
-                  onClick={() => setShowUpload((v) => !v)}
+                  leftIcon={Upload}
+                  aria-label="Upload files"
+                  aria-expanded={showUpload || progress !== null}
+                  onClick={() => setShowUpload(true)}
                   className="h-9 w-9"
                 />
               </Tooltip>
@@ -405,6 +395,23 @@ export default function MediaLibrary() {
           }
         />
       </Card>
+
+      <Modal
+        open={showUpload || progress !== null}
+        onClose={() => progress === null && setShowUpload(false)}
+        variant="drawer"
+        size="sm"
+        title="Upload files"
+        description={`Files will be added to “${uploadFolder}”.`}
+        closeOnBackdrop={progress === null}
+      >
+        <UploadZone
+          onFiles={upload}
+          progress={progress}
+          title="Click to choose files or drag them here"
+          hint="Images and documents up to 10 MB"
+        />
+      </Modal>
 
       <BulkActionBar count={selection.count} onClear={selection.clear}>
         <Button size="sm" variant="danger" leftIcon={Trash2} onClick={removeSelected}>

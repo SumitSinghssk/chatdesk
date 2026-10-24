@@ -18,6 +18,7 @@ export interface MediaFile {
   alt: string | null;
   uploaded_by: { id: number; name: string } | null;
   created_at: string;
+  updated_at: string;
 }
 
 export interface MediaStats {
@@ -46,6 +47,12 @@ export const mediaApi = {
     form.append("folder", folder);
     if (alt) form.append("alt", alt);
     const res = await api.post<ApiResponse<MediaFile>>(E.UPLOAD, form);
+    return res.data.data;
+  },
+  async replace(id: number, file: File): Promise<MediaFile> {
+    const form = new FormData();
+    form.append("file", file);
+    const res = await api.post<ApiResponse<MediaFile>>(E.REPLACE(id), form);
     return res.data.data;
   },
   update: (id: number, alt: string) => send<MediaFile>("put", E.UPDATE(id), { alt }),

@@ -203,9 +203,9 @@ export default function SystemHealth() {
       )}
 
       {isLoading ? (
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="columns-1 gap-4 lg:columns-2">
           {Array.from({ length: 4 }, (_, i) => (
-            <Card key={i} className="space-y-3 p-5">
+            <Card key={i} className="mb-4 break-inside-avoid space-y-3 p-5">
               <Skeleton className="h-5 w-32" />
               <Skeleton className="h-4 w-full" />
               <Skeleton className="h-4 w-5/6" />
@@ -215,9 +215,11 @@ export default function SystemHealth() {
         </div>
       ) : (
         data && (
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="columns-1 gap-4 lg:columns-2">
             {data.groups.map((group) => (
-              <HealthGroupCard key={group.key} group={group} />
+              <div key={group.key} className="mb-4 break-inside-avoid">
+                <HealthGroupCard group={group} />
+              </div>
             ))}
           </div>
         )

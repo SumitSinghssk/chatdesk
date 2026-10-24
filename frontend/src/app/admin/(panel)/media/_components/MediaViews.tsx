@@ -28,10 +28,11 @@ export function MediaThumb({
   className?: string;
   large?: boolean;
 }) {
+  const imageUrl = `${file.url}${file.url.includes("?") ? "&" : "?"}v=${encodeURIComponent(file.updated_at)}`;
   if (isImage(file))
     return (
       <img
-        src={file.url}
+        src={imageUrl}
         alt={file.alt ?? ""}
         loading="lazy"
         className={cn("shrink-0 object-cover", className)}

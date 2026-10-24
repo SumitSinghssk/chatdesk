@@ -414,7 +414,7 @@ function LoginHistory() {
           <Skeleton className="h-24" />
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-fg-subtle px-5 pb-5 text-sm">Nothing yet.</p>
+        <p className="text-fg-subtle p-5 text-sm">Nothing yet.</p>
       ) : (
         <ul className="divide-line divide-y" aria-label="Login history">
           {rows.slice(0, 15).map((r) => (

@@ -2,7 +2,7 @@
 
 import { useRef, useState, type DragEvent } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ArrowDownUp, ChevronDown, Download, FileDown, FileSpreadsheet, FileUp, Upload } from "lucide-react";
+import { ChevronDown, Download, FileDown, FileSpreadsheet, FileUp, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -74,7 +74,7 @@ export function TransferMenu({ type, queryKey, canExport, canImport, compact }: 
               <Button
                 variant="secondary"
                 iconOnly
-                leftIcon={ArrowDownUp}
+                leftIcon={FileSpreadsheet}
                 loading={!!busy}
                 aria-label="Import / Export"
                 aria-expanded={open}
@@ -84,7 +84,7 @@ export function TransferMenu({ type, queryKey, canExport, canImport, compact }: 
           ) : (
             <Button
               variant="secondary"
-              leftIcon={ArrowDownUp}
+              leftIcon={FileSpreadsheet}
               rightIcon={ChevronDown}
               loading={!!busy}
               aria-expanded={open}

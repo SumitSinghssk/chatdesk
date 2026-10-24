@@ -15,7 +15,14 @@ from app.shared.utils.bulk import IdsSchema
 from app.shared.utils.datetime import iso, now
 from app.shared.utils.grid import GridField, apply_filters, apply_sort
 from app.shared.utils.search import search_clause
-from app.shared.utils.uploads import DOCUMENT_EXTS, IMAGE_EXTS, delete_stored_file, safe_folder, save_upload
+from app.shared.utils.uploads import (
+    DOCUMENT_EXTS,
+    IMAGE_EXTS,
+    delete_stored_file,
+    replace_stored_file,
+    safe_folder,
+    save_upload,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +58,7 @@ def _serialize(row: MediaFile) -> dict:
         "alt": row.alt,
         "uploaded_by": {"id": row.uploader.id, "name": row.uploader.name} if row.uploader else None,
         "created_at": iso(row.created_at),
+        "updated_at": iso(row.updated_at),
     }
 
 
@@ -196,6 +204,42 @@ def update_media(db: Session, media_id: int, payload: MediaUpdateSchema, request
                  subject_label=row.original_name, old_values={"alt": before}, new_values={"alt": row.alt})
     db.commit()
     return {"status": True, "message": "Media updated", "data": _serialize(row)}
+
+
+def replace_media(db: Session, media_id: int, file: UploadFile, request: Request):
+    row = _get_or_404(db, media_id)
+    meta = save_upload(file, row.folder, allowed=ALLOWED_EXTS)
+    if meta["extension"] != (row.extension or "").lower():
+        delete_stored_file(meta["path"])
+        raise HTTPException(status_code=422, detail="Choose a file with the same extension to keep this file's URL unchanged.")
+
+    before = {"size": row.size, "mime": row.mime, "dimensions": [row.width, row.height]}
+    try:
+        width, height = _dimensions(meta["absolute_path"], meta["extension"])
+        replace_stored_file(row.path, meta["absolute_path"])
+        row.mime = (meta["mime"] or None) and meta["mime"][:100]
+        row.size = meta["size"]
+        row.width = width
+        row.height = height
+        row.uploaded_by = get_current_user(request).id
+        log_activity(
+            db,
+            "updated",
+            request=request,
+            subject_type=SUBJECT,
+            subject_id=row.id,
+            subject_label=row.original_name,
+            description="Replaced file while preserving its URL",
+            old_values=before,
+            new_values={"size": row.size, "mime": row.mime, "dimensions": [row.width, row.height]},
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        if meta["absolute_path"].exists():
+            delete_stored_file(meta["path"])
+        raise
+    return {"status": True, "message": "File replaced", "data": _serialize(_get_or_404(db, row.id))}
 
 
 def delete_media(db: Session, media_id: int, request: Request):

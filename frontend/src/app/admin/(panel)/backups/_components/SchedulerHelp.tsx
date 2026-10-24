@@ -65,7 +65,7 @@ export function SchedulerHelp({ schedule }: { schedule: BackupSchedule }) {
           className="mb-0"
         />
 
-        <div className="space-y-2">
+        <div className="space-y-2 mt-4">
           <pre className="border-line bg-page text-fg overflow-x-auto rounded-lg border p-3 text-xs leading-relaxed break-all whitespace-pre-wrap">
             {command}
           </pre>

@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Copy, Download, FileText, Trash2 } from "lucide-react";
+import { useRef, useState } from "react";
+import { Check, Copy, Download, FileText, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, buttonClasses, Input, Modal } from "@/app/admin/_components/ui/index";
@@ -64,8 +64,12 @@ function Details({
 }) {
   const [alt, setAlt] = useState(file.alt ?? "");
   const [saving, setSaving] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [previewVersion, setPreviewVersion] = useState<number | null>(null);
+  const replacementInput = useRef<HTMLInputElement>(null);
   const url = absoluteUrl(file.url) ?? file.url;
+  const previewUrl = `${file.url}${file.url.includes("?") ? "&" : "?"}v=${previewVersion ?? file.updated_at}`;
 
   const copy = async () => {
     try {
@@ -90,6 +94,22 @@ function Details({
     }
   };
 
+  const replace = async (replacement: File | undefined) => {
+    if (!replacement) return;
+    setReplacing(true);
+    try {
+      const res = await mediaApi.replace(file.id, replacement);
+      toast.success(res ? "File replaced. Its URL has stayed the same." : "File replaced");
+      setPreviewVersion(Date.now());
+      onChanged();
+    } catch (err) {
+      toast.error(apiErrorMessage(err, "Couldn't replace the file"));
+    } finally {
+      setReplacing(false);
+      if (replacementInput.current) replacementInput.current.value = "";
+    }
+  };
+
   const meta: [string, string][] = [
     ["Type", file.mime || file.extension?.toUpperCase() || "—"],
     ["Size", formatBytes(file.size)],
@@ -105,7 +125,7 @@ function Details({
     <div className="space-y-5">
       <div className="border-line bg-page flex items-center justify-center overflow-hidden rounded-xl border">
         {isImage(file) ? (
-          <img src={file.url} alt={file.alt ?? ""} className="max-h-80 w-auto object-contain" />
+          <img src={previewUrl} alt={file.alt ?? ""} className="max-h-80 w-auto object-contain" />
         ) : (
           <div className="text-fg-subtle flex flex-col items-center gap-2 py-12">
             <FileText size={40} />
@@ -171,6 +191,25 @@ function Details({
         >
           <Download className="h-4 w-4" /> Open
         </a>
+        {canEdit && (
+          <>
+            <input
+              ref={replacementInput}
+              type="file"
+              accept={file.extension ? `.${file.extension}` : undefined}
+              className="sr-only"
+              onChange={(e) => void replace(e.target.files?.[0])}
+            />
+            <Button
+              variant="secondary"
+              leftIcon={Upload}
+              loading={replacing}
+              onClick={() => replacementInput.current?.click()}
+            >
+              Replace {isImage(file) ? "image" : "file"}
+            </Button>
+          </>
+        )}
         {canDelete && (
           <Button
             variant="danger-outline"

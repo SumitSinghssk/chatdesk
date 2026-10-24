@@ -9,7 +9,8 @@ class UploadStaticFiles(StaticFiles):
         response = await super().get_response(path, scope)
         response.headers["X-Content-Type-Options"] = "nosniff"
         if response.status_code == 200:
-            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            # Media can be replaced in place while retaining its URL, so clients must revalidate it.
+            response.headers["Cache-Control"] = "public, max-age=0, must-revalidate"
         response.headers["Content-Security-Policy"] = UPLOAD_CSP
         media_type = (response.media_type or response.headers.get("content-type") or "").lower()
         if response.status_code < 400 and (

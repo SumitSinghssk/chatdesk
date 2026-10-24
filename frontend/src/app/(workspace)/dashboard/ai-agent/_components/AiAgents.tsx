@@ -259,7 +259,7 @@ function AgentCard({
         <Dropdown
           trigger={() => (
             <span
-              className="text-fg-subtle hover:bg-hover rounded-md p-1.5"
+              className="text-fg-subtle hover:bg-page flex h-8 w-8 items-center justify-center rounded-lg"
               aria-label={`More for ${agent.name}`}
             >
               <MoreVertical className="h-4 w-4" />
@@ -368,7 +368,7 @@ function Connections({
         }
       />
       {connections.length === 0 ? (
-        <p className="text-fg-subtle px-5 pb-5 text-sm">No AI keys yet.</p>
+        <p className="text-fg-subtle p-5 text-sm">No AI keys yet.</p>
       ) : (
         <ul className="divide-line divide-y" aria-label="AI connections">
           {connections.map((c) => (
@@ -454,9 +454,6 @@ function Onboarding({ onConnect }: { onConnect: () => void }) {
     <Card className="overflow-hidden">
       <div className="from-primary-soft grid gap-6 bg-gradient-to-br to-transparent p-6 lg:grid-cols-[1.1fr_1fr] lg:p-8">
         <div>
-          <Badge tone="brand">
-            <Sparkles className="h-3 w-3" aria-hidden /> AI agent
-          </Badge>
           <h2 className="text-fg mt-3 text-2xl font-bold tracking-tight">
             An assistant that knows your business
           </h2>
@@ -603,7 +600,7 @@ export function AiAgents() {
               </Button>
             </Card>
           ) : (
-            <section>
+            <section className="mt-5">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <h2 className="text-fg text-sm font-semibold">
                   Your agents{" "}

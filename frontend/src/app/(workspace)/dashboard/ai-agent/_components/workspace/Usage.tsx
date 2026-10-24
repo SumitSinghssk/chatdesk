@@ -206,7 +206,7 @@ export function Usage({ agent }: { agent: Agent }) {
         </Card>
         <Card>
           <CardHeader title="How it answered" />
-          <div className="px-5 pb-5">
+          <div className="p-5">
             <ShareBars
               items={[
                 { label: "Answered", value: o.answered ?? 0, color: "var(--viz-3)" },

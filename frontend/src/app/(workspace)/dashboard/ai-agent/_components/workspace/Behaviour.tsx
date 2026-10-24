@@ -87,7 +87,7 @@ function Section({
   return (
     <Card>
       <CardHeader icon={icon} title={title} description={description} />
-      <div className="space-y-4 px-5 pb-5">{children}</div>
+      <div className="space-y-4 p-5">{children}</div>
     </Card>
   );
 }

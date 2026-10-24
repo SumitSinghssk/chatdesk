@@ -516,9 +516,11 @@ export function Channels({ agent }: { agent: Agent }) {
               />
             </div>
           </div>
-          <div className="space-y-2">
-            <p className="text-fg text-sm font-medium">Preview</p>
-            <WidgetPreview widget={w} name={agent.name} />
+          <div>
+            <div className="space-y-2 sticky top-0">
+              <p className="text-fg text-sm font-medium">Preview</p>
+              <WidgetPreview widget={w} name={agent.name} />
+            </div>
           </div>
         </div>
         <div className="border-line space-y-3 border-t pt-4">

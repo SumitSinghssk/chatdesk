@@ -112,7 +112,14 @@ export function findNavItem(pathname: string): NavItem | undefined {
 }
 
 export function workspaceFor(pathname: string): WorkspaceKey | null {
-  return findEntry(pathname)?.section.workspace ?? null;
+  const entry = findEntry(pathname);
+  if (entry) return entry.section.workspace;
+
+  const module = modules
+    .filter((m) => pathname === m.path || pathname.startsWith(`${m.path}/`))
+    .sort((a, b) => b.path.length - a.path.length)[0];
+
+  return module ? (workspaceOf(module) ?? null) : null;
 }
 
 function pageLabel(pathname: string) {

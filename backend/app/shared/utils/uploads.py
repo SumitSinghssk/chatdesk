@@ -102,3 +102,15 @@ def delete_stored_file(path_or_url: str | None) -> None:
     except ValueError:
         return
     target.unlink(missing_ok=True)
+
+
+def replace_stored_file(path_or_url: str, replacement_path: Path) -> None:
+    """Atomically replace an existing upload while keeping its public path unchanged."""
+    target = (STORAGE_DIR / stored_path(path_or_url)).resolve()
+    try:
+        target.relative_to(UPLOAD_DIR.resolve())
+        replacement_path.resolve().relative_to(UPLOAD_DIR.resolve())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid upload path")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    replacement_path.replace(target)
