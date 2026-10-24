@@ -1,6 +1,6 @@
 import { ArrowRight, CircleDashed } from "lucide-react";
 
-import { Badge, Button, Card, CardBody, PageHeader } from "@/app/admin/_components/ui/index";
+import { Badge, Button, Card, CardBody } from "@/app/admin/_components/ui/index";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 
 import { getModule, type ModuleKey } from "../_lib/nav";
@@ -11,13 +11,18 @@ export function ModulePage({ module: key }: { module: ModuleKey }) {
   const item = getModule(key);
   return (
     <>
-      <PageHeader
-        icon={item.icon}
-        title={item.label}
-        description={item.description}
-        actions={item.phase && <Badge tone="warning">Coming in {item.phase}</Badge>}
-      />
-      <Card className="max-w-4xl">
+      <h1 className="sr-only">{item.label}</h1>
+      <Card>
+        <div className="border-line flex flex-wrap items-start gap-3 border-b p-4 sm:p-5">
+          <span className="bg-primary-soft text-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-xl">
+            <item.icon className="h-5 w-5" aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-fg font-semibold">{item.label}</p>
+            <p className="text-fg-subtle text-sm">{item.description}</p>
+          </div>
+          {item.phase && <Badge tone="warning">Coming in {item.phase}</Badge>}
+        </div>
         <CardHeader title="What this module will do" description="Planned in the build roadmap." />
         <CardBody>
           <ul className="grid gap-2 sm:grid-cols-2">

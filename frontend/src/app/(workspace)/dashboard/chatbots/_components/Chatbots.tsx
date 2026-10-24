@@ -38,10 +38,10 @@ import {
   EmptyState,
   Input,
   Modal,
-  PageHeader,
   RadioGroup,
   Skeleton,
   Switch,
+  Tooltip,
 } from "@/app/admin/_components/ui/index";
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ROUTES } from "@/config/routes/customer";
@@ -380,38 +380,7 @@ export function Chatbots() {
 
   return (
     <div className="w-full">
-      <PageHeader
-        title="Chatbots"
-        icon={Bot}
-        description="Conversation flows that answer, ask questions and hand over to your team, 24/7."
-        actions={
-          <div className="flex gap-2">
-            <input
-              ref={fileRef}
-              type="file"
-              accept="application/json,.json"
-              className="hidden"
-              aria-label="Import chatbot file"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                e.target.value = "";
-                if (f) void importFile(f);
-              }}
-            />
-            <Button
-              variant="secondary"
-              leftIcon={Upload}
-              aria-label="Import"
-              onClick={() => fileRef.current?.click()}
-            >
-              <span className="hidden sm:inline">Import</span>
-            </Button>
-            <Button leftIcon={Plus} onClick={() => setCreating(true)}>
-              New chatbot
-            </Button>
-          </div>
-        }
-      />
+      <h1 className="sr-only">Chatbots</h1>
       <KpiGrid cols={4}>
         <KpiTile
           icon={Bot}
@@ -436,6 +405,39 @@ export function Chatbots() {
         />
         <KpiTile icon={Headset} tone="amber" label="Handed to the team" value={totals.handover} />
       </KpiGrid>
+
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-fg text-sm font-semibold">
+          Your chatbots <span className="text-fg-faint ml-1 font-normal tabular-nums">{list.length}</span>
+        </h2>
+        <div className="flex gap-2">
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            aria-label="Import chatbot file"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void importFile(f);
+            }}
+          />
+          <Tooltip label="Import a chatbot file" align="end">
+            <Button
+              variant="secondary"
+              iconOnly
+              leftIcon={Upload}
+              aria-label="Import"
+              onClick={() => fileRef.current?.click()}
+              className="h-9 w-9"
+            />
+          </Tooltip>
+          <Button leftIcon={Plus} onClick={() => setCreating(true)}>
+            New chatbot
+          </Button>
+        </div>
+      </div>
 
       {bots.isLoading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -480,11 +482,16 @@ export function Chatbots() {
           ))}
         </div>
       )}
-      <p className="text-fg-faint mt-6 flex items-center gap-2 text-xs">
-        <Users className="h-3.5 w-3.5" /> Agents can start a published chatbot in any chat from the inbox.
-        <Megaphone className="ml-2 h-3.5 w-3.5" /> Use a template button&apos;s text as a keyword to start one
-        from a campaign.
-      </p>
+      <div className="text-fg-faint mt-6 flex flex-wrap gap-x-5 gap-y-1.5 text-xs">
+        <p className="flex items-start gap-2">
+          <Users className="mt-px h-3.5 w-3.5 shrink-0" /> Agents can start a published chatbot in any chat
+          from the inbox.
+        </p>
+        <p className="flex items-start gap-2">
+          <Megaphone className="mt-px h-3.5 w-3.5 shrink-0" /> Use a template button&apos;s text as a keyword
+          to start one from a campaign.
+        </p>
+      </div>
       {creating && (
         <NewBotModal open={creating} onClose={() => setCreating(false)} starters={starters.data ?? []} />
       )}

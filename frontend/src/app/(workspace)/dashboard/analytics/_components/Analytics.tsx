@@ -31,8 +31,8 @@ import {
   DateRangePicker,
   EmptyState,
   ErrorBanner,
-  PageHeader,
   Skeleton,
+  Tooltip,
 } from "@/app/admin/_components/ui/index";
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ROUTES } from "@/config/routes/customer";
@@ -301,25 +301,10 @@ export function Analytics() {
 
   return (
     <div className="space-y-4">
-      <PageHeader
-        title="Analytics"
-        icon={BarChart3}
-        description="How your WhatsApp is doing: messages, chats, your team, campaigns and automation."
-        actions={
-          <Button
-            variant="secondary"
-            leftIcon={Download}
-            disabled={!r}
-            onClick={() => r && exportCsv(r)}
-            aria-label="Export CSV"
-          >
-            <span className="hidden sm:inline">Export CSV</span>
-          </Button>
-        }
-      />
+      <h1 className="sr-only">Analytics</h1>
 
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="max-w-full min-w-0">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="w-full min-w-0 sm:w-auto">
           <Segmented<Preset>
             label="Period"
             value={preset}
@@ -346,12 +331,23 @@ export function Analytics() {
           />
         )}
         {r && (
-          <p className="text-fg-subtle text-xs" aria-live="polite">
+          <p className="text-fg-subtle min-w-0 flex-1 text-xs" aria-live="polite">
             <b className="text-fg">{span(r.period.start, r.period.end)}</b> · compared with{" "}
             {span(r.period.previous.start, r.period.previous.end)}
             {report.isFetching && " · updating…"}
           </p>
         )}
+        <Tooltip label="Export CSV" align="end" className="ml-auto shrink-0">
+          <Button
+            variant="secondary"
+            iconOnly
+            leftIcon={Download}
+            disabled={!r}
+            onClick={() => r && exportCsv(r)}
+            aria-label="Export CSV"
+            className="h-9 w-9"
+          />
+        </Tooltip>
       </div>
 
       {report.isError && <ErrorBanner message={errorMessage(report.error)} />}
