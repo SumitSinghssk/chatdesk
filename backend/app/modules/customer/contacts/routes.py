@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.core.rate_limiter import RateLimit
 from app.modules.customer.account.models import Customer
 from app.modules.customer.team.access import require_admin, require_workspace
-from app.modules.customer.contacts import service
+from app.modules.customer.contacts import service, sheets
 from app.modules.customer.contacts.schemas import BulkSchema, ContactSchema
 
 router = APIRouter(prefix="/contacts", tags=["Customer Contacts"])
@@ -39,10 +39,23 @@ def export(search: str | None = None, tag: str | None = None, filters: str | Non
     return service.export_csv(db, customer, search, tag, filters, match, sort)
 
 
+@router.get("/import/sample")
+def import_sample(format: Literal["xlsx", "csv"] = "xlsx", customer: Customer = Depends(require_admin)):
+    return sheets.sample(format)
+
+
+@router.post("/import/preview", dependencies=[Depends(RateLimit(60, 60)), _csrf])
+def import_preview(file: UploadFile = File(...), mapping: str | None = Form(None), tag: str | None = Form(None),
+                   update_existing: bool = Form(True), customer: Customer = Depends(require_admin),
+                   db: Session = Depends(get_db)):
+    return service.preview_import(db, customer, file, mapping, tag, update_existing)
+
+
 @router.post("/import", dependencies=[Depends(RateLimit(10, 60)), _csrf])
-def import_csv(file: UploadFile = File(...), tag: str | None = Form(None), update_existing: bool = Form(True),
-               customer: Customer = Depends(require_admin), db: Session = Depends(get_db)):
-    return service.import_csv(db, customer, file, tag, update_existing)
+def import_sheet(file: UploadFile = File(...), tag: str | None = Form(None), update_existing: bool = Form(True),
+                 mapping: str | None = Form(None), customer: Customer = Depends(require_admin),
+                 db: Session = Depends(get_db)):
+    return service.import_sheet(db, customer, file, tag, update_existing, mapping)
 
 
 @router.post("/bulk", dependencies=[_csrf])

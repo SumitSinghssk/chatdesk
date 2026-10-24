@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CalendarClock,
+  FileSpreadsheet,
   FileText,
   FlaskConical,
   Megaphone,
@@ -49,7 +50,8 @@ import {
   type Segment,
   type VariableSource,
 } from "../../../_lib/campaignsApi";
-import { CONTACTS_QK, contactsApi } from "../../../_lib/contactsApi";
+import { SheetImport } from "../../../_components/sheet/SheetImport";
+import { CONTACTS_QK, contactsApi, type ImportResult, type SheetPreview } from "../../../_lib/contactsApi";
 import { INBOX_QK, inboxApi } from "../../../_lib/inboxApi";
 import { templatesApi, type Template } from "../../../_lib/templatesApi";
 import { Section, Segmented } from "../../../templates/_components/editor/parts";
@@ -118,6 +120,31 @@ export const BLANK_SEED: CampaignSeed = {
   scheduled_at: "",
 };
 
+const SHEET_TAG = "Sheet: ";
+
+/** The tag everyone from an uploaded sheet gets, e.g. "Sheet: diwali-list · 24 Oct". */
+function sheetTag(filename: string) {
+  const day = new Date().toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const base = filename.replace(/\.[^.]+$/, "").trim() || "upload";
+  const room = 40 - SHEET_TAG.length - day.length - 3;
+  return `${SHEET_TAG}${base.slice(0, room)} · ${day}`;
+}
+
+interface SheetAudience {
+  filename: string;
+  tag: string;
+  people: number | null;
+  fields: string[];
+}
+
+/** A draft that was made from a sheet: its single tag is a sheet tag. */
+function sheetOf(audience: Audience): SheetAudience | null {
+  const tag = audience.type === "tags" && audience.tags.length === 1 ? audience.tags[0] : null;
+  return tag?.startsWith(SHEET_TAG)
+    ? { filename: tag.slice(SHEET_TAG.length).replace(/ · [^·]+$/, ""), tag, people: null, fields: [] }
+    : null;
+}
+
 /** Sensible starting values when a template is picked: names from the contact, the rest from samples. */
 function defaultVariables(t: Template): CampaignVariables {
   const body: Record<string, VariableSource> = {};
@@ -153,6 +180,8 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
   const [testPhone, setTestPhone] = useState(me.phone ?? "");
   const [testing, setTesting] = useState(false);
   const [sampleIndex, setSampleIndex] = useState(0);
+  const [sheet, setSheet] = useState<SheetAudience | null>(() => sheetOf(seed.audience));
+  const [sheetMode, setSheetMode] = useState(() => !!sheetOf(seed.audience));
 
   const { data: templates, error: templatesError } = useQuery({
     queryKey: INBOX_QK.TEMPLATES,
@@ -180,6 +209,30 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
   const setAudience = (changes: Partial<Audience>) => patch({ audience: { ...state.audience, ...changes } });
   const setVar = (part: keyof CampaignVariables, name: string, value: VariableSource) =>
     patch({ variables: { ...state.variables, [part]: { ...state.variables[part], [name]: value } } });
+
+  const chooseAudience = (type: Audience["type"] | "sheet") => {
+    if (type === "sheet") {
+      setSheetMode(true);
+      setAudience({ type: "tags", tags: sheet ? [sheet.tag] : [], tag_match: "any" });
+      return;
+    }
+    setSheetMode(false);
+    setAudience(type === "tags" && sheetMode ? { type, tags: [] } : { type });
+  };
+  const applySheet = (result: ImportResult, sheetPreview: SheetPreview, file: File) => {
+    const tag = result.tag ?? sheetTag(file.name);
+    const fields = sheetPreview.custom.map((c) => c.field).filter((f): f is string => !!f);
+    setSheet({ filename: file.name, tag, people: result.created + result.updated, fields });
+    // variables named like a sheet column ({{order_id}}) take their value from it
+    const variables = { ...state.variables, body: { ...state.variables.body } };
+    for (const name of template?.params.body ?? []) {
+      const key = name.toLowerCase();
+      if (fields.includes(key)) variables.body[name] = { source: "attribute", value: key, fallback: null };
+    }
+    patch({ audience: { ...state.audience, type: "tags", tags: [tag], tag_match: "any" }, variables });
+    void queryClient.invalidateQueries({ queryKey: CONTACTS_QK.ALL });
+    toast.success(`${(result.created + result.updated).toLocaleString()} people added from ${file.name}`);
+  };
 
   // audience size, cost and personalised samples, refreshed as the form changes
   const previewKey = useDebouncedValue(
@@ -401,12 +454,13 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
           </Section>
 
           <Section title="2. Audience" icon={Users} hint="Opted-out and blocked contacts are always skipped.">
-            <Segmented
+            <Segmented<Audience["type"] | "sheet">
               label="Send to"
-              value={state.audience.type}
-              onChange={(type) => setAudience({ type })}
+              value={sheetMode ? "sheet" : state.audience.type}
+              onChange={chooseAudience}
               options={[
                 { value: "all", label: "All contacts" },
+                { value: "sheet", label: "Upload a sheet", icon: FileSpreadsheet },
                 { value: "tags", label: "Contacts with tags" },
                 { value: "campaign", label: "Retarget a campaign" },
                 ...(state.audience.type === "contacts"
@@ -414,7 +468,43 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
                   : []),
               ]}
             />
-            {state.audience.type === "tags" && (
+            {sheetMode &&
+              (sheet ? (
+                <div className="border-line bg-page/50 flex flex-wrap items-center gap-3 rounded-xl border p-3">
+                  <span className="bg-primary-soft text-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
+                    <FileSpreadsheet className="h-5 w-5" aria-hidden />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-fg truncate text-sm font-semibold">
+                      {sheet.people !== null
+                        ? `${sheet.people.toLocaleString()} people from ${sheet.filename}`
+                        : sheet.filename}
+                    </p>
+                    <p className="text-fg-subtle truncate text-xs">
+                      Saved to Contacts with the tag “{sheet.tag}”
+                      {sheet.fields.length ? ` · columns: ${sheet.fields.join(", ")}` : ""}
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setSheet(null);
+                      setAudience({ tags: [] });
+                    }}
+                  >
+                    Use another sheet
+                  </Button>
+                </div>
+              ) : (
+                <SheetImport
+                  purpose="campaign"
+                  fixedTag={sheetTag}
+                  onImported={applySheet}
+                  onCancel={() => chooseAudience("all")}
+                />
+              ))}
+            {state.audience.type === "tags" && !sheetMode && (
               <div className="grid gap-4 sm:grid-cols-[minmax(0,1fr)_12rem]">
                 <MultiSelect
                   id="audience-tags"
@@ -467,7 +557,7 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
                 {state.audience.contact_ids.length} contacts picked on the Contacts page.
               </p>
             )}
-            {state.audience.type !== "contacts" && (
+            {state.audience.type !== "contacts" && (!sheetMode || sheet) && (
               <MultiSelect
                 id="audience-exclude"
                 label="Leave out contacts with these tags"
@@ -477,7 +567,9 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
                 placeholder="Optional"
               />
             )}
-            <AudienceSummary template={template} loading={previewing} preview={preview} />
+            {(!sheetMode || sheet) && (
+              <AudienceSummary template={template} loading={previewing} preview={preview} />
+            )}
           </Section>
 
           {template && (
@@ -486,6 +578,12 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
               icon={Sparkles}
               hint="Fill each variable from the contact's details, or use the same text for everyone."
             >
+              {sheetMode && sheet && sheet.fields.length > 0 && (
+                <p className="bg-primary-soft/60 text-fg-subtle rounded-lg px-3 py-2 text-xs">
+                  Your sheet&apos;s columns are ready to use: pick <b className="text-fg">Custom field</b> and
+                  choose {sheet.fields.map((f) => `“${f}”`).join(", ")}.
+                </p>
+              )}
               {template.params.header.map((n) => (
                 <VariableRow
                   key={`h${n}`}

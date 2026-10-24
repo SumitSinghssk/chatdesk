@@ -44,6 +44,8 @@ export const CUSTOMER_ENDPOINTS = {
     ATTRIBUTES: "/customer/contacts/attributes",
     EXPORT: "/customer/contacts/export",
     IMPORT: "/customer/contacts/import",
+    IMPORT_PREVIEW: "/customer/contacts/import/preview",
+    IMPORT_SAMPLE: "/customer/contacts/import/sample",
     BULK: "/customer/contacts/bulk",
     ONE: (id: number) => `/customer/contacts/${id}`,
   },
