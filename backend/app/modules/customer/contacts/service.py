@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session, joinedload
 
 from app.modules.customer.account.models import Customer
 from app.modules.customer.auth.service import field_error
-from app.modules.customer.contacts.schemas import BulkSchema, ContactSchema, clean_attributes, clean_tags
+from app.modules.customer.contacts import sheets
+from app.modules.customer.contacts.schemas import BulkSchema, ContactSchema, clean_tags
 from app.modules.customer.inbox.models import WaContact, WaConversation
 from app.services.sms import config as sms_config
 from app.services.sms import normalize_phone
@@ -19,10 +20,6 @@ from app.shared.utils.datetime import days_ago_start, iso, now, to_site
 from app.shared.utils.grid import GridField, apply_filters, apply_sort
 from app.shared.utils.search import search_clause
 
-MAX_IMPORT_ROWS = 10_000
-MAX_IMPORT_BYTES = 5 * 1024 * 1024
-PHONE_HEADERS = ("phone", "mobile", "number", "whatsapp", "wa_id", "phone_number", "mobile_number", "contact")
-NAME_HEADERS = ("name", "full_name", "contact_name", "customer_name")
 
 GRID_FIELDS = {
     "name": GridField(func.coalesce(WaContact.name, WaContact.profile_name), "text"),
@@ -193,79 +190,36 @@ def bulk(db: Session, customer: Customer, payload: BulkSchema) -> dict:
     return {"status": True, "message": f"{n} contact{'s' if n != 1 else ''} {verbs[payload.action]}"}
 
 
-# CSV ---------------------------------------------------------------------------------
+# import ------------------------------------------------------------------------------
 
-def _pick(headers: list[str], options: tuple[str, ...]) -> str | None:
-    norm = {h: h.strip().lower().replace(" ", "_") for h in headers}
-    return next((h for h, n in norm.items() if n in options), None)
+def preview_import(db: Session, customer: Customer, file: UploadFile, mapping: str | None, tag: str | None,
+                   update_existing: bool) -> dict:
+    """Every row of the sheet and what importing it would do. Nothing is saved."""
+    sheet = sheets.read(file)
+    report = sheets.check(db, customer, sheet, sheets.mapping_from(sheet, mapping, require_phone=False),
+                          update_existing, tag)
+    return {"status": True, "data": report}
 
 
-def import_csv(db: Session, customer: Customer, file: UploadFile, tag: str | None, update_existing: bool) -> dict:
-    raw = file.file.read(MAX_IMPORT_BYTES + 1)
-    if len(raw) > MAX_IMPORT_BYTES:
-        raise field_error(422, "file", "The file is larger than 5 MB. Split it into smaller files.")
-    text = raw.decode("utf-8-sig", errors="replace")
-    try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
-    reader = csv.DictReader(io.StringIO(text), dialect=dialect)
-    headers = reader.fieldnames or []
-    phone_col = _pick(headers, PHONE_HEADERS)
-    if not phone_col:
-        raise field_error(422, "file", "Add a column named phone (or mobile / number / whatsapp)")
-    name_col = _pick(headers, NAME_HEADERS)
-    email_col = _pick(headers, ("email", "email_address", "e-mail"))
-    tags_col = _pick(headers, ("tags", "tag", "labels"))
-    known = {phone_col, name_col, email_col, tags_col}
-    extra = [h for h in headers if h and h not in known]
-    extra_tag = clean_tags([tag])[0] if tag and clean_tags([tag]) else None
-
-    existing = {c.wa_id: c for c in db.query(WaContact).filter(WaContact.customer_id == customer.id).all()}
-    country = sms_config.load(db)["default_country_code"]
-    created = updated = skipped = 0
-    errors: list[dict] = []
-    seen: set[str] = set()
-    for line, row in enumerate(reader, start=2):
-        if line - 1 > MAX_IMPORT_ROWS:
-            errors.append({"row": line, "message": f"Stopped after {MAX_IMPORT_ROWS} rows"})
-            break
-        phone = normalize_phone(row.get(phone_col), country)
-        if not phone:
-            skipped += 1
-            if len(errors) < 50:
-                errors.append({"row": line, "message": f"Invalid number: {row.get(phone_col) or '(empty)'}"})
-            continue
-        wa_id = phone[1:]
-        if wa_id in seen:
-            skipped += 1
-            continue
-        seen.add(wa_id)
-        name = (row.get(name_col) or "").strip()[:150] if name_col else ""
-        email = (row.get(email_col) or "").strip().lower()[:255] if email_col else ""
-        tags = clean_tags([*((row.get(tags_col) or "").replace("|", ";").replace(",", ";").split(";")
-                             if tags_col else []), *([extra_tag] if extra_tag else [])])
-        attrs = clean_attributes({h: row.get(h) for h in extra})
-        contact = existing.get(wa_id)
-        if contact is None:
-            contact = WaContact(customer_id=customer.id, wa_id=wa_id, source="import", name=name or None,
-                                email=email or None, tags=tags, attributes=attrs)
-            db.add(contact)
-            existing[wa_id] = contact
-            created += 1
-        elif update_existing:
-            contact.name = name or contact.name
-            contact.email = email or contact.email
-            contact.tags = clean_tags([*(contact.tags or []), *tags])
-            contact.attributes = {**(contact.attributes or {}), **attrs}
-            updated += 1
-        else:
-            skipped += 1
-    db.commit()
-    return {"status": True, "message": f"Imported {created} new, updated {updated}, skipped {skipped}",
-            "data": {"created": created, "updated": updated, "skipped": skipped, "errors": errors,
-                     "columns": {"phone": phone_col, "name": name_col, "email": email_col, "tags": tags_col,
-                                 "custom": extra}}}
+def import_sheet(db: Session, customer: Customer, file: UploadFile, tag: str | None, update_existing: bool,
+                 mapping: str | None = None) -> dict:
+    sheet = sheets.read(file)
+    chosen = sheets.mapping_from(sheet, mapping)
+    report = sheets.check(db, customer, sheet, chosen, update_existing, tag)
+    saved = sheets.save(db, customer, report)
+    counts = report["counts"]
+    skipped = counts["duplicate"] + counts["invalid"] + counts["exists"]
+    errors = [{"row": r["row"], "message": r["message"]} for r in report["rows"]
+              if r["status"] in ("invalid", "duplicate")][:50]
+    if report["truncated"]:
+        errors.append({"row": sheets.MAX_ROWS + 1, "message": f"Stopped after {sheets.MAX_ROWS} rows"})
+    clean = clean_tags([tag]) if tag else []
+    return {"status": True,
+            "message": f"Imported {saved['created']} new, updated {saved['updated']}, skipped {skipped}",
+            "data": {**saved, "skipped": skipped, "errors": errors, "counts": counts,
+                     "tag": clean[0] if clean else None,
+                     "columns": {"phone": chosen.phone, "name": chosen.name, "email": chosen.email,
+                                 "tags": chosen.tags, "custom": chosen.custom(sheet.headers)}}}
 
 
 def _when(value) -> str:

@@ -46,10 +46,66 @@ export interface ContactStats {
   tags: { tag: string; count: number }[];
 }
 
+export type SheetRowStatus = "new" | "update" | "exists" | "duplicate" | "invalid";
+
+/** Which column holds what; columns in `skip` are left out, every other column becomes a custom field. */
+export interface SheetMapping {
+  phone: string | null;
+  name: string | null;
+  email: string | null;
+  tags: string | null;
+  skip: string[];
+}
+
+export interface SheetRow {
+  row: number;
+  phone: string;
+  wa_id: string | null;
+  name: string | null;
+  email: string | null;
+  tags: string[];
+  fields: Record<string, string>;
+  status: SheetRowStatus;
+  message: string | null;
+  duplicate_of: number | null;
+  warnings: string[];
+  contact_id: number | null;
+}
+
+export interface SheetCounts {
+  total: number;
+  new: number;
+  update: number;
+  exists: number;
+  duplicate: number;
+  invalid: number;
+  warnings: number;
+}
+
+export interface SheetPreview {
+  filename: string;
+  sheet: string | null;
+  headers: string[];
+  mapping: SheetMapping;
+  custom: { column: string; field: string | null }[];
+  counts: SheetCounts;
+  truncated: boolean;
+  max_rows: number;
+  rows: SheetRow[];
+}
+
+export interface SheetOptions {
+  mapping?: SheetMapping | null;
+  tag?: string;
+  updateExisting: boolean;
+}
+
 export interface ImportResult {
   created: number;
   updated: number;
   skipped: number;
+  tag: string | null;
+  counts: SheetCounts;
   errors: { row: number; message: string }[];
   columns: {
     phone: string;
@@ -79,6 +135,15 @@ async function json<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+function sheetForm(file: File, options: SheetOptions) {
+  const form = new FormData();
+  form.append("file", file);
+  if (options.mapping) form.append("mapping", JSON.stringify(options.mapping));
+  if (options.tag) form.append("tag", options.tag);
+  form.append("update_existing", String(options.updateExisting));
+  return form;
+}
+
 export const contactsApi = {
   async page(params: QueryParams, signal?: AbortSignal): Promise<ContactPage> {
     const res = await fetch(`${BROWSER_API_BASE_URL}${withQuery(C.LIST, { page: 1, ...params })}`, {
@@ -98,20 +163,28 @@ export const contactsApi = {
   remove: (id: number) => request<null>("DELETE", C.ONE(id)),
   bulk: (ids: number[], action: BulkContactAction, tag?: string) =>
     request<null>("POST", C.BULK, { ids, action, tag }),
-  async importCsv(file: File, options: { tag?: string; updateExisting: boolean }) {
-    const form = new FormData();
-    form.append("file", file);
-    if (options.tag) form.append("tag", options.tag);
-    form.append("update_existing", String(options.updateExisting));
+  /** Every row of the sheet and what importing it would do. Nothing is saved. */
+  async previewSheet(file: File, options: SheetOptions, signal?: AbortSignal) {
+    const res = await fetch(`${BROWSER_API_BASE_URL}${C.IMPORT_PREVIEW}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers,
+      body: sheetForm(file, options),
+      signal,
+    });
+    return (await json<{ data: SheetPreview }>(res)).data;
+  },
+  async importSheet(file: File, options: SheetOptions) {
     const res = await fetch(`${BROWSER_API_BASE_URL}${C.IMPORT}`, {
       method: "POST",
       credentials: "same-origin",
       headers,
-      body: form,
+      body: sheetForm(file, options),
     });
     const body = await json<{ message?: string; data: ImportResult }>(res);
     return { message: body.message, data: body.data };
   },
+  sampleUrl: (format: "xlsx" | "csv") => `${BROWSER_API_BASE_URL}${withQuery(C.IMPORT_SAMPLE, { format })}`,
   exportUrl: (params: QueryParams) => `${BROWSER_API_BASE_URL}${withQuery(C.EXPORT, params)}`,
 };
 

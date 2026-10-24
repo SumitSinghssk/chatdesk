@@ -27,6 +27,7 @@ function useCampaign(id: number | null) {
  *   ?retarget=<id>&segment=not_read people from a campaign who did (or didn't do) something
  *   ?template=<id>                  start with a template
  *   ?contacts=1,2,3                 contacts picked on the Contacts page
+ *   ?tag=Diwali                     everyone with a tag (e.g. just imported from a sheet)
  */
 export function NewCampaign() {
   const params = useSearchParams();
@@ -50,12 +51,15 @@ export function NewCampaign() {
   if (source) return <CampaignBuilder key={`from-${source.id}`} seed={seedOf(source, true)} />;
 
   const contacts = (params.get("contacts") ?? "").split(",").map(Number).filter(Boolean);
+  const tag = params.get("tag");
   const seed = {
     ...BLANK_SEED,
     template_id: Number(params.get("template")) || null,
     audience: contacts.length
       ? { ...EMPTY_AUDIENCE, type: "contacts" as const, contact_ids: contacts }
-      : EMPTY_AUDIENCE,
+      : tag
+        ? { ...EMPTY_AUDIENCE, type: "tags" as const, tags: [tag] }
+        : EMPTY_AUDIENCE,
   };
   return <CampaignBuilder key="new" seed={seed} />;
 }

@@ -440,7 +440,7 @@ export function Contacts() {
           countLabel={data?.meta.total === 1 ? "contact" : "contacts"}
           actions={
             <>
-              <ToolbarIconButton icon={Upload} label="Import CSV" onClick={() => setImportOpen(true)} />
+              <ToolbarIconButton icon={Upload} label="Import contacts" onClick={() => setImportOpen(true)} />
               <ToolbarIconButton
                 icon={Download}
                 label="Export CSV"
