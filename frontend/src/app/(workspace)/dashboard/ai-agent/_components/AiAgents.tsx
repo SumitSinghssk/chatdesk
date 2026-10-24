@@ -38,7 +38,6 @@ import {
   Dropdown,
   Input,
   Modal,
-  PageHeader,
   Select,
   Skeleton,
 } from "@/app/admin/_components/ui/index";
@@ -549,18 +548,7 @@ export function AiAgents() {
   const loading = agents.isLoading || connections.isLoading;
   return (
     <div className="space-y-5">
-      <PageHeader
-        icon={Sparkles}
-        title="AI agent"
-        description="AI assistants trained on your documents, website and FAQs. They answer on WhatsApp, your website or through the API."
-        actions={
-          keys.length > 0 ? (
-            <Button leftIcon={Plus} onClick={() => setCreating(true)}>
-              New agent
-            </Button>
-          ) : undefined
-        }
-      />
+      <h1 className="sr-only">AI agent</h1>
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {[0, 1, 2].map((i) => (
@@ -572,7 +560,7 @@ export function AiAgents() {
       ) : (
         <>
           {list.length > 0 && (
-            <KpiGrid cols={4}>
+            <KpiGrid cols={4} className="mb-0">
               <KpiTile icon={Bot} tone="indigo" label="AI agents" value={list.length} />
               <KpiTile
                 icon={MessageCircle}
@@ -615,11 +603,27 @@ export function AiAgents() {
               </Button>
             </Card>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="AI agents">
-              {list.map((a) => (
-                <AgentCard key={a.id} agent={a} onDuplicate={() => duplicate(a)} onDelete={() => remove(a)} />
-              ))}
-            </div>
+            <section>
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <h2 className="text-fg text-sm font-semibold">
+                  Your agents{" "}
+                  <span className="text-fg-faint ml-1 font-normal tabular-nums">{list.length}</span>
+                </h2>
+                <Button leftIcon={Plus} onClick={() => setCreating(true)}>
+                  New agent
+                </Button>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3" aria-label="AI agents">
+                {list.map((a) => (
+                  <AgentCard
+                    key={a.id}
+                    agent={a}
+                    onDuplicate={() => duplicate(a)}
+                    onDelete={() => remove(a)}
+                  />
+                ))}
+              </div>
+            </section>
           )}
           <Connections connections={keys} onAdd={() => setConnecting(true)} onEdit={setEditing} />
         </>

@@ -28,8 +28,14 @@ export function KpiGrid({
   return (
     <div
       className={cn(
-        "mb-4 grid grid-cols-2 gap-3 sm:grid-cols-3",
-        { 3: "xl:grid-cols-3", 4: "xl:grid-cols-4", 5: "xl:grid-cols-5", 6: "xl:grid-cols-6" }[cols],
+        // two a row on phones (a last odd tile takes the full row), never a lone tile on tablets
+        "mb-4 grid grid-cols-2 gap-3 max-sm:[&>:last-child:nth-child(odd)]:col-span-2",
+        {
+          3: "sm:grid-cols-3",
+          4: "lg:grid-cols-4",
+          5: "sm:grid-cols-3 xl:grid-cols-5",
+          6: "sm:grid-cols-3 xl:grid-cols-6",
+        }[cols],
         className
       )}
     >
@@ -64,18 +70,32 @@ export function KpiTile({
       onClick={onClick}
       title={title}
       className={cn(
-        "border-line bg-surface flex min-w-0 items-center gap-3 rounded-xl border px-3.5 py-3 text-left shadow-xs transition",
+        "border-line bg-surface flex min-w-0 items-center gap-2.5 rounded-xl border px-3 py-3 text-left shadow-xs transition sm:gap-3 sm:px-3.5",
         onClick && "hover:border-line-strong hover:shadow-sm",
         active && "border-primary ring-primary/15 ring-3"
       )}
     >
-      <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-lg", KPI_TONES[tone])}>
-        <Icon className="h-4.5 w-4.5" />
+      <span
+        className={cn(
+          "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg sm:h-9 sm:w-9",
+          KPI_TONES[tone]
+        )}
+      >
+        <Icon className="h-4 w-4 sm:h-4.5 sm:w-4.5" />
       </span>
-      <span className="min-w-0">
-        <span className="text-fg-subtle block truncate text-xs font-medium">{label}</span>
-        <span className="text-fg block text-xl leading-tight font-semibold tabular-nums">{value ?? "—"}</span>
-        {hint && <span className="text-fg-subtle block truncate text-[11px]">{hint}</span>}
+      {/* on phones the tile is narrow: let words wrap instead of cutting them off */}
+      <span className="min-w-0 flex-1">
+        <span className="text-fg-subtle line-clamp-2 text-xs leading-snug font-medium sm:block sm:truncate">
+          {label}
+        </span>
+        <span className="text-fg block text-lg leading-tight font-semibold tabular-nums sm:text-xl">
+          {value ?? "—"}
+        </span>
+        {hint && (
+          <span className="text-fg-subtle line-clamp-2 text-[11px] leading-snug sm:block sm:truncate">
+            {hint}
+          </span>
+        )}
       </span>
     </Tag>
   );

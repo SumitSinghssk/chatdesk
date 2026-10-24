@@ -2,33 +2,17 @@
 
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowRight,
-  CheckCircle2,
-  Circle,
-  Gauge,
-  LayoutDashboard,
-  MessageCircle,
-  MessagesSquare,
-  Radio,
-} from "lucide-react";
+import { ArrowRight, CheckCircle2, Circle, Gauge, MessageCircle, MessagesSquare, Radio } from "lucide-react";
 
-import { Button, Card, ErrorBanner, PageHeader, Skeleton, StatCard } from "@/app/admin/_components/ui/index";
+import { KpiGrid, KpiTile } from "@/app/admin/_components/grid";
+import { Button, Card, ErrorBanner } from "@/app/admin/_components/ui/index";
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn, timeAgo } from "@/lib/utils";
 
 import { WORKSPACE_MODULES } from "../_lib/nav";
 import { WORKSPACE_QK, whatsappApi } from "../_lib/whatsappApi";
-import { useDashboard } from "./DashboardContext";
 import { CardHeader } from "./CardHeader";
-
-function greeting() {
-  const hour = new Date().getHours();
-  if (hour < 12) return "Good morning";
-  if (hour < 17) return "Good afternoon";
-  return "Good evening";
-}
 
 function Step({
   done,
@@ -65,7 +49,6 @@ function Step({
 }
 
 export function Overview() {
-  const { me } = useDashboard();
   const { data, isLoading, error } = useQuery({
     queryKey: WORKSPACE_QK.OVERVIEW,
     queryFn: async () => (await whatsappApi.overview()).data,
@@ -74,62 +57,47 @@ export function Overview() {
 
   const connection = data?.connection;
   const connected = connection?.status === "connected";
-  const name = me.name?.split(" ")[0] ?? "";
-  const value = (v: React.ReactNode) => (isLoading ? <Skeleton className="mt-1 h-6 w-16" /> : v);
 
   return (
     <>
-      <PageHeader
-        icon={LayoutDashboard}
-        title={`${greeting()}${name ? `, ${name}` : ""}`}
-        description={
-          connected
-            ? `${me.business_name ?? "Your business"} is live on WhatsApp${connection?.display_phone_number ? ` (${connection.display_phone_number})` : ""}.`
-            : "Connect your WhatsApp Business number to start talking to customers."
-        }
-        actions={
-          !connected && (
-            <Button href={CUSTOMER_ROUTES.WHATSAPP()} leftIcon={MessageCircle}>
-              Connect WhatsApp
-            </Button>
-          )
-        }
-      />
+      <h1 className="sr-only">Overview</h1>
 
       {error && <ErrorBanner className="mb-4" message={errorMessage(error)} />}
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          label="WhatsApp number"
-          value={value(connected ? "Connected" : connection ? "Needs attention" : "Not connected")}
+      <KpiGrid cols={4}>
+        <KpiTile
           icon={MessageCircle}
-          tone={connected ? "green" : connection ? "red" : "yellow"}
-          hint={connection?.verified_name ?? "WhatsApp Business"}
+          tone={connected ? "green" : connection ? "red" : "amber"}
+          label="WhatsApp number"
+          value={
+            isLoading ? undefined : connected ? "Connected" : connection ? "Needs attention" : "Not connected"
+          }
+          hint={connection?.display_phone_number ?? connection?.verified_name ?? "WhatsApp Business"}
         />
-        <StatCard
-          label="Quality rating"
-          value={value(connection?.quality_rating ?? "—")}
+        <KpiTile
           icon={Gauge}
           tone="blue"
+          label="Quality rating"
+          value={isLoading ? undefined : (connection?.quality_rating ?? "—")}
           hint={connection?.messaging_limit_tier ?? "Messaging tier unknown"}
         />
-        <StatCard
-          label="Messages received"
-          value={value(data?.counts.messages ?? 0)}
+        <KpiTile
           icon={MessagesSquare}
           tone="purple"
+          label="Messages received"
+          value={isLoading ? undefined : (data?.counts.messages ?? 0)}
           hint={`${data?.counts.statuses ?? 0} delivery updates`}
         />
-        <StatCard
-          label="Last webhook event"
-          value={value(connection?.last_event_at ? timeAgo(connection.last_event_at) : "—")}
+        <KpiTile
           icon={Radio}
-          tone={connection?.webhook_verified_at ? "green" : "yellow"}
+          tone={connection?.webhook_verified_at ? "green" : "amber"}
+          label="Last webhook event"
+          value={isLoading ? undefined : connection?.last_event_at ? timeAgo(connection.last_event_at) : "—"}
           hint={connection?.webhook_verified_at ? "Webhook verified" : "Webhook not verified yet"}
         />
-      </div>
+      </KpiGrid>
 
-      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card>
             <CardHeader title="Get set up" description="Four steps to go live on WhatsApp." />

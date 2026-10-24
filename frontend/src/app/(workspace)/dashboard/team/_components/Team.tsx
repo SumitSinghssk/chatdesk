@@ -126,6 +126,12 @@ export function Team() {
               {m.is_you && <Badge>You</Badge>}
             </span>
             <span className="text-fg-subtle block truncate text-xs">{m.email}</span>
+            {/* the Status column is hidden on phones */}
+            <span className="text-fg-subtle mt-0.5 block text-[11px] md:hidden">
+              {m.status === "invited"
+                ? "Invited"
+                : `${m.open_chats} open chat${m.open_chats === 1 ? "" : "s"}`}
+            </span>
           </span>
         </span>
       ),
@@ -159,13 +165,14 @@ export function Team() {
     {
       key: "status",
       header: "Status",
+      hideOnMobile: true,
       cell: (m) =>
         m.status === "invited" ? (
           <Badge tone="warning" dot>
             Invited
           </Badge>
         ) : (
-          <span className="text-fg-subtle text-xs">
+          <span className="text-fg-subtle text-xs whitespace-nowrap">
             <span className="text-fg tabular font-medium">{m.open_chats}</span> open chat
             {m.open_chats === 1 ? "" : "s"}
             <span className="block">
@@ -271,18 +278,38 @@ export function Team() {
             tabs={[
               { value: "members", label: "Members", count: members?.length },
               { value: "teams", label: "Teams", count: teams?.length },
-              { value: "rules", label: "Assignment rules" },
+              {
+                value: "rules",
+                label: (
+                  <>
+                    <span className="sm:hidden">Rules</span>
+                    <span className="hidden sm:inline">Assignment rules</span>
+                  </>
+                ),
+              },
               { value: "performance", label: "Performance" },
             ]}
           />
           {tab === "members" && (
-            <Button size="sm" leftIcon={UserPlus} onClick={() => setInviting(true)} className="shrink-0">
-              Invite
+            <Button
+              size="sm"
+              leftIcon={UserPlus}
+              onClick={() => setInviting(true)}
+              aria-label="Invite"
+              className="shrink-0"
+            >
+              <span className="hidden sm:inline">Invite</span>
             </Button>
           )}
           {tab === "teams" && (
-            <Button size="sm" leftIcon={Plus} onClick={() => setTeamModal("new")} className="shrink-0">
-              New team
+            <Button
+              size="sm"
+              leftIcon={Plus}
+              onClick={() => setTeamModal("new")}
+              aria-label="New team"
+              className="shrink-0"
+            >
+              <span className="hidden sm:inline">New team</span>
             </Button>
           )}
         </div>

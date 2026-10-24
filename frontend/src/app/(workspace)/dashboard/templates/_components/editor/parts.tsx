@@ -22,11 +22,7 @@ export function Segmented<T extends string>({
   disabled?: boolean;
 }) {
   return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className="no-scrollbar -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-0.5"
-    >
+    <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
       {options.map(({ value: v, label: text, icon: Icon }) => {
         const on = v === value;
         return (
