@@ -76,7 +76,7 @@ venv\Scripts\activate
 pip install -r requirements.txt -r requirements-dev.txt
 copy .env.example .env          # set DATABASE_URL, SECRET_KEY, ADMIN_HINT_SECRET, INTERNAL_API_KEY
 python create_db.py
-alembic upgrade head
+python migrate.py
 python seed.py all
 python run.py
 
@@ -139,11 +139,22 @@ Then open:
 - **Delays and timeouts** run in a background thread of the API (every 3 seconds). `scheduler.py`'s `chatbots` task does the same job. Set `CHATBOT_WORKER=off` to turn the in-API thread off.
 - **API request blocks** only call public internet addresses (not this server or its private network) and wait at most 8 seconds. For local testing only, `CHATBOT_ALLOW_PRIVATE_URLS=1` lifts that limit; never set it in production.
 
+### How the AI agent works
+
+- **Providers:** each business brings its own key (**Grow → AI agent → AI connections**): Claude (through Anthropic's SDK), or ChatGPT, Gemini, Groq, DeepSeek, Mistral, OpenRouter or any OpenAI-compatible address. Keys are encrypted with `SECRET_KEY` and checked by listing the models (no tokens spent). In production a custom address must be on the public internet.
+- **Knowledge is read once:** files (PDF, Word, Excel, CSV, text, Markdown, HTML), web pages (optionally the whole site), notes and Q&A are turned into text when added; the originals stay in `storage/ai-knowledge` for the preview. **Train** cuts them into passages and builds a search index (BM25, kept in memory per training version), so answering never re-reads a document.
+- **Low usage:** the prompt has a fixed part (rules, important facts and, for a small knowledge base, all of it) that the provider caches, and a small changing part (date, memory summary, matching passages). A larger knowledge base sends only the passages that match the question. Stand-alone questions asked before are answered from a saved answer with no AI call. Memory keeps the last messages word for word and folds older ones into a short summary.
+- **WhatsApp:** an agent answering on WhatsApp takes the place of the welcome, away and default automatic replies; opt-out words, chatbots and keyword replies still go first. Replies run in a background thread (`AI_WORKER=off` turns it off; replies then run inside the webhook). The agent hands over (assigns, reopens, marks the chat) when it should, and steps back when a person replies or the chat is paused from the inbox; resolving the chat brings it back.
+- **Website:** `<script src="https://<frontend>/widget.js" data-agent="pk_…" async></script>` adds the chat bubble (an iframe of `/ai-chat/<key>`, the only page other sites may frame). The same page works as a shareable chat link. Server-to-server calls use `POST /api/v1/website/ai/<key>/messages` with the agent's secret API key.
+- **Limits:** a monthly budget per agent, rate limits on the public endpoints, and an allow-list of websites for the widget.
+
 ## Everyday commands
 
 | Task | Command (from the folder shown) |
 | --- | --- |
-| New DB migration after changing models | `backend> alembic revision --autogenerate -m "what changed"` then `alembic upgrade head` |
+| New DB migration after changing models | `backend> alembic revision --autogenerate -m "what changed"` then `python migrate.py` |
+| Migrate the test DB too | `backend> python migrate.py --test` |
+| Scheduled jobs (cron every minute) | `backend> python scheduler.py` · `python scheduler.py list` · `run <job>` |
 | Backend tests (uses `wati_test` DB from `TEST_DATABASE_URL`) | `backend> python -m pytest -q` |
 | Backend lint | `backend> ruff check app tests` |
 | Frontend type check / lint / format | `frontend> npm run typecheck` · `npm run lint` · `npx prettier --write src` |

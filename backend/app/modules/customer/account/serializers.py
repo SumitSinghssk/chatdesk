@@ -1,4 +1,5 @@
 from app.modules.customer.account.models import Customer
+from app.modules.customer.account.settings import preferences
 from app.shared.utils.datetime import iso
 
 
@@ -10,6 +11,10 @@ def serialize_customer(customer: Customer) -> dict:
         "email": customer.email,
         "phone": customer.phone,
         "avatar": customer.avatar,
+        "job_title": customer.job_title,
+        "pending_email": customer.pending_email,
+        "two_factor_enabled": customer.two_factor_enabled,
+        "preferences": preferences(customer),
         "has_password": bool(customer.password),
         "google_linked": bool(customer.google_id),
         "email_verified": bool(customer.email_verified_at),

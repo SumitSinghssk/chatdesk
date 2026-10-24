@@ -3,11 +3,10 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.core.customer_auth import clear_session_cookies, current_session, start_session
+from app.core.customer_auth import clear_session_cookies, current_session
 from app.core.security import hash_password, verify_password
 from app.modules.admin.settings.service import get_group
 from app.modules.customer.account.models import Customer
-from app.modules.customer.account.serializers import serialize_customer
 from app.modules.customer.auth import otp
 from app.modules.customer.auth.schemas import (
     GoogleLoginSchema, LoginSchema, OtpSendSchema, OtpVerifySchema, RegisterSchema,
@@ -54,9 +53,10 @@ def _by(db: Session, *filters) -> Customer | None:
 
 def _signed_in(db: Session, customer: Customer, request: Request, response: Response, method: str,
                message: str = "Signed in") -> dict:
-    start_session(db, _active(customer), request, response, method)
-    db.commit()
-    return {"status": True, "message": message, "data": {"customer": serialize_customer(customer)}}
+    """A session, or a request for the two-step code (account/security.py) when that's turned on."""
+    from app.modules.customer.account import security
+
+    return security.signed_in(db, _active(customer), request, response, method, message)
 
 
 def options(db: Session) -> dict:
@@ -123,6 +123,10 @@ def login(db: Session, payload: LoginSchema, request: Request, response: Respons
         verify_password(payload.password, _DUMMY_HASH)
         raise field_error(401, "login", INVALID_LOGIN)
     if not verify_password(payload.password, customer.password):
+        from app.modules.customer.account.security import record
+
+        record(db, customer.id, "password", False, request, "wrong password")
+        db.commit()
         raise field_error(401, "login", INVALID_LOGIN)
     return _signed_in(db, customer, request, response, "password")
 

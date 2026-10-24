@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Lock } from "lucide-react";
@@ -16,6 +16,8 @@ import { useSidebarResize } from "@/app/admin/(panel)/_components/shell/useSideb
 import { Button, Card, EmptyState, ErrorBanner, Spinner } from "@/app/admin/_components/ui/index";
 import { useThemeStore } from "@/app/admin/_store/themeStore";
 import { CUSTOMER_ROUTES } from "@/config/routes";
+import { playChime } from "@/lib/alerts";
+import { setDateOrder, setDisplayTimeZone } from "@/lib/utils";
 
 import { allowed, moduleFor } from "../_lib/nav";
 import { INBOX_QK, inboxApi } from "../_lib/inboxApi";
@@ -82,6 +84,28 @@ export function CustomerShell({ children }: { children: ReactNode }) {
     enabled: !!me.data,
     refetchInterval: 15_000,
   });
+
+  // the person's preferences: time zone and date order for every date shown, the theme they chose
+  const prefs = me.data?.preferences;
+  useEffect(() => {
+    if (!prefs) return;
+    setDisplayTimeZone(prefs.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone);
+    setDateOrder(prefs.date_format);
+    if (prefs.theme === "system") {
+      useThemeStore.getState().setMode(window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+    } else {
+      useThemeStore.getState().setMode(prefs.theme);
+    }
+  }, [prefs]);
+
+  // a soft sound when a new customer message comes in (if they want it)
+  const lastUnread = useRef<number | null>(null);
+  const unread = inbox.data?.unread;
+  useEffect(() => {
+    if (unread === undefined) return;
+    if (lastUnread.current !== null && unread > lastUnread.current && prefs?.sound) playChime();
+    lastUnread.current = unread;
+  }, [unread, prefs?.sound]);
 
   const shell = useShellPrefs(me.data?.id ?? "guest");
   const opened = moduleFor(pathname);

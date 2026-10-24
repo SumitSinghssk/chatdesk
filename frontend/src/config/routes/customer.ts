@@ -18,6 +18,7 @@ export const CUSTOMER_ROUTES = {
   CHATBOTS: route("/dashboard/chatbots"),
   CHATBOT: (id: number) => `/dashboard/chatbots/${id}`,
   AI_AGENT: route("/dashboard/ai-agent"),
+  AI_AGENT_DETAIL: (id: number, tab?: string) => `/dashboard/ai-agent/${id}${tab ? `?tab=${tab}` : ""}`,
   COMMERCE: route("/dashboard/commerce"),
   ANALYTICS: route("/dashboard/analytics"),
   WHATSAPP: route("/dashboard/whatsapp"),

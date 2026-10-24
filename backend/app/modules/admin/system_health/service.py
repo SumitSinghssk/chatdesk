@@ -396,9 +396,11 @@ def _scheduler(db: Session) -> list[dict]:
                         (f"Last run {_ago(beat)}. " if beat else "It has never run on this server. ") + needs
                         + (" Automatic backups are turned on but will not happen." if auto else ""),
                         "Run scheduler.py every minute with cron (Linux) or Task Scheduler (Windows); see the Backups page.")
-    tasks = _check("scheduler.tasks", "Tasks", INFO, "4 tasks",
-                   "Every minute: scheduled backup when due. Hourly checks: trash older than 30 days, "
-                   "404 log entries not seen for 90 days, firewall housekeeping.")
+    from app.scheduler import JOBS
+
+    tasks = _check("scheduler.tasks", "Jobs", INFO, f"{len(JOBS)} jobs",
+                   "; ".join(f"{j.name}: {j.cadence}" for j in JOBS)
+                   + ". See them with `python scheduler.py list`.")
     return [status, tasks]
 
 

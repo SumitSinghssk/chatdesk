@@ -202,6 +202,11 @@ def _attempt(db: Session, conversation: WaConversation, message: WaMessage, send
         message.error_code = exc.code
         message.error_message = exc.details or str(exc)
         text = f"Not sent: {message.error_message}"
+        if exc.code == 190:  # the access token expired: nothing can be sent until it's renewed
+            from app.modules.customer.account import notify
+
+            notify.whatsapp_problem(db, message.customer_id, "Messages can't be sent: the WhatsApp access token "
+                                                             "expired or was revoked. Update it in WhatsApp setup.")
     touch(conversation, message)
     if reopen and message.status == "sent":  # a person answered (campaign sends don't count)
         member = db.get(Customer, message.member_id) if message.member_id else None
@@ -317,6 +322,9 @@ def set_status(db: Session, customer: Customer, conversation_id: int, payload: S
     if payload.status == "resolved":
         conversation.unread_count = 0
         conversation.waiting_since = None  # nothing left to answer
+        from app.modules.customer.ai_agent.engine import on_resolved
+
+        on_resolved(db, conversation)
     db.commit()
     labels = {"open": "Conversation reopened", "pending": "Marked as pending", "resolved": "Conversation resolved"}
     return {"status": True, "message": labels[payload.status], "data": serialize_conversation(conversation)}

@@ -9,6 +9,7 @@ import {
   errorMessage,
   type AuthOptions,
   type OtpSent,
+  type SignInResult,
 } from "@/app/(customer)/_lib/customerApi";
 
 import { Alert, Button, Field } from "@/app/(customer)/_components/ui";
@@ -59,7 +60,13 @@ export function OtpCodeField({
   );
 }
 
-export function OtpForm({ options, onDone }: { options: AuthOptions; onDone: () => void }) {
+export function OtpForm({
+  options,
+  onDone,
+}: {
+  options: AuthOptions;
+  onDone: (data?: SignInResult) => void;
+}) {
   const [phone, setPhone] = useState("");
   const [sent, setSent] = useState<OtpSent | null>(null);
   const [code, setCode] = useState("");
@@ -109,8 +116,8 @@ export function OtpForm({ options, onDone }: { options: AuthOptions; onDone: () 
     setErrors({});
     setFormError("");
     try {
-      await customerApi.verifyOtp({ phone: sent.phone, code, name: name.trim() || undefined });
-      onDone();
+      const res = await customerApi.verifyOtp({ phone: sent.phone, code, name: name.trim() || undefined });
+      onDone(res.data);
     } catch (err) {
       fail(err);
       setBusy(false);

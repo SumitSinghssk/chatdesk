@@ -12,6 +12,9 @@ os.environ.setdefault("RATE_LIMIT_BACKEND", "memory")
 os.environ["WEBSITE_REVALIDATE"] = "off"
 os.environ["CAMPAIGN_WORKER"] = "off"  # tests run campaigns explicitly
 os.environ["CHATBOT_WORKER"] = "off"  # and chatbot delays / timeouts
+os.environ["AI_WORKER"] = "off"  # AI agent replies run inline, so tests see them at once
+os.environ["NOTIFY_WORKER"] = "off"  # waiting-customer alerts run when a test calls them
+os.environ["NOTIFY_EMAIL_INLINE"] = "1"  # notification emails are sent before the request returns
 os.environ.pop("SENTRY_DSN", None)
 
 _db_name = urlparse(os.getenv("DATABASE_URL", "")).path.lstrip("/")

@@ -56,6 +56,10 @@ def assign(db: Session, owner: Customer, conversation: WaConversation, assignee_
         if person is not None:
             person.last_assigned_at = now()
             event(db, conversation, "assigned", f"Assigned to {display(person)}", actor)
+            from app.modules.customer.account import notify
+
+            by = getattr(owner, "actor", None)  # whoever assigned it doesn't need to be told
+            notify.chat_assigned(db, owner.id, conversation, person, by.id if by is not None else None)
         else:
             event(db, conversation, "unassigned", "Unassigned", actor)
 

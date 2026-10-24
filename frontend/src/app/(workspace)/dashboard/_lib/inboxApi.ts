@@ -51,7 +51,7 @@ export interface Conversation {
 /** Something that happened to a chat, shown in its timeline (assigned, resolved…). */
 export interface ConversationEvent {
   id: number;
-  kind: "assigned" | "unassigned" | "team" | "status" | "bot";
+  kind: "assigned" | "unassigned" | "team" | "status" | "bot" | "ai";
   text: string;
   actor: string | null;
   created_at: string;

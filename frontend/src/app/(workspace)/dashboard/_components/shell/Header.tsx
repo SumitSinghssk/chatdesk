@@ -11,6 +11,7 @@ import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 
 import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
+import { NotificationBell } from "./NotificationBell";
 import { UserMenu } from "./UserMenu";
 import { Tooltip } from "../Tooltip";
 
@@ -117,6 +118,7 @@ export function Header({
           </button>
         </Tooltip>
         <WhatsAppStatus />
+        <NotificationBell className={headerButton} />
         <Tooltip label={mode === "dark" ? "Light theme" : "Dark theme"} align="end">
           <button type="button" onClick={toggle} className={headerButton} aria-label="Toggle dark mode">
             {mode === "dark" ? <Sun className="h-4.5 w-4.5" /> : <Moon className="h-4.5 w-4.5" />}

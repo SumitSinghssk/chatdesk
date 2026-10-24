@@ -300,7 +300,7 @@ export function Analytics() {
   }, [r]);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-4">
+    <div className="space-y-4">
       <PageHeader
         title="Analytics"
         icon={BarChart3}

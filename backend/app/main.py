@@ -24,6 +24,8 @@ from app.core.monitoring import init_sentry
 from app.core.security_headers import add_security_headers
 from app.core.static_files import UploadStaticFiles
 from app.modules.admin.security.middleware import firewall_middleware
+from app.modules.customer.account import notify as account_notify
+from app.modules.customer.ai_agent import engine as ai_engine
 from app.modules.customer.campaigns import runner as campaign_runner
 from app.modules.customer.chatbots import engine as chatbot_engine
 
@@ -41,6 +43,8 @@ if settings.is_production and not settings.INTERNAL_API_KEY:
 async def lifespan(_: FastAPI):
     campaign_runner.start_ticker()  # sends scheduled campaigns and resumes interrupted ones
     chatbot_engine.start_ticker()  # carries chatbots on after a delay, closes ones customers left
+    ai_engine.start_ticker()  # answers WhatsApp chats with the AI agent, off the webhook's back
+    account_notify.start_ticker()  # tells the team about customers waiting too long
     yield
 
 

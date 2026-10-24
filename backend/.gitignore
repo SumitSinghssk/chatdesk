@@ -14,3 +14,8 @@ storage/backups/
 storage/imports/
 .env.docker
 storage/whatsapp-media/
+storage/ai-knowledge/
+
+# deploy/remote.sh bookkeeping and the Passenger restart marker
+.deploy/
+tmp/

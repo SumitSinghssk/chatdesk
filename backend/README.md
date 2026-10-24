@@ -10,7 +10,7 @@ venv\Scripts\activate                 # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
 copy .env.example .env                # set DATABASE_URL + SECRET_KEY
 python create_db.py                   # create the database if it doesn't exist
-alembic upgrade head                  # run migrations
+python migrate.py                     # run migrations (see Migrations below)
 python seed.py all                    # or pick: python seed.py rbac users settings content
 python run.py                         # http://127.0.0.1:8001  (docs at /docs)
 ```
@@ -22,9 +22,10 @@ Commands:
 | Task | Command |
 | --- | --- |
 | New migration after changing models | `alembic revision --autogenerate -m "describe change"` |
-| Apply migrations | `alembic upgrade head` |
+| Apply migrations | `python migrate.py` (`--dry-run` to preview, `--test` for the test DB) |
 | Add new permission keys / roles (safe to re-run) | `python seed.py rbac` |
-| Scheduled tasks (run every minute) | `python scheduler.py` |
+| Scheduled jobs (run every minute) | `python scheduler.py` · `python scheduler.py list` · `python scheduler.py run <job>` |
+| Deploy on the live server | `bash deploy/remote.sh` |
 | Emergency: new admin password | `python manage.py reset-password <email> [--generate]` |
 | Emergency: unlock / reset 2FA | `python manage.py unlock <email>` · `python manage.py reset-two-factor <email>` |
 | Emergency: unblock an IP | `python manage.py unblock <ip>` |
@@ -146,20 +147,64 @@ payment = confirm_payment(db, session["gateway"], data_from_checkout)   # verifi
 schtasks /Create /F /SC MINUTE /MO 1 /TN "Starter Kit scheduler" /TR "\"C:\path\to\starter-kit-api\venv\Scripts\python.exe\" \"C:\path\to\starter-kit-api\scheduler.py\""
 ```
 
-Each run writes a heartbeat (shown on Backups and System health) and then:
-
-| Task | What it does | When |
-| --- | --- | --- |
-| `backup` | the scheduled backup from Backups -> Automatic backups, then keeps only the newest *keep* scheduled backups | when a slot is due (one per slot, guarded by a Postgres advisory lock) |
-| `trash` | permanently deletes trashed items older than 30 days | at most hourly |
-| `not_found` | forgets 404 log entries not seen for 90 days | at most hourly |
-| `security` | firewall housekeeping | at most hourly |
+One cron entry runs every job. Each job is a file in `app/scheduler/jobs/` with its own cron expression;
+on every minute only the jobs whose schedule matches run (in server time). Each run writes a heartbeat
+(shown on Backups and System health), and a Postgres advisory lock keeps two runs from overlapping.
 
 ```bash
-python scheduler.py                         # normal run (what cron calls)
-python scheduler.py --task trash            # run one task now: backup | trash | not_found | security | all
-python scheduler.py --force-backup          # make a scheduled backup even when none is due
+python scheduler.py                  # what cron calls: the jobs due this minute
+python scheduler.py list             # every job, its schedule and what it does
+python scheduler.py run trash        # run one job now, even if it isn't due (`run backup` forces a backup)
+python scheduler.py run-all          # run every job now (a backup still only when due)
+python -m app.scheduler list         # the same commands, straight from the package
 ```
+
+| Job | What it does | Schedule |
+| --- | --- | --- |
+| `publish` | refreshes the website when a scheduled post or page goes live | every minute |
+| `campaigns` | sends scheduled campaigns, resumes stalled ones | every minute |
+| `chatbots` | chatbot delays and timeouts | every minute |
+| `ai_replies` | WhatsApp messages still waiting for the AI agent | every minute |
+| `backup` | the automatic backup from Backups -> Automatic backups, then keeps only the newest *keep* | every minute, works only when a slot is due |
+| `trash` | permanently deletes trashed items older than 30 days | hourly (`0 * * * *`) |
+| `not_found` | forgets 404 log entries not seen for 90 days | hourly (`15 * * * *`) |
+| `security` | firewall and rate-limit housekeeping | hourly (`30 * * * *`) |
+| `customers` | old sign-in codes, ended sessions, old SMS logs | hourly (`45 * * * *`) |
+
+**Adding a job:** create `app/scheduler/jobs/<name>.py` with `NAME`, `DESCRIPTION`, `CADENCE`, `SCHEDULE`
+(a 5-field cron expression) and `run(db, force) -> str` (one line saying what it did), then add
+`_build(<name>)` in `app/scheduler/registry.py`. No cron change is needed. Keep jobs safe to run twice.
+
+The old flags still work: `--task <job|all>` and `--force-backup`.
+
+## Migrations
+
+```bash
+python migrate.py               # alembic upgrade, then add any model table/column no migration covers
+python migrate.py --dry-run     # show what is missing; change nothing
+python migrate.py --test        # the same on TEST_DATABASE_URL (the pytest database)
+python migrate.py --diff-only   # skip alembic: sync tables/columns straight from the models
+python migrate.py --auto-revision   # alembic upgrade -> autogenerate a revision -> upgrade
+```
+
+If the database records a revision this code doesn't have (another branch, a restored dump), alembic can't run;
+`migrate.py` then adds the missing tables and columns from the models and stamps the current head, so the next run
+goes through alembic normally. It only ever adds: nothing is dropped or changed. A new migration after changing
+models is still `alembic revision --autogenerate -m "what changed"`.
+
+## Deploying to the live server
+
+After uploading the code (rsync, git pull or CI), run on the server:
+
+```bash
+cd ~/chatdesk/backend && bash deploy/remote.sh
+```
+
+It finds the virtualenv (`venv`, `.venv` or cPanel's `~/virtualenv/...`), installs requirements only when
+`requirements.txt` changed, runs `python migrate.py`, optionally seeds (`SEED_ARGS="rbac settings"`; demo seeders
+are refused), restarts the app (`SERVICE_NAME` for systemd, otherwise Passenger's `tmp/restart.txt`) and checks
+`HEALTH_URL`. `MIGRATIONS=dry-run` previews instead; `MIGRATIONS=skip` skips. Install the scheduler's cron line once
+(above); new jobs never need a cron change.
 
 Backups are stored in `storage/backups/backup-YYYY-MM-DD-HHMMSS/` (never served publicly) as
 `database.sql.gz` (plain SQL from `pg_dump`, restore with `gunzip -c database.sql.gz | psql -d starter_kit`)

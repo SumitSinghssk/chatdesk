@@ -13,17 +13,19 @@ import {
   errorMessage,
   safeNext,
   type AuthOptions,
+  type SignInResult,
 } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
 import { Alert, Button, Field } from "@/app/(customer)/_components/ui";
 import { OtpForm } from "@/app/(customer)/_components/OtpForm";
+import { TwoFactorStep } from "@/app/(customer)/_components/TwoFactorStep";
 
 type Mode = "login" | "register";
 type Method = "password" | "otp";
 
-function PasswordLogin({ onDone }: { onDone: () => void }) {
+function PasswordLogin({ onDone }: { onDone: (data?: SignInResult) => void }) {
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState("");
@@ -39,8 +41,8 @@ function PasswordLogin({ onDone }: { onDone: () => void }) {
     if (Object.keys(next).length) return;
     setBusy(true);
     try {
-      await customerApi.login({ login: data.login.trim(), password: data.password });
-      onDone();
+      const res = await customerApi.login({ login: data.login.trim(), password: data.password });
+      onDone(res.data);
     } catch (err) {
       const api = err instanceof CustomerApiError ? err : null;
       if (api?.errors.login) setFormError(api.errors.login);
@@ -197,6 +199,7 @@ export function AuthPage({ mode }: { mode: Mode }) {
   const [chosen, setChosen] = useState<Method | null>(null);
   const [googleError, setGoogleError] = useState("");
   const [googleBusy, setGoogleBusy] = useState(false);
+  const [twoFactor, setTwoFactor] = useState<string | null>(null);
 
   useEffect(() => {
     customerApi
@@ -205,7 +208,12 @@ export function AuthPage({ mode }: { mode: Mode }) {
       .catch((err) => setLoadError(errorMessage(err)));
   }, []);
 
-  const done = () => {
+  const done = (data?: SignInResult) => {
+    if (data?.two_factor_required && data.two_factor_token) {
+      setTwoFactor(data.two_factor_token);
+      setGoogleBusy(false);
+      return;
+    }
     notifyMemberChange();
     router.replace(next);
     router.refresh();
@@ -215,8 +223,8 @@ export function AuthPage({ mode }: { mode: Mode }) {
     setGoogleBusy(true);
     setGoogleError("");
     try {
-      await customerApi.google(credential);
-      done();
+      const res = await customerApi.google(credential);
+      done(res.data);
     } catch (err) {
       setGoogleError(errorMessage(err));
       setGoogleBusy(false);
@@ -228,7 +236,9 @@ export function AuthPage({ mode }: { mode: Mode }) {
   const subtitle = register ? "Join in a few seconds." : "Sign in to your account.";
 
   let body: React.ReactNode;
-  if (loadError) {
+  if (twoFactor) {
+    body = <TwoFactorStep token={twoFactor} onDone={done} onCancel={() => setTwoFactor(null)} />;
+  } else if (loadError) {
     body = <Alert>{loadError}</Alert>;
   } else if (!options) {
     body = (
