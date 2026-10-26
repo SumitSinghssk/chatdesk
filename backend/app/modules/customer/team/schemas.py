@@ -8,6 +8,8 @@ class InviteSchema(BaseModel):
     name: Optional[str] = Field(None, max_length=150)
     role: Literal["admin", "agent"] = "agent"
     team_ids: list[int] = Field(default_factory=list, max_length=50)
+    all_numbers: bool = True
+    number_ids: list[int] = Field(default_factory=list, max_length=100)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -18,6 +20,8 @@ class InviteSchema(BaseModel):
 class MemberUpdateSchema(BaseModel):
     role: Literal["admin", "agent"]
     team_ids: list[int] = Field(default_factory=list, max_length=50)
+    all_numbers: bool = True
+    number_ids: list[int] = Field(default_factory=list, max_length=100)
 
 
 class AvailabilitySchema(BaseModel):

@@ -20,6 +20,10 @@ export interface Member {
   invite_expires_at: string | null;
   is_you: boolean;
   created_at: string;
+  /** numbers: may work on all of them, or only number_ids; works_here = on the number in use */
+  all_numbers: boolean;
+  number_ids: number[];
+  works_here: boolean;
   /** only right after inviting / re-inviting */
   invite_url?: string;
 }
@@ -76,11 +80,19 @@ const T = CUSTOMER_ENDPOINTS.TEAM;
 
 export const teamApi = {
   members: () => request<Member[]>("GET", T.MEMBERS),
-  invite: (body: { email: string; name?: string | null; role: "admin" | "agent"; team_ids: number[] }) =>
-    request<Member>("POST", T.MEMBERS, body),
+  invite: (body: {
+    email: string;
+    name?: string | null;
+    role: "admin" | "agent";
+    team_ids: number[];
+    all_numbers: boolean;
+    number_ids: number[];
+  }) => request<Member>("POST", T.MEMBERS, body),
   reinvite: (id: number) => request<Member>("POST", T.REINVITE(id)),
-  updateMember: (id: number, body: { role: "admin" | "agent"; team_ids: number[] }) =>
-    request<Member>("PUT", T.MEMBER(id), body),
+  updateMember: (
+    id: number,
+    body: { role: "admin" | "agent"; team_ids: number[]; all_numbers: boolean; number_ids: number[] }
+  ) => request<Member>("PUT", T.MEMBER(id), body),
   removeMember: (id: number) => request<null>("DELETE", T.MEMBER(id)),
   teams: () => request<Team[]>("GET", T.TEAMS),
   saveTeam: (body: { name: string; description?: string | null; member_ids: number[] }, id?: number) =>

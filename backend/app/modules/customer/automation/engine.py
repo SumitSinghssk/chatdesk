@@ -22,7 +22,6 @@ from app.modules.customer.automation.models import WaAutoReply, WaAutoReplyHit
 from app.modules.customer.automation.schemas import DAYS, SettingsSchema
 from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage
 from app.services.whatsapp import WhatsAppClient, WhatsAppError
-from app.shared.enums import Status
 from app.shared.utils.datetime import now
 
 logger = logging.getLogger(__name__)
@@ -49,9 +48,9 @@ def is_open(rules: dict, at: datetime | None = None) -> bool:
 
 
 def nobody_available(db: Session, owner_id: int) -> bool:
-    return not db.query(Customer.id).filter(
-        (Customer.id == owner_id) | (Customer.workspace_id == owner_id), Customer.not_deleted(),
-        Customer.status == Status.ACTIVE.value, Customer.availability == "available").first()
+    from app.modules.customer.team.access import people
+
+    return not people(db, owner_id).filter(Customer.availability == "available").first()
 
 
 def keyword_matches(rule: WaAutoReply, text: str) -> bool:

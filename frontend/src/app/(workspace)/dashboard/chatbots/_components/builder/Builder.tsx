@@ -960,7 +960,7 @@ function Canvas({ initial }: { initial: ChatbotDetail }) {
                   vars={vars}
                   issues={map[editingNode.id]}
                   members={(members.data ?? [])
-                    .filter((m) => m.status === "active")
+                    .filter((m) => m.status === "active" && m.works_here)
                     .map((m) => ({ value: m.id, label: m.name || m.email || "Member" }))}
                   teams={(teams.data ?? []).map((t) => ({ value: t.id, label: t.name }))}
                   onChange={(data) => updateData(editingNode.id, data)}

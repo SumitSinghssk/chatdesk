@@ -18,8 +18,11 @@ import {
 import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { timeAgo } from "@/lib/utils";
 
+import { NUMBERS_QK } from "../_lib/numbersApi";
 import { WORKSPACE_QK, whatsappApi, type WhatsAppConnection as Connection } from "../_lib/whatsappApi";
 import { CardHeader } from "./CardHeader";
+import { useDashboard } from "./DashboardContext";
+import { NumbersCard } from "./NumbersCard";
 
 const EMPTY_FORM = { waba_id: "", phone_number_id: "", access_token: "", app_secret: "" };
 
@@ -65,6 +68,8 @@ function Detail({ label, value }: { label: string; value: string | null | undefi
 }
 
 export function WhatsAppConnection() {
+  const { number, numbers } = useDashboard();
+  const several = numbers.length > 1;
   const queryClient = useQueryClient();
   const confirm = useConfirm();
   const {
@@ -99,6 +104,7 @@ export function WhatsAppConnection() {
   const store = (next: Connection | null) => {
     queryClient.setQueryData(WORKSPACE_QK.CONNECTION, next);
     void queryClient.invalidateQueries({ queryKey: WORKSPACE_QK.OVERVIEW });
+    void queryClient.invalidateQueries({ queryKey: NUMBERS_QK.LIST }); // the switcher shows its status
   };
 
   const run = async (
@@ -169,20 +175,26 @@ export function WhatsAppConnection() {
   };
 
   if (isLoading) {
-    return <Skeleton className="h-64 max-w-4xl rounded-xl" />;
+    return (
+      <>
+        <NumbersCard />
+        <Skeleton className="h-64 max-w-4xl rounded-xl" />
+      </>
+    );
   }
 
   const status = connection ? STATUS[connection.status] : null;
 
   return (
     <>
+      <NumbersCard />
       {error && <ErrorBanner className="mb-4" message={errorMessage(error)} />}
 
       <div className="grid max-w-6xl grid-cols-1 gap-5 xl:grid-cols-2">
         {connection && (
           <Card>
             <CardHeader
-              title="Your WhatsApp number"
+              title={several ? `${number.label}: WhatsApp number` : "Your WhatsApp number"}
               description="Details come straight from Meta."
               actions={
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -233,7 +245,13 @@ export function WhatsAppConnection() {
         {showForm && (
           <Card>
             <CardHeader
-              title={connection ? "Update connection" : "Connect your number"}
+              title={
+                connection
+                  ? "Update connection"
+                  : several
+                    ? `Connect a number to ${number.label}`
+                    : "Connect your number"
+              }
               description="From Meta Business Suite → WhatsApp Manager and your Meta app (WhatsApp → API setup). Use a permanent system-user token, not the 24-hour test token."
             />
             <CardBody>
@@ -308,6 +326,8 @@ export function WhatsAppConnection() {
               <CopyField label="Callback URL" value={connection.webhook_url} />
               <CopyField label="Verify token" value={connection.verify_token} />
               <p className="text-fg-subtle text-xs">
+                {several &&
+                  "Numbers in the same Meta app share one callback URL: if another of your numbers' URL is already set in that app, you don't need to change it. "}
                 Meta must reach this URL over HTTPS. For local testing, expose the API with a tunnel such as
                 ngrok and set APP_URL in backend/.env to the tunnel address. Graph API{" "}
                 {connection.graph_api_version}.

@@ -6,19 +6,16 @@ from sqlalchemy.orm import Session
 
 from app.modules.customer.account.models import Customer
 from app.modules.customer.inbox.models import WaConversation, WaConversationEvent, WaResponse
-from app.modules.customer.team.access import settings_of
+from app.modules.customer.team.access import people, root_id, settings_of
 from app.modules.customer.team.models import WaTeam, WaTeamMember
-from app.shared.enums import Status
 from app.shared.utils.datetime import now
 
 OPEN = ("open", "pending")
 
 
 def members(db: Session, owner_id: int):
-    """Everyone in the workspace who can be assigned chats (the owner included), active only."""
-    return db.query(Customer).filter(
-        (Customer.id == owner_id) | (Customer.workspace_id == owner_id),
-        Customer.not_deleted(), Customer.status == Status.ACTIVE.value)
+    """Everyone who can be assigned this number's chats (the owner included), active only."""
+    return people(db, owner_id)
 
 
 def member_of(db: Session, owner_id: int, member_id: int) -> Customer | None:
@@ -39,7 +36,7 @@ def assign(db: Session, owner: Customer, conversation: WaConversation, assignee_
     """Sets who handles the chat and/or its team, and writes it to the timeline."""
     team = None
     if team_id is not None:
-        team = db.query(WaTeam).filter(WaTeam.id == team_id, WaTeam.customer_id == owner.id).first()
+        team = db.query(WaTeam).filter(WaTeam.id == team_id, WaTeam.customer_id == root_id(owner)).first()
         if team is None:
             raise HTTPException(422, detail="That team doesn't exist")
     person = None

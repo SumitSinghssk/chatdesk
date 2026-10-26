@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { Button, Input, Modal, MultiSelect, RadioGroup } from "@/app/admin/_components/ui/index";
 import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
 
+import { useDashboard } from "../../_components/DashboardContext";
 import { teamApi, type Member, type Team } from "../../_lib/teamApi";
 
 export const ROLE_OPTIONS = [
@@ -21,6 +22,47 @@ export const ROLE_OPTIONS = [
     description: "Everything: templates, campaigns, WhatsApp setup and the team.",
   },
 ];
+
+/** Which WhatsApp numbers someone works on. Only shown once the workspace has more than one. */
+function NumberAccess({
+  every,
+  picked,
+  error,
+  onChange,
+}: {
+  every: boolean;
+  picked: string[];
+  error?: string;
+  onChange: (every: boolean, picked: string[]) => void;
+}) {
+  const { numbers } = useDashboard();
+  if (numbers.length < 2) return null;
+  return (
+    <div className="space-y-3">
+      <RadioGroup
+        label="WhatsApp numbers"
+        columns={2}
+        value={every ? "all" : "some"}
+        onChange={(v) => onChange(v === "all", picked)}
+        options={[
+          { value: "all", label: "All numbers", description: "Including numbers added later." },
+          { value: "some", label: "Only some", description: "They won't see the other numbers at all." },
+        ]}
+      />
+      {!every && (
+        <MultiSelect
+          id="member-numbers"
+          label="Numbers they work on"
+          options={numbers.map((n) => ({ value: n.id, label: n.label }))}
+          value={picked}
+          onChange={(v) => onChange(false, v)}
+          placeholder="Pick at least one"
+          error={error}
+        />
+      )}
+    </div>
+  );
+}
 
 /** The invite link, ready to copy or send on WhatsApp. */
 export function InviteLink({ member, workspace }: { member: Member; workspace: string }) {
@@ -82,6 +124,8 @@ export function InviteModal({
   const [name, setName] = useState("");
   const [role, setRole] = useState<"admin" | "agent">("agent");
   const [teamIds, setTeamIds] = useState<string[]>([]);
+  const [everyNumber, setEveryNumber] = useState(true);
+  const [numberIds, setNumberIds] = useState<string[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [invited, setInvited] = useState<Member | null>(null);
@@ -91,6 +135,8 @@ export function InviteModal({
     setName("");
     setRole("agent");
     setTeamIds([]);
+    setEveryNumber(true);
+    setNumberIds([]);
     setErrors({});
     setInvited(null);
   };
@@ -103,7 +149,14 @@ export function InviteModal({
     setSaving(true);
     setErrors({});
     try {
-      const res = await teamApi.invite({ email, name: name || null, role, team_ids: teamIds.map(Number) });
+      const res = await teamApi.invite({
+        email,
+        name: name || null,
+        role,
+        team_ids: teamIds.map(Number),
+        all_numbers: everyNumber,
+        number_ids: everyNumber ? [] : numberIds.map(Number),
+      });
       setInvited(res.data);
       onInvited();
     } catch (err) {
@@ -176,6 +229,15 @@ export function InviteModal({
               placeholder="Optional"
             />
           )}
+          <NumberAccess
+            every={everyNumber}
+            picked={numberIds}
+            error={errors.number_ids}
+            onChange={(every, picked) => {
+              setEveryNumber(every);
+              setNumberIds(picked);
+            }}
+          />
         </div>
       )}
     </Modal>
@@ -195,16 +257,27 @@ export function EditMemberModal({
 }) {
   const [role, setRole] = useState<"admin" | "agent">(member?.role === "admin" ? "admin" : "agent");
   const [teamIds, setTeamIds] = useState<string[]>((member?.teams ?? []).map((t) => String(t.id)));
+  const [everyNumber, setEveryNumber] = useState(member?.all_numbers ?? true);
+  const [numberIds, setNumberIds] = useState<string[]>((member?.number_ids ?? []).map(String));
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const owner = member?.role === "owner";
 
   const save = async () => {
     if (!member) return;
     setSaving(true);
     try {
-      const res = await teamApi.updateMember(member.id, { role, team_ids: teamIds.map(Number) });
+      setErrors({});
+      const res = await teamApi.updateMember(member.id, {
+        role,
+        team_ids: teamIds.map(Number),
+        all_numbers: everyNumber,
+        number_ids: everyNumber ? [] : numberIds.map(Number),
+      });
       toast.success(res.message ?? "Saved");
       onSaved();
     } catch (err) {
+      if (err instanceof CustomerApiError) setErrors(err.errors);
       toast.error(errorMessage(err));
     } finally {
       setSaving(false);
@@ -246,6 +319,17 @@ export function EditMemberModal({
           onChange={setTeamIds}
           placeholder={teams.length ? "No team" : "Create teams in the Teams tab"}
         />
+        {!owner && (
+          <NumberAccess
+            every={everyNumber}
+            picked={numberIds}
+            error={errors.number_ids}
+            onChange={(every, picked) => {
+              setEveryNumber(every);
+              setNumberIds(picked);
+            }}
+          />
+        )}
       </div>
     </Modal>
   );

@@ -45,7 +45,8 @@ def _users(db: Session, q: str):
 
 
 def _customers(db: Session, q: str):
-    rows = _rows(db, Customer, [Customer.name, Customer.email, Customer.phone], q, Customer.not_deleted())
+    rows = _rows(db, Customer, [Customer.name, Customer.email, Customer.phone], q, Customer.not_deleted(),
+                 Customer.parent_id.is_(None))
     return [_item(r.id, r.name or r.email or r.phone or f"Customer #{r.id}", r.email or r.phone,
                   admin_url(urls.CUSTOMERS, open=r.id)) for r in rows]
 

@@ -145,7 +145,7 @@ def list_customers(db: Session, page=None, per_page=None, search=None, status=No
                    filters: str | None = None, match: str | None = "and", sort: str | None = None,
                    whatsapp: str | None = None):
     q = (db.query(Customer).options(selectinload(Customer.whatsapp_account))
-         .filter(Customer.not_deleted(), Customer.workspace_id.is_(None)))
+         .filter(Customer.not_deleted(), Customer.workspace_id.is_(None), Customer.parent_id.is_(None)))
     clause = search_clause([Customer.name, Customer.business_name, Customer.email, Customer.phone], search)
     if clause is not None:
         q = q.filter(clause)
@@ -175,10 +175,10 @@ def stats(db: Session):
 
     def count(*filters) -> int:
         return db.query(func.count(Customer.id)).filter(Customer.not_deleted(), Customer.workspace_id.is_(None),
-                                                       *filters).scalar() or 0
+                                                       Customer.parent_id.is_(None), *filters).scalar() or 0
 
     methods = dict(db.query(Customer.signup_method, func.count(Customer.id))
-                   .filter(Customer.not_deleted(), Customer.workspace_id.is_(None))
+                   .filter(Customer.not_deleted(), Customer.workspace_id.is_(None), Customer.parent_id.is_(None))
                    .group_by(Customer.signup_method).all())
     return {
         "status": True,

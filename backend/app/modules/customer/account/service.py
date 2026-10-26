@@ -35,6 +35,8 @@ def update_profile(db: Session, customer: Customer, payload: ProfileUpdateSchema
     customer.job_title = payload.job_title
     if customer.workspace_id is None:  # team members don't own the business name
         customer.business_name = payload.business_name.strip() if payload.business_name else None
+        db.query(Customer).filter(Customer.parent_id == customer.id).update(  # the other numbers too
+            {Customer.business_name: customer.business_name}, synchronize_session=False)
     db.commit()
     return _ok(customer, "Profile saved")
 

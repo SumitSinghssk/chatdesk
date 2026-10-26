@@ -49,7 +49,7 @@ export function AssignMenu({
     }
   };
 
-  const people = (members ?? []).filter((m) => m.status === "active");
+  const people = (members ?? []).filter((m) => m.status === "active" && m.works_here);
   const items: (DropdownItem | "divider")[] = [
     {
       label: "Assign to me",

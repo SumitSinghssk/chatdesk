@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { Menu, Moon, PanelLeftClose, PanelLeftOpen, Search, Sun } from "lucide-react";
 
 import { headerButton } from "@/app/admin/(panel)/_components/shell/headerStyles";
@@ -10,60 +9,28 @@ import { CUSTOMER_ROUTES } from "@/config/routes";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 
-import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
+import type { WaNumber } from "../../_lib/numbersApi";
 import { NotificationBell } from "./NotificationBell";
+import { NumberSwitcher } from "./NumberSwitcher";
 import { UserMenu } from "./UserMenu";
 import { Tooltip } from "../Tooltip";
 
-// Mirrors app/admin/(panel)/_components/shell/Header.tsx. The admin "Create" menu becomes a
-// WhatsApp status chip, the most important state for a business.
-
-function WhatsAppStatus() {
-  const { data } = useQuery({
-    queryKey: WORKSPACE_QK.CONNECTION,
-    queryFn: async () => (await whatsappApi.connection()).data,
-    staleTime: 60_000,
-  });
-  if (data === undefined) return null;
-  const state = !data ? "none" : data.status === "connected" ? "ok" : "error";
-  const label = {
-    ok: data?.display_phone_number ?? "WhatsApp connected",
-    error: "Fix WhatsApp",
-    none: "Connect WhatsApp",
-  }[state];
-  return (
-    <Tooltip label={state === "ok" ? "WhatsApp number connected" : "Open WhatsApp setup"} align="end">
-      <Link
-        href={CUSTOMER_ROUTES.WHATSAPP()}
-        className={cn(
-          "inline-flex h-8 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold shadow-xs transition sm:px-2.5",
-          state === "ok" && "border-line text-fg hover:bg-hover border",
-          state === "error" && "bg-danger-soft text-danger hover:bg-danger/15",
-          state === "none" && "bg-primary text-primary-fg hover:bg-primary-hover"
-        )}
-      >
-        <span
-          className={cn(
-            "h-2 w-2 shrink-0 rounded-full",
-            state === "ok" && "bg-emerald-500",
-            state === "error" && "bg-red-500",
-            state === "none" && "bg-white/90"
-          )}
-          aria-hidden
-        />
-        <span className="hidden sm:inline">{label}</span>
-      </Link>
-    </Tooltip>
-  );
-}
+// Mirrors app/admin/(panel)/_components/shell/Header.tsx. The admin "Create" menu becomes the WhatsApp
+// number switcher: which number the workspace is on, and whether it's connected.
 
 export function Header({
+  numbers,
+  number,
+  onSwitchNumber,
   onOpenMobile,
   onOpenSearch,
   onToggleSidebar,
   sidebarCollapsed,
   onSignOut,
 }: {
+  numbers: WaNumber[];
+  number: WaNumber;
+  onSwitchNumber: (id: number, opts?: { to?: string }) => Promise<void>;
   onOpenMobile: () => void;
   onOpenSearch: () => void;
   onToggleSidebar: () => void;
@@ -117,7 +84,7 @@ export function Header({
             <Search className="h-4.5 w-4.5" />
           </button>
         </Tooltip>
-        <WhatsAppStatus />
+        <NumberSwitcher numbers={numbers} current={number} onSwitch={onSwitchNumber} />
         <NotificationBell className={headerButton} />
         <Tooltip label={mode === "dark" ? "Light theme" : "Dark theme"} align="end">
           <button type="button" onClick={toggle} className={headerButton} aria-label="Toggle dark mode">
