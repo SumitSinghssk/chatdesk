@@ -19,6 +19,10 @@ EVENTS: dict[str, dict] = {
                           "default": {"in_app": True, "email": True, "browser": False}},
     "whatsapp_problem": {"label": "Your WhatsApp number has a problem", "managers": True,
                          "default": {"in_app": True, "email": True, "browser": True}},
+    "new_order": {"label": "A customer places an order", "managers": True,
+                  "default": {"in_app": True, "email": False, "browser": True}},
+    "payment_received": {"label": "A customer pays online", "managers": True,
+                         "default": {"in_app": True, "email": False, "browser": True}},
 }
 CHANNELS = ("in_app", "email", "browser")
 

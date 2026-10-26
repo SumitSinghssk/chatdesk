@@ -226,6 +226,7 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
     from app.core.crypto import decrypt_secret
     from app.modules.customer.ai_agent import engine as ai
     from app.modules.customer.chatbots import engine as chatbots
+    from app.modules.customer.commerce import flow as shop
     from app.modules.customer.team.assign import event
 
     if not message_ids or account.status != "connected":
@@ -240,6 +241,14 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
         contact = conversation.contact
         if contact.blocked:
             continue
+        # shopping first: carts, Buy now taps, addresses, how to pay, coupon codes
+        try:
+            if shop.takes(db, owner, client, conversation, message):
+                sent += 1
+                continue
+        except (WhatsAppError, OSError, KeyError, ValueError) as exc:
+            db.rollback()
+            logger.warning("Shop reply for message %s failed: %s", message.id, exc)
         first = not db.query(WaMessage.id).filter(WaMessage.conversation_id == conversation.id,
                                                   WaMessage.direction == "in", WaMessage.id < message.id).first()
         try:

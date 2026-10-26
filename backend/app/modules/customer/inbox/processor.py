@@ -27,6 +27,7 @@ PREVIEW_LABELS = {
     "location": "Location",
     "contacts": "Contact",
     "template": "Template",
+    "order": "Order",
 }
 
 
@@ -109,6 +110,10 @@ def _content(raw: dict) -> dict:
         fields["text"] = reply.get("title") or reply.get("body")
     elif kind == "button":
         fields["text"] = (raw.get("button") or {}).get("text")
+    elif kind == "order":  # a cart sent from the WhatsApp catalog
+        order = raw.get("order") or {}
+        count = sum(int(i.get("quantity") or 0) for i in order.get("product_items") or [])
+        fields["text"] = order.get("text") or f"🛒 Cart: {count} item{'' if count == 1 else 's'}"
     elif kind == "reaction":
         fields["text"] = (raw.get("reaction") or {}).get("emoji")
     elif kind == "unsupported" or raw.get("errors"):
@@ -148,6 +153,10 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
 
 
 def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
+    if raw.get("type") == "payment":  # WhatsApp Pay: a Review and pay order was paid (or failed)
+        from app.modules.customer.commerce import payments
+
+        return payments.whatsapp_status(db, account.customer_id, raw)
     message = db.query(WaMessage).filter(WaMessage.wamid == raw.get("id"),
                                          WaMessage.customer_id == account.customer_id).first()
     if message is None:

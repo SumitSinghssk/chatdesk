@@ -37,7 +37,13 @@ export interface LoginEvent {
 }
 
 export type NotifyEvent =
-  "chat_assigned" | "customer_waiting" | "ai_handover" | "campaign_finished" | "whatsapp_problem";
+  | "chat_assigned"
+  | "customer_waiting"
+  | "ai_handover"
+  | "campaign_finished"
+  | "whatsapp_problem"
+  | "new_order"
+  | "payment_received";
 
 export interface ChannelSet {
   in_app: boolean;

@@ -155,6 +155,10 @@ def _field(rt: "Runner", field: str):
         return variables.get(field[4:])
     if field.startswith("attr:"):
         return (contact.attributes or {}).get(field[5:])
+    if field.startswith("shop:"):
+        from app.modules.customer.commerce import botshop
+
+        return botshop.field(rt, field)
     return {
         "contact:name": contact.name or contact.profile_name,
         "contact:email": contact.email,
@@ -385,6 +389,10 @@ class Runner:
     def goto(self, node_id: str, chatbot_id: int) -> None:
         raise NotImplementedError
 
+    def send_built(self, node_id: str, request: dict, preview: str, shown: dict) -> None:
+        """A ready WhatsApp message (products, catalog) from the commerce module."""
+        raise NotImplementedError
+
     def finish(self, reason: str, node_id: str | None = None) -> None:
         self.st.status, self.st.end_reason = "ended", reason
         self.st.wait = self.st.resume_at = None
@@ -467,6 +475,10 @@ class Runner:
             elif kind == "goto":
                 self.goto(node_id, int(data["chatbot_id"]))
                 return
+            elif kind == "shop":
+                from app.modules.customer.commerce import botshop
+
+                node_id = self._leave(node_id, botshop.run(self, node_id, data))
             elif kind == "end":
                 if data.get("text"):
                     self.send(node_id, {"type": "text", "text": self.fill(data["text"])})
@@ -604,6 +616,11 @@ class SimRunner(Runner):
         self.events.append({"kind": "delay", "node_id": node_id, "seconds": seconds})
         return False
 
+    def send_built(self, node_id, request, preview, shown):
+        lines = [shown.get("body") or preview] if shown.get("kind") != "card" else [preview]
+        lines += [f"• {p['name']} · {p['price_text']}" for p in shown.get("products") or []]
+        self.send(node_id, {"type": "text", "text": "\n".join(line for line in lines if line)})
+
     def goto(self, node_id, chatbot_id):
         target = self.db.query(WaChatbot).filter(WaChatbot.id == chatbot_id,
                                                  WaChatbot.customer_id == self.owner.id).first()
@@ -710,6 +727,20 @@ class LiveRunner(Runner):
                 assign.assign(self.db, self.owner, self.conversation, person.id, self.conversation.team_id, SENDER)
         if self.conversation.status == "resolved":
             self.conversation.status, self.conversation.resolved_at = "open", None
+
+    def send_built(self, node_id, request, preview, shown):
+        from app.modules.customer.inbox import service as inbox
+
+        raw = {"request": request, "commerce": shown, "auto_reply": {"id": None, "name": self.bot.name},
+               "chatbot": {"id": self.bot.id, "node_id": node_id, "session_id": self.st.id}}
+        message = inbox._outbound(self.db, self.owner, self.conversation, sent_by=SENDER, type="interactive",
+                                  text=preview, payload=raw)
+        message.member_id = None
+        inbox._attempt(self.db, self.conversation, message,
+                       lambda: self.client.send({"to": self.contact.wa_id, **request}), reopen=False)
+        if message.status == "failed":
+            self.st.error = message.error_message
+            raise Stop(message.error_message)
 
     def delay(self, node_id, seconds, next_id):
         if next_id is None:

@@ -3,7 +3,7 @@ import os
 import urllib.error
 import urllib.request
 import uuid
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 GRAPH_API_VERSION = os.getenv("WHATSAPP_GRAPH_API_VERSION", "v23.0")
 # WHATSAPP_GRAPH_URL points at a stand-in for Meta (end-to-end tests); leave unset in real use
@@ -192,6 +192,72 @@ class WhatsAppClient:
         )
         with self._open(request) as response:
             return json.loads(response.read() or b"{}")["h"]
+
+    # Commerce catalog -------------------------------------------------------------
+
+    PRODUCT_FIELDS = ("id,retailer_id,name,description,price,sale_price,currency,image_url,additional_image_urls,"
+                      "availability,url,brand,retailer_product_group_id,color,size,visibility,inventory")
+
+    def product_catalogs(self, waba_id: str) -> list[dict]:
+        """Catalogs connected to the WhatsApp Business Account."""
+        return self._request("GET", f"{waba_id}/product_catalogs?fields=id,name,product_count").get("data", [])
+
+    def connect_catalog(self, waba_id: str, catalog_id: str) -> dict:
+        return self._request("POST", f"{waba_id}/product_catalogs", {"catalog_id": catalog_id})
+
+    def disconnect_catalog(self, waba_id: str, catalog_id: str) -> dict:
+        return self._request("DELETE", f"{waba_id}/product_catalogs?{urlencode({'catalog_id': catalog_id})}")
+
+    def catalog_info(self, catalog_id: str) -> dict:
+        return self._request("GET", f"{catalog_id}?fields=id,name,product_count")
+
+    def commerce_settings(self) -> dict:
+        """{"is_cart_enabled", "is_catalog_visible"} for this phone number."""
+        data = self._request("GET", f"{self.phone_number_id}/whatsapp_commerce_settings").get("data") or [{}]
+        return data[0]
+
+    def set_commerce_settings(self, cart: bool, catalog_visible: bool) -> dict:
+        query = urlencode({"is_cart_enabled": str(cart).lower(), "is_catalog_visible": str(catalog_visible).lower()})
+        return self._request("POST", f"{self.phone_number_id}/whatsapp_commerce_settings?{query}")
+
+    def catalog_batch(self, catalog_id: str, requests: list[dict]) -> list[str]:
+        """Creates, updates or deletes catalog items (max 5,000 per call). Returns Meta's batch handles."""
+        body = {"item_type": "PRODUCT_ITEM", "allow_upsert": True, "requests": requests}
+        return self._request("POST", f"{catalog_id}/items_batch", body).get("handles", [])
+
+    def catalog_batch_status(self, catalog_id: str, handle: str) -> dict:
+        """{"status": "finished"|"in_progress"|..., "errors": [{"id": retailer_id, "message"}], ...}"""
+        query = urlencode({"handle": handle, "load_ids_of_invalid_requests": "true"})
+        data = self._request("GET", f"{catalog_id}/check_batch_request_status?{query}").get("data") or [{}]
+        return data[0]
+
+    def catalog_products(self, catalog_id: str, limit: int = 100, max_pages: int = 50) -> list[dict]:
+        """Every product in a catalog (follows Meta's paging)."""
+        items: list[dict] = []
+        after = None
+        for _ in range(max_pages):
+            query = {"fields": self.PRODUCT_FIELDS, "limit": limit}
+            if after:
+                query["after"] = after
+            page = self._request("GET", f"{catalog_id}/products?{urlencode(query)}")
+            items.extend(page.get("data", []))
+            paging = page.get("paging") or {}
+            after = (paging.get("cursors") or {}).get("after")
+            if not paging.get("next") or not after:
+                break
+        return items
+
+    # WhatsApp Pay (India) ------------------------------------------------------------
+
+    def payment_lookup(self, configuration: str, reference_id: str) -> dict:
+        """What happened to a Review and pay order: {"payments": [{"status", "transactions": [...]}]}."""
+        return self._request("GET", f"{self.phone_number_id}/payments/{quote(configuration, safe='')}/"
+                                    f"{quote(reference_id, safe='')}")
+
+    def payment_refund(self, configuration: str, reference_id: str, amount: int, currency: str = "INR") -> dict:
+        return self._request("POST", f"{self.phone_number_id}/payments_refund", {
+            "reference_id": reference_id, "speed": "normal", "payment_config_id": configuration,
+            "amount": {"currency": currency, "value": amount, "offset": 100}})
 
     def fetch_url(self, url: str, max_bytes: int = MEDIA_LIMITS["video"]) -> tuple[bytes, str]:
         """Downloads a sample file Meta hosts (the header example of a template made elsewhere)."""

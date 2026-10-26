@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactNode } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CircleAlert,
@@ -19,6 +20,7 @@ import { toast } from "sonner";
 import {
   Button,
   Input,
+  MultiSelect,
   RadioGroup,
   Select,
   Spinner,
@@ -29,7 +31,14 @@ import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { cn } from "@/lib/utils";
 
 import { TagInput } from "../../../_components/TagInput";
-import type { BlockData, BotAction, ChatbotDetail, ConditionRule } from "../../../_lib/chatbotsApi";
+import type {
+  BlockData,
+  BotAction,
+  ChatbotDetail,
+  ConditionRule,
+  ShopAction,
+} from "../../../_lib/chatbotsApi";
+import { COMMERCE_QK, commerceApi } from "../../../_lib/commerceApi";
 import { triggerSummary } from "../../../_lib/chatbotsApi";
 import { templatesApi } from "../../../_lib/templatesApi";
 import { ReplyFields } from "../../../automation/_components/ReplyFields";
@@ -43,7 +52,9 @@ import {
   needsValue,
   OPS,
   opsFor,
+  ORDER_STATUS_VALUES,
   QUESTION_KINDS,
+  SHOP_ACTIONS,
   uid,
 } from "./blocks";
 import type { FlowNode } from "./nodes";
@@ -522,7 +533,12 @@ function ConditionForm({ data, set, vars }: { data: BlockData; set: Set; vars: s
                 setRule(i, {
                   field,
                   op: opsFor(field)[0],
-                  value: field === "contact:opted_out" ? "yes" : r.value,
+                  value:
+                    field === "contact:opted_out" || field === "shop:unpaid"
+                      ? "yes"
+                      : field === "shop:last_status"
+                        ? "shipped"
+                        : r.value,
                 })
               }
               options={fieldOptions}
@@ -545,19 +561,40 @@ function ConditionForm({ data, set, vars }: { data: BlockData; set: Set; vars: s
               options={opsFor(isAttr ? "attr:" : r.field).map((o) => ({ value: o, label: OPS[o] }))}
               size="sm"
             />
-            {needsValue(r.op) && (
-              <Input
-                name={`rule_${i}_value`}
+            {needsValue(r.op) && r.field === "shop:last_status" ? (
+              <Select
                 aria-label={`Rule ${i + 1}: value`}
-                placeholder={r.field === "tags" ? "vip, lead" : "Value"}
-                value={r.value ?? ""}
-                onChange={(e) => setRule(i, { value: e.target.value })}
-                hint={
-                  i === rules.length - 1
-                    ? "Not case-sensitive. Separate several with commas to match any of them."
-                    : undefined
-                }
+                value={r.value ?? "shipped"}
+                onChange={(value) => setRule(i, { value })}
+                options={ORDER_STATUS_VALUES}
+                size="sm"
               />
+            ) : needsValue(r.op) && r.field === "shop:unpaid" ? (
+              <Select
+                aria-label={`Rule ${i + 1}: value`}
+                value={r.value ?? "yes"}
+                onChange={(value) => setRule(i, { value })}
+                options={[
+                  { value: "yes", label: "Yes" },
+                  { value: "no", label: "No" },
+                ]}
+                size="sm"
+              />
+            ) : (
+              needsValue(r.op) && (
+                <Input
+                  name={`rule_${i}_value`}
+                  aria-label={`Rule ${i + 1}: value`}
+                  placeholder={r.field === "tags" ? "vip, lead" : "Value"}
+                  value={r.value ?? ""}
+                  onChange={(e) => setRule(i, { value: e.target.value })}
+                  hint={
+                    i === rules.length - 1
+                      ? "Not case-sensitive. Separate several with commas to match any of them."
+                      : undefined
+                  }
+                />
+              )
             )}
           </div>
         );
@@ -647,6 +684,130 @@ function ActionForm({ data, set, vars }: { data: BlockData; set: Set; vars: stri
         >
           Add action
         </Button>
+      )}
+    </>
+  );
+}
+
+function ShopForm({ data, set, vars }: { data: BlockData; set: Set; vars: string[] }) {
+  const action = data.action ?? "products";
+  const { data: page } = useQuery({
+    queryKey: [...COMMERCE_QK.ALL, "bot-products"],
+    queryFn: () => commerceApi.products({ per_page: 200, status: "active" }),
+    staleTime: 60_000,
+  });
+  const products = page?.items ?? [];
+  const ids = data.product_ids ?? [];
+  const add = (text: string | null | undefined, v: string) => `${text ?? ""}${text ? " " : ""}${v}`;
+  return (
+    <>
+      <RadioGroup<ShopAction>
+        label="What it does"
+        value={action}
+        onChange={(a) => set({ action: a })}
+        options={SHOP_ACTIONS}
+      />
+      {action === "products" && (
+        <>
+          <MultiSelect
+            label="Products"
+            value={ids}
+            onChange={(v) => set({ product_ids: v.map(Number).slice(0, data.style === "cards" ? 5 : 30) })}
+            options={products.map((p) => ({ value: p.id, label: `${p.name} · ${p.price_text}` }))}
+            placeholder={products.length ? "Choose products…" : "Add products in Commerce first"}
+            emptyMessage="No products"
+          />
+          <Segmented
+            label="Show them as"
+            value={data.style ?? "list"}
+            onChange={(style) => set({ style, product_ids: style === "cards" ? ids.slice(0, 5) : ids })}
+            options={[
+              { value: "list", label: "Catalog list" },
+              { value: "cards", label: "Photo cards" },
+            ]}
+          />
+          <p className="text-fg-faint -mt-2 text-xs">
+            {data.style === "cards"
+              ? "Up to 5 cards, each with Buy now and More details. Works without a Meta catalog."
+              : "Up to 30 products with a cart. Needs your Meta catalog connected (Commerce → Settings)."}
+          </p>
+        </>
+      )}
+      {(action === "products" || action === "catalog" || action === "order_status") && (
+        <>
+          <Textarea
+            name="block_text"
+            label={action === "order_status" ? "Message before the order" : "Message"}
+            rows={2}
+            maxLength={1024}
+            value={data.text ?? ""}
+            placeholder={
+              action === "order_status"
+                ? "Optional, e.g. Here's your latest order:"
+                : "Optional, e.g. Our bestsellers"
+            }
+            onChange={(e) => set({ text: e.target.value || null })}
+          />
+          <VarChips vars={vars} onPick={(v) => set({ text: add(data.text, v) })} />
+        </>
+      )}
+      {action === "products" && data.style !== "cards" && (
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            name="block_header"
+            label="Header"
+            maxLength={60}
+            value={data.header ?? ""}
+            placeholder="Optional"
+            onChange={(e) => set({ header: e.target.value || null })}
+          />
+          <Input
+            name="block_footer"
+            label="Footer"
+            maxLength={60}
+            value={data.footer ?? ""}
+            placeholder="Optional"
+            onChange={(e) => set({ footer: e.target.value || null })}
+          />
+        </div>
+      )}
+      {action === "payment" && (
+        <>
+          <p className="text-fg-subtle text-xs">
+            Sends a payment link (or WhatsApp Pay) for the customer&apos;s unpaid order. With no unpaid order,
+            it can ask for a fixed amount instead, e.g. a booking deposit.
+          </p>
+          <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+            <Input
+              name="block_item_name"
+              label="If no order: what for"
+              maxLength={200}
+              value={data.item_name ?? ""}
+              placeholder="e.g. Booking deposit"
+              onChange={(e) => set({ item_name: e.target.value || null })}
+            />
+            <Input
+              name="block_amount"
+              label="Amount"
+              inputMode="decimal"
+              value={data.amount ?? ""}
+              placeholder="Optional"
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                set({ amount: e.target.value && n > 0 ? n : undefined });
+              }}
+            />
+          </div>
+          <p className="text-fg-faint text-xs">
+            Needs a payment gateway (Commerce → Payments). Saves {"{{order_ref}}"} and {"{{order_total}}"}.
+          </p>
+        </>
+      )}
+      {action === "order_status" && (
+        <p className="text-fg-faint text-xs">
+          Sends the status, tracking link and items of their latest order. Saves {"{{order_ref}}"},{" "}
+          {"{{order_status}}"} and {"{{order_total}}"}.
+        </p>
       )}
     </>
   );
@@ -887,6 +1048,7 @@ export function BlockEditor({
         {node.type === "condition" && <ConditionForm data={data} set={set} vars={vars} />}
         {node.type === "action" && <ActionForm data={data} set={set} vars={vars} />}
         {node.type === "webhook" && <WebhookForm data={data} set={set} vars={vars} />}
+        {node.type === "shop" && <ShopForm data={data} set={set} vars={vars} />}
         {node.type === "delay" && (
           <>
             <div className="grid grid-cols-2 gap-3">

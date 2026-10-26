@@ -9,9 +9,12 @@ from app.modules.customer.chatbots.schemas import NODE_DATA
 BUILTIN = {"first_name", "name", "phone", "email"}
 VAR = re.compile(r"\{\{\s*([a-z_][a-z0-9_.]*)\s*\}\}", re.I)
 TERMINAL = ("handover", "goto", "end")
+# a Shop block's outputs, by what it does
+SHOP_HANDLES = {"catalog": ["out", "fail"], "products": ["out", "fail"], "payment": ["sent", "none"],
+                "order_status": ["found", "none"]}
 LABELS = {"start": "Start", "message": "Message", "buttons": "Buttons", "list": "List", "question": "Question",
           "condition": "Condition", "action": "Action", "handover": "Hand over", "delay": "Delay",
-          "webhook": "API request", "goto": "Go to chatbot", "end": "End"}
+          "webhook": "API request", "goto": "Go to chatbot", "end": "End", "shop": "Shop"}
 
 
 class Graph:
@@ -52,6 +55,8 @@ def handles(node: dict) -> list[str]:
         return ["ok", "fail"]
     if kind == "question":
         return ["out", "invalid"]
+    if kind == "shop":
+        return SHOP_HANDLES.get(data.get("action") or "products", ["out", "fail"])
     if kind in TERMINAL:
         return []
     return ["out"]
