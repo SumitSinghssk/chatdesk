@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, FileText, Loader2, Paperclip, Plus, SendHorizontal, X, Zap } from "lucide-react";
+import { Ban, FileText, Loader2, Paperclip, Plus, SendHorizontal, ShoppingBag, X, Zap } from "lucide-react";
 
 import { Button } from "@/app/admin/_components/ui/index";
 import { cn } from "@/lib/utils";
@@ -108,6 +108,7 @@ export function Composer({
   onSendText,
   onSendFiles,
   onOpenTemplates,
+  onOpenProducts,
   onTyping,
 }: {
   windowOpen: boolean;
@@ -120,6 +121,8 @@ export function Composer({
   onSendText: (text: string) => Promise<boolean>;
   onSendFiles: (files: File[], caption: string) => Promise<boolean>;
   onOpenTemplates: () => void;
+  /** Commerce: send products (left out when the person can't manage products) */
+  onOpenProducts?: () => void;
   onTyping: () => void;
 }) {
   const [text, setText] = useState("");
@@ -372,6 +375,17 @@ export function Composer({
               onClick={onOpenTemplates}
             />
           </Tooltip>
+          {onOpenProducts && (
+            <Tooltip label="Send products" side="top" align="start">
+              <Button
+                iconOnly
+                variant="ghost"
+                leftIcon={ShoppingBag}
+                aria-label="Send products"
+                onClick={onOpenProducts}
+              />
+            </Tooltip>
+          )}
           <textarea
             ref={areaRef}
             rows={1}

@@ -122,6 +122,23 @@ def campaign_finished(db: Session, campaign) -> None:
            once_key=f"campaign:{campaign.id}:{campaign.status}")
 
 
+def new_order(db: Session, order, who: str) -> None:
+    from app.modules.customer.commerce.orders import order_ref, total_text
+
+    notify(db, managers(db, order.customer_id), "new_order", f"New order {order_ref(order)} from {who}",
+           f"{len(order.items)} item{'' if len(order.items) == 1 else 's'} · {total_text(order)}",
+           f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id}, once_key=f"order:{order.id}")
+
+
+def payment_received(db: Session, order, amount: str) -> None:
+    from app.modules.customer.commerce.orders import order_ref
+
+    who = order.customer_name or order.customer_phone or "a customer"
+    notify(db, managers(db, order.customer_id), "payment_received", f"{amount} paid for order {order_ref(order)}",
+           f"From {who}", f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id},
+           once_key=f"paid:{order.id}:{order.paid_at:%Y%m%d%H%M%S}" if order.paid_at else None)
+
+
 def whatsapp_problem(db: Session, owner_id: int, problem: str) -> None:
     """At most once a day: the number can't send (expired token, account blocked...)."""
     notify(db, managers(db, owner_id), "whatsapp_problem", "Your WhatsApp number has a problem", problem[:400],

@@ -84,6 +84,21 @@ export interface InboxMessage {
   reply_to: { id: number; text: string | null; type: string; direction: "in" | "out" } | null;
   /** Template messages: the header kind and the buttons, to draw them like WhatsApp does */
   template: { header_format: string | null; buttons: { type: string; text: string }[] } | null;
+  /** The order a shop message (or an incoming cart) belongs to */
+  order?: { id: number; ref: string } | null;
+  /** An incoming WhatsApp cart */
+  cart?: {
+    items: { retailer_id: string; quantity: number; price: number | null; currency: string | null }[];
+    text: string | null;
+  } | null;
+  /** Products sent from Commerce: what the customer received */
+  commerce?: {
+    kind: "product" | "products" | "catalog" | "card";
+    header?: string | null;
+    body?: string | null;
+    footer?: string | null;
+    products: { id: number; name: string; price_text: string; image_url: string | null }[];
+  } | null;
 }
 
 export interface InboxSummary {

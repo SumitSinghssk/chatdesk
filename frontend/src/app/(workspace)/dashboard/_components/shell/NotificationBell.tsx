@@ -8,7 +8,9 @@ import {
   Bell,
   CheckCheck,
   Clock3,
+  IndianRupee,
   Megaphone,
+  ShoppingBag,
   Settings,
   Sparkles,
   UserRoundCheck,
@@ -28,6 +30,8 @@ const ICONS: Record<NotifyEvent, { icon: LucideIcon; className: string }> = {
   ai_handover: { icon: Sparkles, className: "bg-purple-soft text-purple" },
   campaign_finished: { icon: Megaphone, className: "bg-info-soft text-info" },
   whatsapp_problem: { icon: AlertTriangle, className: "bg-danger-soft text-danger" },
+  new_order: { icon: ShoppingBag, className: "bg-success-soft text-success" },
+  payment_received: { icon: IndianRupee, className: "bg-success-soft text-success" },
 };
 
 export function NotificationBell({ className }: { className?: string }) {

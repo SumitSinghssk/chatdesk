@@ -10,6 +10,7 @@ import {
   CornerDownRight,
   Globe,
   List as ListIcon,
+  ShoppingBag,
   Reply,
   Settings2,
   Trash2,
@@ -24,7 +25,7 @@ import type { BlockData, BlockType } from "../../../_lib/chatbotsApi";
 import { triggerSummary } from "../../../_lib/chatbotsApi";
 import { templatesApi } from "../../../_lib/templatesApi";
 import { previewOf } from "../../../automation/_components/ReplyFields";
-import { ACTION_LABELS, BLOCKS, fieldLabel, handlesOf, OPS, QUESTION_KINDS } from "./blocks";
+import { ACTION_LABELS, BLOCKS, fieldLabel, handlesOf, OPS, QUESTION_KINDS, SHOP_ACTIONS } from "./blocks";
 import { useBuilder } from "./context";
 
 export type FlowNode = Node<BlockData, BlockType>;
@@ -33,8 +34,10 @@ const HANDLE =
   "!h-3.5 !w-3.5 !border-2 !border-white !shadow-sm dark:!border-[#1f2937] transition-transform hover:!scale-125";
 
 function handleTone(handle: string) {
-  if (handle === "yes" || handle === "ok") return "!bg-emerald-500";
+  if (handle === "yes" || handle === "ok" || handle === "sent" || handle === "found")
+    return "!bg-emerald-500";
   if (handle === "no" || handle === "fail") return "!bg-red-500";
+  if (handle === "none") return "!bg-amber-500";
   if (handle === "invalid" || handle === "other") return "!bg-amber-500";
   if (handle.startsWith("b:") || handle.startsWith("r:")) return "!bg-violet-500";
   return "!bg-slate-500";
@@ -333,6 +336,51 @@ function Body({ id, type, data }: { id: string; type: BlockType; data: BlockData
           </OutRow>
         </>
       );
+    case "shop": {
+      const action = data.action ?? "products";
+      const count = data.product_ids?.length ?? 0;
+      const what =
+        action === "products"
+          ? count
+            ? `${count} product${count === 1 ? "" : "s"} as ${data.style === "cards" ? "photo cards" : "a catalog list"}`
+            : "…choose products"
+          : action === "catalog"
+            ? "Your whole WhatsApp catalog"
+            : action === "payment"
+              ? data.amount
+                ? `Their unpaid order, or ${data.item_name || "a payment"} of ${data.amount}`
+                : "A payment link for their unpaid order"
+              : "Their latest order: status, tracking and items";
+      return (
+        <>
+          <div className="space-y-1 px-3 py-2.5">
+            <p className="text-fg flex items-center gap-1.5 text-[12.5px] font-medium">
+              <ShoppingBag className="h-3.5 w-3.5 text-lime-600" aria-hidden />
+              {SHOP_ACTIONS.find((a) => a.value === action)?.label}
+            </p>
+            <p className="text-fg-subtle text-[12px] leading-snug">{what}</p>
+            {data.text && <p className="text-fg-faint line-clamp-2 text-[11.5px]">“{data.text}”</p>}
+          </div>
+          {handlesOf({ type, data }).map((h) => (
+            <OutRow
+              key={h.id}
+              nodeId={id}
+              handle={h.id}
+              icon={h.id === "fail" ? XCircle : h.id === "none" ? CornerDownRight : CheckCircle2}
+              className={
+                h.id === "fail"
+                  ? "text-red-600 dark:text-red-400"
+                  : h.id === "none"
+                    ? "text-amber-600 dark:text-amber-400"
+                    : "text-emerald-600 dark:text-emerald-400"
+              }
+            >
+              {h.label}
+            </OutRow>
+          ))}
+        </>
+      );
+    }
     case "handover": {
       const who =
         data.assign === "member"

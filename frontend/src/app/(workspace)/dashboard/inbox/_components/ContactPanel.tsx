@@ -12,6 +12,7 @@ import { formatDateTime, timeAgo } from "@/lib/utils";
 
 import { INBOX_QK, inboxApi, type Conversation } from "../../_lib/inboxApi";
 import { InfoHint } from "../../_components/CardHeader";
+import { ContactOrders } from "./ContactOrders";
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -258,6 +259,10 @@ export function ContactPanel({
               onChange={toggleBlock}
             />
           </div>
+        </Section>
+
+        <Section title="Orders">
+          <ContactOrders contactId={contact.id} />
         </Section>
 
         <Section title="Conversation">

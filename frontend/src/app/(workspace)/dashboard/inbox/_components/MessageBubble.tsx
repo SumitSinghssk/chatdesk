@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   AlertCircle,
   Check,
@@ -14,17 +15,24 @@ import {
   Mic,
   Phone,
   Play,
+  Receipt,
   Reply,
   RotateCw,
+  ShoppingBag,
+  ShoppingCart,
+  Store,
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
+import { formatMoney } from "../../_lib/commerceApi";
 import { downloadUrl, mediaUrl, type InboxMessage } from "../../_lib/inboxApi";
 import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, fileSize } from "./format";
 import { Tooltip } from "../../_components/Tooltip";
+import { WaText } from "../../_components/whatsapp/WaText";
 
 const TEMPLATE_BUTTON_ICONS: Record<string, typeof Reply> = {
   quick_reply: Reply,
@@ -211,6 +219,94 @@ function DocumentMedia({ message, onOpen }: { message: InboxMessage; onOpen: () 
   );
 }
 
+/** A cart the customer sent from the WhatsApp catalog. */
+function CartCard({ cart }: { cart: NonNullable<InboxMessage["cart"]> }) {
+  const count = cart.items.reduce((n, i) => n + (i.quantity || 0), 0);
+  const total = cart.items.reduce((n, i) => n + (i.price ?? 0) * (i.quantity || 0), 0);
+  const currency = cart.items[0]?.currency ?? "INR";
+  return (
+    <div className="mb-1 min-w-52">
+      <p className="text-primary mb-1 flex items-center gap-1 text-[10.5px] font-semibold tracking-wide uppercase dark:text-emerald-300">
+        <ShoppingCart className="h-3 w-3" aria-hidden /> Cart
+      </p>
+      <div className="rounded-lg bg-black/5 p-2 dark:bg-white/10">
+        <p className="font-semibold">
+          {count} item{count === 1 ? "" : "s"} · {formatMoney(total, currency)}
+        </p>
+        <ul className="mt-1 space-y-0.5 text-xs opacity-80">
+          {cart.items.slice(0, 5).map((i, n) => (
+            <li key={n} className="truncate">
+              {i.retailer_id} × {i.quantity}
+            </li>
+          ))}
+        </ul>
+      </div>
+      {cart.text && <p className="mt-1 break-words whitespace-pre-wrap">{cart.text}</p>}
+    </div>
+  );
+}
+
+const KIND_LABEL = {
+  product: "Catalog product",
+  products: "Product list",
+  catalog: "Catalog",
+  card: "Product",
+};
+
+/** Products sent from Commerce, drawn small inside the chat bubble. */
+function CommerceCard({ commerce }: { commerce: NonNullable<InboxMessage["commerce"]> }) {
+  const items = commerce.products;
+  const first = items[0];
+  const thumb = (src: string | null, cls: string) =>
+    src ? (
+      <img src={src} alt="" className={cn("object-cover", cls)} />
+    ) : (
+      <span className={cn("flex items-center justify-center bg-black/5 dark:bg-white/10", cls)}>
+        <ShoppingBag className="h-4 w-4 opacity-50" aria-hidden />
+      </span>
+    );
+  return (
+    <div className="mb-1 min-w-52">
+      <p className="text-primary mb-1 flex items-center gap-1 text-[10.5px] font-semibold tracking-wide uppercase dark:text-emerald-300">
+        <ShoppingBag className="h-3 w-3" aria-hidden /> {KIND_LABEL[commerce.kind]}
+      </p>
+      {commerce.kind === "catalog" ? (
+        <div className="flex items-center gap-2 rounded-lg bg-black/5 p-2 dark:bg-white/10">
+          <Store className="h-5 w-5 shrink-0 opacity-70" aria-hidden />
+          <span className="font-medium">View catalog</span>
+        </div>
+      ) : commerce.kind === "products" ? (
+        <div className="rounded-lg bg-black/5 p-2 dark:bg-white/10">
+          {commerce.header && <p className="mb-1 font-semibold">{commerce.header}</p>}
+          <ul className="space-y-1.5">
+            {items.slice(0, 4).map((p) => (
+              <li key={p.id} className="flex items-center gap-2">
+                {thumb(p.image_url, "h-8 w-8 shrink-0 rounded")}
+                <span className="min-w-0 flex-1 truncate text-xs">{p.name}</span>
+                <span className="shrink-0 text-xs font-semibold">{p.price_text}</span>
+              </li>
+            ))}
+          </ul>
+          {items.length > 4 && <p className="mt-1 text-[11px] opacity-70">+{items.length - 4} more</p>}
+        </div>
+      ) : (
+        first && (
+          <div className="flex items-center gap-2 rounded-lg bg-black/5 p-2 dark:bg-white/10">
+            {thumb(first.image_url, "h-12 w-12 shrink-0 rounded-md")}
+            <span className="min-w-0">
+              <span className="block truncate font-medium">{first.name}</span>
+              <span className="block text-xs font-semibold">{first.price_text}</span>
+            </span>
+          </div>
+        )
+      )}
+      {commerce.body && commerce.kind !== "card" && (
+        <p className="mt-1 break-words whitespace-pre-wrap">{commerce.body}</p>
+      )}
+    </div>
+  );
+}
+
 export function MessageBubble({
   message,
   reactions,
@@ -229,7 +325,7 @@ export function MessageBubble({
   const out = message.direction === "out";
   const type = mediaType(message);
   const visual = !!message.media && ["image", "sticker", "video"].includes(type);
-  const showText = message.text && message.type !== "location";
+  const showText = message.text && message.type !== "location" && !message.commerce && !message.cart;
   const copy = async () => {
     if (!message.text) return;
     await navigator.clipboard.writeText(message.text).catch(() => null);
@@ -292,8 +388,12 @@ export function MessageBubble({
               </span>
             </a>
           )}
+          {message.commerce && <CommerceCard commerce={message.commerce} />}
+          {message.cart && <CartCard cart={message.cart} />}
           {showText && (
-            <p className={cn("break-words whitespace-pre-wrap", visual && "px-1.5 pt-1")}>{message.text}</p>
+            <p className={cn("break-words whitespace-pre-wrap", visual && "px-1.5 pt-1")}>
+              <WaText text={message.text!} />
+            </p>
           )}
           {message.type === "unsupported" && !message.text && (
             <p className="italic opacity-70">Unsupported message</p>
@@ -325,6 +425,14 @@ export function MessageBubble({
                 );
               })}
             </div>
+          )}
+          {message.order && (
+            <Link
+              href={CUSTOMER_ROUTES.COMMERCE_ORDER(message.order.id)}
+              className="text-primary clear-both flex items-center gap-1 pt-1 text-[12px] font-medium hover:underline dark:text-emerald-300"
+            >
+              <Receipt className="h-3.5 w-3.5" aria-hidden /> Order {message.order.ref} →
+            </Link>
           )}
           {reactions.length > 0 && (
             <span

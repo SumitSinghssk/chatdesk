@@ -17,7 +17,10 @@ export type BlockType =
   | "delay"
   | "webhook"
   | "goto"
-  | "end";
+  | "end"
+  | "shop";
+
+export type ShopAction = "catalog" | "products" | "payment" | "order_status";
 
 export interface Choice {
   id: string;
@@ -91,6 +94,11 @@ export interface BlockData {
   // goto / end
   chatbot_id?: number | null;
   resolve?: boolean;
+  // shop (also uses text, header, footer and amount)
+  action?: ShopAction;
+  product_ids?: number[];
+  style?: "list" | "cards";
+  item_name?: string | null;
   [key: string]: unknown;
 }
 

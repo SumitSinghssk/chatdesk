@@ -156,15 +156,9 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     href: CUSTOMER_ROUTES.COMMERCE(),
     icon: ShoppingBag,
     section: "grow",
-    status: "planned",
-    phase: "Phase 3",
-    description: "Catalog, orders and payments inside WhatsApp.",
-    features: [
-      "WhatsApp catalog and product messages",
-      "Payment links (Razorpay / PayU)",
-      "Shopify and WooCommerce abandoned-cart recovery",
-      "COD-to-prepaid and order updates",
-    ],
+    status: "live",
+    roles: MANAGERS,
+    description: "Products and your WhatsApp catalog: send products, carts and orders in chats.",
   },
   {
     key: "analytics",

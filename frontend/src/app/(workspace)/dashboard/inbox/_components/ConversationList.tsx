@@ -12,6 +12,7 @@ import {
   Mic,
   MousePointerClick,
   Search,
+  ShoppingCart,
   Sticker,
   Video,
   X,
@@ -28,6 +29,10 @@ import { Tooltip } from "../../_components/Tooltip";
 export type ListFilter = "open" | "pending" | "resolved" | "all";
 export type OwnerFilter = "all" | "me" | "unassigned";
 
+/** The preview without WhatsApp's *bold*, _italic_ and ~strike~ marks. */
+const plainPreview = (text: string) =>
+  text.replace(/(^|[\s(])([*_~])(\S(?:.*?\S)?)\2(?=[\s.,!?)]|$)/g, "$1$3");
+
 /** Line icon shown before the preview for non-text messages (no emoji). */
 const TYPE_ICONS: Record<string, LucideIcon> = {
   image: ImageIcon,
@@ -40,6 +45,7 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
   template: LayoutTemplate,
   interactive: MousePointerClick,
   button: MousePointerClick,
+  order: ShoppingCart,
 };
 
 const TABS: { key: ListFilter; label: string }[] = [
@@ -297,7 +303,7 @@ function ConversationRow({
           )}
           {TypeIcon && <TypeIcon className="text-fg-faint h-3.5 w-3.5 shrink-0" aria-hidden />}
           <span className={cn("min-w-0 flex-1 truncate text-xs", unread ? "text-fg" : "text-fg-subtle")}>
-            {c.last_message_preview ?? "No messages yet"}
+            {c.last_message_preview ? plainPreview(c.last_message_preview) : "No messages yet"}
           </span>
           {c.waiting_since && c.status !== "resolved" && (
             <span

@@ -259,7 +259,19 @@ export function ChatBackdrop({ children, className }: { children: ReactNode; cla
 }
 
 /** A phone running WhatsApp, showing the template as the customer receives it. */
-export function PhonePreview({ businessName, children }: { businessName: string; children: ReactNode }) {
+export function PhonePreview({
+  businessName,
+  children,
+  overlay,
+  scrollChat,
+}: {
+  businessName: string;
+  children: ReactNode;
+  /** keep the phone's height and scroll the chat instead (for previews that add messages) */
+  scrollChat?: boolean;
+  /** a full screen drawn over the chat (e.g. a product page the customer opened) */
+  overlay?: ReactNode;
+}) {
   return (
     <div className="mx-auto w-full max-w-[340px] rounded-[2.2rem] bg-slate-900 p-[7px] shadow-xl ring-1 ring-black/10 dark:bg-black dark:ring-white/10">
       <div className="overflow-hidden rounded-[1.8rem] bg-white dark:bg-[#0b141a]">
@@ -276,44 +288,54 @@ export function PhonePreview({ businessName, children }: { businessName: string;
             </span>
           </span>
         </div>
-        <div className="flex items-center gap-2 bg-[#008069] px-2 py-2 text-white dark:bg-[#202c33]">
-          <ArrowLeft className="h-5 w-5 shrink-0" aria-hidden />
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/25 text-sm font-semibold">
-            {(businessName.trim()[0] ?? "B").toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1 leading-tight">
-            <span className="flex items-center gap-1 text-[14px] font-semibold">
-              <span className="truncate">{businessName || "Your business"}</span>
-              <BadgeCheck
-                className="h-4 w-4 shrink-0 fill-[#25d366] text-[#008069] dark:text-[#202c33]"
-                aria-hidden
-              />
+        <div className="relative">
+          {overlay && <div className="absolute inset-0 z-20 flex flex-col">{overlay}</div>}
+          <div className="flex items-center gap-2 bg-[#008069] px-2 py-2 text-white dark:bg-[#202c33]">
+            <ArrowLeft className="h-5 w-5 shrink-0" aria-hidden />
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/25 text-sm font-semibold">
+              {(businessName.trim()[0] ?? "B").toUpperCase()}
             </span>
-            <span className="block truncate text-[11px] opacity-80">Business account</span>
-          </span>
-          <Video className="h-5 w-5 shrink-0" aria-hidden />
-          <Phone className="h-[18px] w-[18px] shrink-0" aria-hidden />
-          <MoreVertical className="h-5 w-5 shrink-0" aria-hidden />
-        </div>
-        <div className={cn("relative flex min-h-[440px] flex-col gap-2 px-3 py-3 pl-5", CHAT_BG)}>
-          <span className="mx-auto rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-[#54656f] shadow-xs dark:bg-[#182229] dark:text-[#8696a0]">
-            TODAY
-          </span>
-          <span className="mx-auto max-w-[85%] rounded-md bg-[#ffeecd] px-2.5 py-1 text-center text-[10.5px] leading-snug text-[#54656f] dark:bg-[#182229] dark:text-[#ffd279]">
-            This business uses a secure service from Meta to manage this chat.
-          </span>
-          {children}
-        </div>
-        <div className="flex items-center gap-1.5 bg-[#f0f2f5] px-2 py-2 dark:bg-[#202c33]">
-          <span className="flex h-9 flex-1 items-center gap-2 rounded-full bg-white px-3 text-[13px] text-[#8696a0] dark:bg-[#2a3942]">
-            <Smile className="h-5 w-5" aria-hidden />
-            <span className="flex-1">Message</span>
-            <Paperclip className="h-[18px] w-[18px]" aria-hidden />
-            <Camera className="h-[18px] w-[18px]" aria-hidden />
-          </span>
-          <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#008069] text-white dark:bg-[#00a884]">
-            <Mic className="h-[18px] w-[18px]" aria-hidden />
-          </span>
+            <span className="min-w-0 flex-1 leading-tight">
+              <span className="flex items-center gap-1 text-[14px] font-semibold">
+                <span className="truncate">{businessName || "Your business"}</span>
+                <BadgeCheck
+                  className="h-4 w-4 shrink-0 fill-[#25d366] text-[#008069] dark:text-[#202c33]"
+                  aria-hidden
+                />
+              </span>
+              <span className="block truncate text-[11px] opacity-80">Business account</span>
+            </span>
+            <Video className="h-5 w-5 shrink-0" aria-hidden />
+            <Phone className="h-[18px] w-[18px] shrink-0" aria-hidden />
+            <MoreVertical className="h-5 w-5 shrink-0" aria-hidden />
+          </div>
+          <div
+            data-phone-chat
+            className={cn(
+              "relative flex min-h-[440px] flex-col gap-2 px-3 py-3 pl-5",
+              scrollChat && "h-[480px] overflow-y-auto overscroll-contain [&>*]:shrink-0",
+              CHAT_BG
+            )}
+          >
+            <span className="mx-auto rounded-md bg-white px-2.5 py-1 text-[11px] font-medium text-[#54656f] shadow-xs dark:bg-[#182229] dark:text-[#8696a0]">
+              TODAY
+            </span>
+            <span className="mx-auto max-w-[85%] rounded-md bg-[#ffeecd] px-2.5 py-1 text-center text-[10.5px] leading-snug text-[#54656f] dark:bg-[#182229] dark:text-[#ffd279]">
+              This business uses a secure service from Meta to manage this chat.
+            </span>
+            {children}
+          </div>
+          <div className="flex items-center gap-1.5 bg-[#f0f2f5] px-2 py-2 dark:bg-[#202c33]">
+            <span className="flex h-9 flex-1 items-center gap-2 rounded-full bg-white px-3 text-[13px] text-[#8696a0] dark:bg-[#2a3942]">
+              <Smile className="h-5 w-5" aria-hidden />
+              <span className="flex-1">Message</span>
+              <Paperclip className="h-[18px] w-[18px]" aria-hidden />
+              <Camera className="h-[18px] w-[18px]" aria-hidden />
+            </span>
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[#008069] text-white dark:bg-[#00a884]">
+              <Mic className="h-[18px] w-[18px]" aria-hidden />
+            </span>
+          </div>
         </div>
       </div>
     </div>

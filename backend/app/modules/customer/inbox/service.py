@@ -146,7 +146,16 @@ def serialize_message(message: WaMessage, replied: WaMessage | None = None) -> d
         "reply_to": None,
         "auto_reply": None,  # name of the automatic reply that sent it
         "template": None,
+        "commerce": raw.get("commerce") if message.direction == "out" else None,  # products sent
+        "order": raw.get("order") if message.direction == "out" else None,  # {"id", "ref"} of a shop message
+        "cart": None,  # an incoming WhatsApp cart: its items
     }
+    if message.type == "order":
+        cart = raw.get("order") or {}
+        data["cart"] = {"items": [{"retailer_id": i.get("product_retailer_id"), "quantity": i.get("quantity"),
+                                   "price": i.get("item_price"), "currency": i.get("currency")}
+                                  for i in cart.get("product_items") or []],
+                        "text": cart.get("text")}
     if message.type == "template":
         data["template"] = raw.get("template") or {"header_format": None, "buttons": []}
     elif message.direction == "out" and raw.get("template"):
@@ -173,9 +182,22 @@ def serialize_message(message: WaMessage, replied: WaMessage | None = None) -> d
 
 
 def _serialize_messages(db: Session, messages: list[WaMessage]) -> list[dict]:
+    from app.modules.customer.commerce.models import CommerceSettings, Order
+
     wamids = {m.context_wamid for m in messages if m.context_wamid}
     replied = {m.wamid: m for m in db.query(WaMessage).filter(WaMessage.wamid.in_(wamids)).all()} if wamids else {}
-    return [serialize_message(m, replied.get(m.context_wamid)) for m in messages]
+    rows = [serialize_message(m, replied.get(m.context_wamid)) for m in messages]
+    carts = [m.id for m in messages if m.type == "order"]
+    if carts:  # link each incoming cart to the order it became
+        made = db.query(Order.message_id, Order.id, Order.number, Order.customer_id).filter(
+            Order.message_id.in_(carts)).all()
+        prefix = dict(db.query(CommerceSettings.customer_id, CommerceSettings.order_prefix).filter(
+            CommerceSettings.customer_id.in_({o[3] for o in made})).all()) if made else {}
+        by_message = {o[0]: {"id": o[1], "ref": f"{prefix.get(o[3], '#')}{o[2]}"} for o in made}
+        for row in rows:
+            if row["id"] in by_message:
+                row["order"] = by_message[row["id"]]
+    return rows
 
 
 def _outbound(db: Session, customer: Customer, conversation: WaConversation, sent_by: str | None = None,

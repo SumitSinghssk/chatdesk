@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.modules.customer.automation.schemas import ReplySchema, _blank
 
 NODE_TYPES = ("start", "message", "buttons", "list", "question", "condition", "action", "handover", "delay",
-              "webhook", "goto", "end")
+              "webhook", "goto", "end", "shop")
 ID = re.compile(r"^[A-Za-z0-9_-]{1,40}$")
 VARIABLE = re.compile(r"^[a-z_][a-z0-9_]{0,39}$")
 MAX_DELAY_SECONDS = 12 * 3600  # stays well inside WhatsApp's 24-hour reply window
@@ -216,7 +216,7 @@ class QuestionData(BaseModel):
 
 CONDITION_OPS = ("equals", "not_equals", "contains", "not_contains", "starts_with", "is_set", "is_empty",
                  "gt", "lt", "has", "not_has", "open", "closed")
-FIELDS = re.compile(r"^(var:[a-z_][a-z0-9_]{0,39}|contact:(name|email|phone|opted_out)|attr:[a-z0-9_ -]{1,40}"
+FIELDS = re.compile(r"^(var:[a-z_][a-z0-9_]{0,39}|contact:(name|email|phone|opted_out)|shop:(orders|spent|last_status|unpaid)|attr:[a-z0-9_ -]{1,40}"
                     r"|tags|message|office_hours)$")
 
 
@@ -366,10 +366,37 @@ class EndData(BaseModel):
         return _blank(v)
 
 
+class ShopData(BaseModel):
+    """Selling inside the flow: the catalog, some products, a payment link, or the customer's latest order."""
+
+    action: Literal["catalog", "products", "payment", "order_status"] = "products"
+    product_ids: list[int] = Field(default_factory=list, max_length=30)
+    style: Literal["list", "cards"] = "list"  # products: a catalog list, or photo cards (no catalog needed)
+    header: Optional[str] = Field(None, max_length=60)
+    text: Optional[str] = Field(None, max_length=1024)
+    footer: Optional[str] = Field(None, max_length=60)
+    # payment: when the customer has no unpaid order, ask for this amount instead (optional)
+    amount: Optional[float] = Field(None, gt=0, le=10_000_000)
+    item_name: Optional[str] = Field(None, max_length=200)
+
+    @field_validator("header", "text", "footer", "item_name", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return _blank(v)
+
+    @model_validator(mode="after")
+    def _check(self):
+        if self.action == "products" and not self.product_ids:
+            raise ValueError("Choose the products to show")
+        if self.action == "products" and self.style == "cards" and len(self.product_ids) > 5:
+            raise ValueError("Up to 5 photo cards at a time (or use a catalog list)")
+        return self
+
+
 NODE_DATA: dict[str, type[BaseModel] | None] = {
     "start": None, "message": MessageData, "buttons": ButtonsData, "list": ListData, "question": QuestionData,
     "condition": ConditionData, "action": ActionData, "handover": HandoverData, "delay": DelayData,
-    "webhook": WebhookData, "goto": GotoData, "end": EndData,
+    "webhook": WebhookData, "goto": GotoData, "end": EndData, "shop": ShopData,
 }
 
 

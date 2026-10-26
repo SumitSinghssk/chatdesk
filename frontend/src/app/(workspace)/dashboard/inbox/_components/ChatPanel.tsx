@@ -38,6 +38,7 @@ import {
   type InboxMessage,
   type SendTemplateInput,
 } from "../../_lib/inboxApi";
+import { commerceApi } from "../../_lib/commerceApi";
 import { Composer, MAX_FILES } from "./Composer";
 import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
@@ -46,6 +47,7 @@ import { MessageBubble } from "./MessageBubble";
 import { AssignMenu } from "./AssignMenu";
 import { AiBanner } from "./AiControls";
 import { BotBanner, StartBotMenu } from "./BotControls";
+import { ProductModal, type SendProductsInput } from "./ProductModal";
 import { TemplateModal } from "./TemplateModal";
 import { Tooltip } from "../../_components/Tooltip";
 
@@ -142,6 +144,7 @@ export function ChatPanel({
   const [sending, setSending] = useState(false);
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [templateOpen, setTemplateOpen] = useState(autoTemplate);
+  const [productsOpen, setProductsOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [files, setFiles] = useState<File[]>([]);
   const [dragging, setDragging] = useState(false);
@@ -323,6 +326,7 @@ export function ChatPanel({
   };
 
   const sendTemplate = (input: SendTemplateInput) => run(() => inboxApi.sendTemplate(id, input));
+  const sendProducts = (input: SendProductsInput) => run(() => commerceApi.send(id, input));
 
   const setStatus = async (status: ConversationStatus) => {
     try {
@@ -551,8 +555,18 @@ export function ChatPanel({
         onSendText={(text) => run(() => inboxApi.sendText(id, text, replyTo?.id))}
         onSendFiles={sendFiles}
         onOpenTemplates={() => setTemplateOpen(true)}
+        onOpenProducts={() => setProductsOpen(true)}
         onTyping={() => void inboxApi.typing(id).catch(() => null)}
       />
+
+      {productsOpen && (
+        <ProductModal
+          open
+          contactName={contact.display_name}
+          onClose={() => setProductsOpen(false)}
+          onSend={sendProducts}
+        />
+      )}
 
       <TemplateModal
         open={templateOpen}

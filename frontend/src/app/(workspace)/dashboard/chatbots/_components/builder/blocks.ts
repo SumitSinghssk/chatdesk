@@ -9,19 +9,20 @@ import {
   MousePointerClick,
   Play,
   Repeat2,
+  ShoppingBag,
   Tag,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
 
-import type { BlockData, BlockType, GraphNode } from "../../../_lib/chatbotsApi";
+import type { BlockData, BlockType, GraphNode, ShopAction } from "../../../_lib/chatbotsApi";
 
 export interface BlockInfo {
   type: BlockType;
   label: string;
   description: string;
   icon: LucideIcon;
-  group: "Send" | "Ask" | "Logic" | "Do" | "Finish";
+  group: "Send" | "Ask" | "Shop" | "Logic" | "Do" | "Finish";
   /** Tailwind classes for the icon chip and the accent bar. */
   tone: string;
   accent: string;
@@ -153,6 +154,16 @@ export const BLOCKS: Record<BlockType, BlockInfo> = {
     accent: "bg-cyan-500",
     make: () => ({ method: "GET", url: "https://", headers: [], body: null, save: [] }),
   },
+  shop: {
+    type: "shop",
+    label: "Shop",
+    description: "Products, the catalog, a payment link or order status",
+    icon: ShoppingBag,
+    group: "Shop",
+    tone: "bg-lime-500/15 text-lime-700 dark:text-lime-400",
+    accent: "bg-lime-500",
+    make: () => ({ action: "products", product_ids: [], style: "list", text: null }),
+  },
   handover: {
     type: "handover",
     label: "Hand over",
@@ -178,6 +189,7 @@ export const BLOCKS: Record<BlockType, BlockInfo> = {
 export const PALETTE: { group: BlockInfo["group"]; blocks: BlockType[] }[] = [
   { group: "Send", blocks: ["message"] },
   { group: "Ask", blocks: ["buttons", "list", "question"] },
+  { group: "Shop", blocks: ["shop"] },
   { group: "Logic", blocks: ["condition", "delay", "goto"] },
   { group: "Do", blocks: ["action", "webhook"] },
   { group: "Finish", blocks: ["handover", "end"] },
@@ -214,6 +226,8 @@ export function handlesOf(node: Pick<GraphNode, "type" | "data">): { id: string;
         { id: "out", label: "Answered" },
         { id: "invalid", label: "Wrong answers" },
       ];
+    case "shop":
+      return SHOP_HANDLES[d.action ?? "products"];
     case "handover":
     case "goto":
     case "end":
@@ -222,6 +236,37 @@ export function handlesOf(node: Pick<GraphNode, "type" | "data">): { id: string;
       return [{ id: "out", label: "Next" }];
   }
 }
+
+export const SHOP_ACTIONS: { value: ShopAction; label: string; description: string }[] = [
+  { value: "products", label: "Show products", description: "A catalog list, or photo cards with Buy now" },
+  { value: "catalog", label: "Show the catalog", description: "Your whole WhatsApp catalog, with a cart" },
+  {
+    value: "payment",
+    label: "Collect payment",
+    description: "A payment link for their unpaid order (or an amount)",
+  },
+  { value: "order_status", label: "Order status", description: "Where their latest order is" },
+];
+
+/** A Shop block's outputs (same ids as the server). */
+export const SHOP_HANDLES: Record<ShopAction, { id: string; label: string }[]> = {
+  catalog: [
+    { id: "out", label: "Sent" },
+    { id: "fail", label: "Couldn't send" },
+  ],
+  products: [
+    { id: "out", label: "Sent" },
+    { id: "fail", label: "Couldn't send" },
+  ],
+  payment: [
+    { id: "sent", label: "Link sent" },
+    { id: "none", label: "Nothing to pay" },
+  ],
+  order_status: [
+    { id: "found", label: "Has an order" },
+    { id: "none", label: "No orders" },
+  ],
+};
 
 export const BUILTIN_VARIABLES = ["first_name", "name", "phone", "email"];
 
@@ -268,6 +313,20 @@ export const FIELD_OPTIONS = [
   { value: "contact:phone", label: "Phone", group: "Contact" },
   { value: "contact:opted_out", label: "Opted out (yes / no)", group: "Contact" },
   { value: "office_hours", label: "Office hours", group: "Business" },
+  { value: "shop:orders", label: "Number of orders", group: "Shop" },
+  { value: "shop:spent", label: "Total spent", group: "Shop" },
+  { value: "shop:unpaid", label: "Has an unpaid order (yes / no)", group: "Shop" },
+  { value: "shop:last_status", label: "Last order's status", group: "Shop" },
+];
+
+export const ORDER_STATUS_VALUES = [
+  { value: "awaiting_address", label: "Waiting for address" },
+  { value: "awaiting_payment", label: "Waiting for payment" },
+  { value: "confirmed", label: "Confirmed" },
+  { value: "packed", label: "Packed" },
+  { value: "shipped", label: "Shipped" },
+  { value: "delivered", label: "Delivered" },
+  { value: "cancelled", label: "Cancelled" },
 ];
 
 export const OPS: Record<string, string> = {
@@ -289,7 +348,9 @@ export const OPS: Record<string, string> = {
 export function opsFor(field: string): string[] {
   if (field === "office_hours") return ["open", "closed"];
   if (field === "tags") return ["has", "not_has", "is_set", "is_empty"];
-  if (field === "contact:opted_out") return ["equals"];
+  if (field === "contact:opted_out" || field === "shop:unpaid") return ["equals"];
+  if (field === "shop:last_status") return ["equals", "not_equals", "is_set", "is_empty"];
+  if (field === "shop:orders" || field === "shop:spent") return ["gt", "lt", "equals"];
   return [
     "equals",
     "not_equals",
