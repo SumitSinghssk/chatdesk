@@ -15,6 +15,7 @@ from app.scheduler.jobs import (
     publish,
     security,
     trash,
+    webhooks,
 )
 
 
@@ -37,6 +38,7 @@ JOBS: list[Job] = [
     _build(not_found),
     _build(security),
     _build(customers),
+    _build(webhooks),
 ]
 
 

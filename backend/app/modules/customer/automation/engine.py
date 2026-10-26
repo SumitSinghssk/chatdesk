@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.modules.customer.account.models import Customer
 from app.modules.customer.automation.models import WaAutoReply, WaAutoReplyHit
 from app.modules.customer.automation.schemas import DAYS, SettingsSchema
+from app.modules.customer.integrations import hooks
 from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage
 from app.services.whatsapp import WhatsAppClient, WhatsAppError
 from app.shared.utils.datetime import now
@@ -279,6 +280,7 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
                 if decision["kind"] in ("opt_out", "opt_in"):
                     out = decision["kind"] == "opt_out"
                     contact.opted_out = out
+                    hooks.contact_event(db, "contact.opted_out" if out else "contact.opted_in", contact)
                     event(db, conversation, "status", "Opted out of marketing" if out else "Opted back in",
                           contact.name or contact.profile_name or f"+{contact.wa_id}")
                     db.commit()

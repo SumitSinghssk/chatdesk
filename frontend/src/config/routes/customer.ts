@@ -26,6 +26,8 @@ export const CUSTOMER_ROUTES = {
   COMMERCE_ORDER: (id: number) => `/dashboard/commerce/orders/${id}`,
   ANALYTICS: route("/dashboard/analytics"),
   WHATSAPP: route("/dashboard/whatsapp"),
+  INTEGRATIONS: route("/dashboard/integrations"),
+  DOCS: route("/docs"),
   TEAM: route("/dashboard/team"),
   INVITE: (token: string) => `/invite/${token}`,
   ACCOUNT: route("/dashboard/account"),

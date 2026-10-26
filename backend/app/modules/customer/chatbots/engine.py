@@ -29,6 +29,7 @@ from app.modules.customer.automation import engine as auto
 from app.modules.customer.chatbots.graph import Graph
 from app.modules.customer.chatbots.models import WaChatbot, WaChatbotSession
 from app.modules.customer.chatbots.schemas import UNIT_SECONDS, BotSettings
+from app.modules.customer.integrations import hooks
 from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage
 from app.services.whatsapp import WhatsAppClient, WhatsAppError
 from app.shared.utils.datetime import iso, now
@@ -579,9 +580,11 @@ class Runner:
             return f"{{{{{action['key'].strip().lower()}}}}} = “{value}”"
         if kind == "opt_out":
             c.opted_out = True
+            hooks.contact_event(self.db, "contact.opted_out", c)
             return "Opted out of marketing"
         if kind == "opt_in":
             c.opted_out = False
+            hooks.contact_event(self.db, "contact.opted_in", c)
             return "Opted in to marketing"
         return "Chat marked resolved" if kind == "resolve" else kind
 
@@ -705,6 +708,7 @@ class LiveRunner(Runner):
         text = self.apply_action(action)
         if action["type"] == "resolve":
             self.conversation.status, self.conversation.resolved_at = "resolved", now()
+            hooks.conversation_resolved(self.db, self.conversation)
         if action["type"] in ("opt_out", "opt_in", "resolve"):
             event(self.db, self.conversation, "status", text, SENDER)
 

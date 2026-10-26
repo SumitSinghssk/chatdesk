@@ -1,0 +1,30 @@
+{
+  "integrations-page": {
+    "width": 2560,
+    "height": 1520
+  },
+  "create-key": {
+    "width": 2560,
+    "height": 1520
+  },
+  "key-created": {
+    "width": 2560,
+    "height": 1520
+  },
+  "webhooks-tab": {
+    "width": 2128,
+    "height": 1362
+  },
+  "add-webhook": {
+    "width": 2560,
+    "height": 1520
+  },
+  "webhook-detail": {
+    "width": 2560,
+    "height": 1520
+  },
+  "delivery-log": {
+    "width": 1494,
+    "height": 692
+  }
+}

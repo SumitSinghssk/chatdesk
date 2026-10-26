@@ -19,6 +19,7 @@ from app.modules.customer.inbox.models import (
     WaNote,
     WaQuickReply,
 )
+from app.modules.customer.integrations import hooks
 from app.modules.customer.inbox.processor import get_or_create_contact, get_or_create_conversation, touch
 from app.modules.customer.inbox.schemas import (
     ContactUpdateSchema,
@@ -339,6 +340,8 @@ def set_status(db: Session, customer: Customer, conversation_id: int, payload: S
     if conversation.status != payload.status:
         words = {"open": "Reopened", "pending": "Marked pending", "resolved": "Resolved"}
         assigning.event(db, conversation, "status", words[payload.status], actor_name(customer))
+        if payload.status == "resolved":
+            hooks.conversation_resolved(db, conversation)
     conversation.status = payload.status
     conversation.resolved_at = now() if payload.status == "resolved" else None
     if payload.status == "resolved":
@@ -437,7 +440,6 @@ def send_media(db: Session, customer: Customer, conversation_id: int, file: Uplo
     _guard_contact(conversation)
     if not window_open(conversation):
         raise HTTPException(422, detail="The 24-hour reply window is closed. Send an approved template instead.")
-    _, client = _client(db, customer)
     mime = (file.content_type or "application/octet-stream").split(";")[0].strip().lower()
     kind = media_kind(mime)
     if kind in ACCEPTED and mime not in ACCEPTED[kind]:
@@ -447,7 +449,14 @@ def send_media(db: Session, customer: Customer, conversation_id: int, file: Uplo
         raise field_error(422, "file", "The file is empty")
     if len(content) > MEDIA_LIMITS[kind]:
         raise field_error(422, "file", f"WhatsApp allows {kind}s up to {MEDIA_LIMITS[kind] // (1024 * 1024)} MB")
-    filename = Path(file.filename or "file").name[:200]
+    return _deliver(db, conversation, *send_file(db, customer, conversation, kind, content, mime,
+                                                 Path(file.filename or "file").name[:200], caption))
+
+
+def send_file(db: Session, customer: Customer, conversation: WaConversation, kind: str, content: bytes, mime: str,
+              filename: str, caption: str | None, reply_to: str | None = None) -> tuple[WaMessage, object]:
+    """Uploads a file to WhatsApp and records the message; returns it and the call that sends it."""
+    _, client = _client(db, customer)
     caption = (caption or "").strip()[:1024] or None
     try:
         media_id = client.upload_media(content, mime, filename)
@@ -458,13 +467,15 @@ def send_media(db: Session, customer: Customer, conversation_id: int, file: Uplo
         body["caption"] = caption
     if kind == "document":
         body["filename"] = filename
+    request = {"type": kind, kind: body, **({"context": {"message_id": reply_to}} if reply_to else {})}
     message = _outbound(db, customer, conversation, type=kind, text=caption, media_id=media_id,
-                        media_mime=mime, media_filename=filename, media_size=len(content),
-                        payload={"request": {"type": kind, kind: body}})
+                        media_mime=mime, media_filename=filename, media_size=len(content), context_wamid=reply_to,
+                        payload={"request": request})
     _cache_path(message).parent.mkdir(parents=True, exist_ok=True)
     _cache_path(message).write_bytes(content)
-    return _deliver(db, conversation, message,
-                    lambda: client.send_media(conversation.contact.wa_id, kind, media_id, caption, filename))
+    if reply_to:
+        return message, lambda: client.send({"to": conversation.contact.wa_id, **request})
+    return message, lambda: client.send_media(conversation.contact.wa_id, kind, media_id, caption, filename)
 
 
 def _download_name(message: WaMessage) -> str:
