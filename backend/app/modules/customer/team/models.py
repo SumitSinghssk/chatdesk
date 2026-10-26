@@ -30,3 +30,14 @@ class WaTeamMember(Base):
     member_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
 
     team = relationship("WaTeam", back_populates="members")
+
+
+class WaNumberAccess(Base):
+    """The numbers a member may work on, when they aren't allowed on all of them (Customer.all_numbers)."""
+
+    __tablename__ = "wa_number_access"
+    __table_args__ = (UniqueConstraint("member_id", "number_id", name="uq_wa_number_access"),)
+
+    id = Column(Integer, primary_key=True)
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    number_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)

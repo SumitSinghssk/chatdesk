@@ -65,22 +65,25 @@ def export(db: Session, person: Customer) -> StreamingResponse:
             CustomerSession.customer_id == person.id).order_by(CustomerSession.id))
         counts["notifications"] = _dump(zf, "notifications.json", db.query(CustomerNotification).filter(
             CustomerNotification.customer_id == person.id).order_by(CustomerNotification.id))
-        if person.workspace_id is None:  # the owner: everything in the workspace
+        if person.workspace_id is None:  # the owner: everything in the workspace, every number
             owner = person.id
+            ids = [owner, *(i for (i,) in db.query(Customer.id).filter(Customer.parent_id == owner,
+                                                                         Customer.not_deleted()))]
             tables = {
                 "team.json": db.query(Customer).filter(Customer.workspace_id == owner),
-                "contacts.json": db.query(WaContact).filter(WaContact.customer_id == owner),
-                "conversations.json": db.query(WaConversation).filter(WaConversation.customer_id == owner),
-                "messages.json": db.query(WaMessage).filter(WaMessage.customer_id == owner),
-                "notes.json": db.query(WaNote).filter(WaNote.customer_id == owner),
-                "quick_replies.json": db.query(WaQuickReply).filter(WaQuickReply.customer_id == owner),
-                "templates.json": db.query(WaTemplate).filter(WaTemplate.customer_id == owner),
-                "campaigns.json": db.query(WaCampaign).filter(WaCampaign.customer_id == owner),
-                "automatic_replies.json": db.query(WaAutoReply).filter(WaAutoReply.customer_id == owner),
-                "chatbots.json": db.query(WaChatbot).filter(WaChatbot.customer_id == owner),
-                "ai_agents.json": db.query(AiAgent).filter(AiAgent.customer_id == owner),
-                "ai_knowledge.json": db.query(AiSource).filter(AiSource.customer_id == owner),
-                "ai_conversations.json": db.query(AiThread).filter(AiThread.customer_id == owner),
+                "numbers.json": db.query(Customer).filter(Customer.id.in_(ids)),
+                "contacts.json": db.query(WaContact).filter(WaContact.customer_id.in_(ids)),
+                "conversations.json": db.query(WaConversation).filter(WaConversation.customer_id.in_(ids)),
+                "messages.json": db.query(WaMessage).filter(WaMessage.customer_id.in_(ids)),
+                "notes.json": db.query(WaNote).filter(WaNote.customer_id.in_(ids)),
+                "quick_replies.json": db.query(WaQuickReply).filter(WaQuickReply.customer_id.in_(ids)),
+                "templates.json": db.query(WaTemplate).filter(WaTemplate.customer_id.in_(ids)),
+                "campaigns.json": db.query(WaCampaign).filter(WaCampaign.customer_id.in_(ids)),
+                "automatic_replies.json": db.query(WaAutoReply).filter(WaAutoReply.customer_id.in_(ids)),
+                "chatbots.json": db.query(WaChatbot).filter(WaChatbot.customer_id.in_(ids)),
+                "ai_agents.json": db.query(AiAgent).filter(AiAgent.customer_id.in_(ids)),
+                "ai_knowledge.json": db.query(AiSource).filter(AiSource.customer_id.in_(ids)),
+                "ai_conversations.json": db.query(AiThread).filter(AiThread.customer_id.in_(ids)),
             }
             for name, query in tables.items():
                 model = query.column_descriptions[0]["entity"]
@@ -107,15 +110,16 @@ def delete_account(db: Session, person: Customer, payload, request: Request, res
         from app.modules.customer.campaigns.models import WaCampaign
         from app.modules.customer.whatsapp.models import WhatsAppAccount
 
-        people = db.query(Customer).filter((Customer.id == person.id) | (Customer.workspace_id == person.id),
-                                           Customer.not_deleted()).all()
+        people = db.query(Customer).filter((Customer.id == person.id) | (Customer.workspace_id == person.id)
+                                           | (Customer.parent_id == person.id), Customer.not_deleted()).all()
+        ids = [p.id for p in people if p.id == person.id or p.parent_id == person.id]  # every number
         # nothing keeps answering or sending for a deleted account
-        db.query(WhatsAppAccount).filter(WhatsAppAccount.customer_id == person.id) \
+        db.query(WhatsAppAccount).filter(WhatsAppAccount.customer_id.in_(ids)) \
             .update({WhatsAppAccount.status: "disconnected"}, synchronize_session=False)
-        db.query(AiAgent).filter(AiAgent.customer_id == person.id).update(
+        db.query(AiAgent).filter(AiAgent.customer_id.in_(ids)).update(
             {AiAgent.whatsapp_enabled: False, AiAgent.widget_enabled: False, AiAgent.api_enabled: False},
             synchronize_session=False)
-        db.query(WaCampaign).filter(WaCampaign.customer_id == person.id,
+        db.query(WaCampaign).filter(WaCampaign.customer_id.in_(ids),
                                     WaCampaign.status.in_(("scheduled", "sending", "paused"))) \
             .update({WaCampaign.status: "cancelled"}, synchronize_session=False)
         message = "Your account and workspace were deleted"

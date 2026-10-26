@@ -25,7 +25,6 @@ from app.modules.customer.inbox.models import (
     WaResponse,
 )
 from app.modules.customer.team import assign as assigning
-from app.shared.enums import Status
 from app.shared.utils.datetime import iso
 
 MAX_DAYS = 366
@@ -184,9 +183,9 @@ def _sources(db: Session, owner_id: int, p: Period) -> dict:
 
 
 def _team(db: Session, owner_id: int, p: Period) -> list[dict]:
-    people = (db.query(Customer).filter((Customer.id == owner_id) | (Customer.workspace_id == owner_id),
-                                        Customer.not_deleted(), Customer.status == Status.ACTIVE.value)
-              .order_by(Customer.name).all())
+    from app.modules.customer.team.access import people as number_people
+
+    people = number_people(db, owner_id).order_by(Customer.name).all()  # who works on this number
     replies = dict(db.query(WaMessage.member_id, func.count(WaMessage.id))
                    .filter(WaMessage.customer_id == owner_id, WaMessage.direction == "out",
                            WaMessage.member_id.isnot(None), WaMessage.sent_by.notin_((BOT_SENDER, AUTO_SENDER)),

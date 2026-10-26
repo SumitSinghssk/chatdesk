@@ -49,7 +49,8 @@ export function Team() {
   const params = useSearchParams();
   const queryClient = useQueryClient();
   const confirm = useConfirm();
-  const { me } = useDashboard();
+  const { me, numbers } = useDashboard();
+  const numberName = Object.fromEntries(numbers.map((n) => [n.id, n.label]));
   const tab = (params.get("tab") as Tab) || "members";
   const [inviting, setInviting] = useState(false);
   const [editing, setEditing] = useState<Member | null>(null);
@@ -162,6 +163,27 @@ export function Team() {
           <span className="text-fg-faint">—</span>
         ),
     },
+    ...(numbers.length > 1
+      ? [
+          {
+            key: "numbers",
+            header: "Numbers",
+            hideOnMobile: true,
+            cell: (m: Member) =>
+              m.all_numbers ? (
+                <span className="text-fg-subtle text-xs">All numbers</span>
+              ) : (
+                <span className="flex flex-wrap gap-1">
+                  {m.number_ids.map((id) => (
+                    <Badge key={id} tone="neutral">
+                      {numberName[id] ?? "Removed number"}
+                    </Badge>
+                  ))}
+                </span>
+              ),
+          },
+        ]
+      : []),
     {
       key: "status",
       header: "Status",

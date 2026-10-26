@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 
 def team(db: Session, owner_id: int) -> list[Customer]:
-    """Everyone active in the workspace (the owner first)."""
-    return (db.query(Customer).filter((Customer.id == owner_id) | (Customer.workspace_id == owner_id),
-                                      Customer.not_deleted(), Customer.status == Status.ACTIVE.value)
-            .order_by(Customer.workspace_id.is_not(None), Customer.id).all())
+    """Everyone active who works on this number (the owner first)."""
+    from app.modules.customer.team.access import people
+
+    return people(db, owner_id).order_by(Customer.workspace_id.is_not(None), Customer.id).all()
 
 
 def managers(db: Session, owner_id: int) -> list[Customer]:
@@ -61,10 +61,13 @@ def _email(person_id: int, title: str, body: str | None, url: str | None) -> Non
 
 def notify(db: Session, people: list[Customer], event: str, title: str, body: str | None = None,
            url: str | None = None, data: dict | None = None, once_key: str | None = None,
-           skip: int | None = None) -> int:
+           skip: int | None = None, number_id: int | None = None) -> int:
     """Notifies each person through the channels they chose. `once_key` makes it happen only once per
-    person (e.g. one alert per waiting chat). `skip`: the person who caused it. Returns how many got it.
-    Adds to the caller's transaction; the caller commits."""
+    person (e.g. one alert per waiting chat). `skip`: the person who caused it. `number_id`: the
+    WhatsApp number it happened on; with several numbers the title names it and the link switches to it.
+    Returns how many got it. Adds to the caller's transaction; the caller commits."""
+    if number_id is not None:
+        title, url = _on_number(db, number_id, title, url)
     sent = 0
     emails = []
     for person in people:
@@ -94,6 +97,21 @@ def notify(db: Session, people: list[Customer], event: str, title: str, body: st
     return sent
 
 
+def _on_number(db: Session, number_id: int, title: str, url: str | None) -> tuple[str, str | None]:
+    number = db.get(Customer, number_id)
+    if number is None:
+        return title, url
+    main_id = number.parent_id or number.id
+    several = db.query(Customer.id).filter(Customer.parent_id == main_id, Customer.not_deleted()).first()
+    if not several:
+        return title, url
+    from app.modules.customer.numbers.service import label_of
+
+    if url:
+        url = f"{url}{'&' if '?' in url else '?'}number={number.id}"
+    return f"{label_of(number)} · {title}", url
+
+
 # Events ------------------------------------------------------------------------------------------
 
 def chat_assigned(db: Session, owner_id: int, conversation, person: Customer, actor_id: int | None) -> None:
@@ -101,7 +119,7 @@ def chat_assigned(db: Session, owner_id: int, conversation, person: Customer, ac
     who = contact.name or contact.profile_name or f"+{contact.wa_id}"
     notify(db, [person], "chat_assigned", f"New chat assigned to you: {who}",
            conversation.last_message_preview, f"/dashboard/inbox?c={conversation.id}",
-           {"conversation_id": conversation.id}, skip=actor_id)
+           {"conversation_id": conversation.id}, skip=actor_id, number_id=owner_id)
 
 
 def ai_handover(db: Session, owner_id: int, conversation, reason: str) -> None:
@@ -109,7 +127,7 @@ def ai_handover(db: Session, owner_id: int, conversation, reason: str) -> None:
     who = contact.name or contact.profile_name or f"+{contact.wa_id}"
     notify(db, for_chat(db, owner_id, conversation.assignee_id), "ai_handover",
            f"The AI agent handed {who} to your team", reason, f"/dashboard/inbox?c={conversation.id}",
-           {"conversation_id": conversation.id})
+           {"conversation_id": conversation.id}, number_id=owner_id)
 
 
 def campaign_finished(db: Session, campaign) -> None:
@@ -119,7 +137,7 @@ def campaign_finished(db: Session, campaign) -> None:
             else (campaign.error or "It couldn't finish."))
     notify(db, managers(db, campaign.customer_id), "campaign_finished", title, body,
            f"/dashboard/campaigns/{campaign.id}", {"campaign_id": campaign.id},
-           once_key=f"campaign:{campaign.id}:{campaign.status}")
+           once_key=f"campaign:{campaign.id}:{campaign.status}", number_id=campaign.customer_id)
 
 
 def new_order(db: Session, order, who: str) -> None:
@@ -127,7 +145,8 @@ def new_order(db: Session, order, who: str) -> None:
 
     notify(db, managers(db, order.customer_id), "new_order", f"New order {order_ref(order)} from {who}",
            f"{len(order.items)} item{'' if len(order.items) == 1 else 's'} · {total_text(order)}",
-           f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id}, once_key=f"order:{order.id}")
+           f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id}, once_key=f"order:{order.id}",
+           number_id=order.customer_id)
 
 
 def payment_received(db: Session, order, amount: str) -> None:
@@ -136,13 +155,14 @@ def payment_received(db: Session, order, amount: str) -> None:
     who = order.customer_name or order.customer_phone or "a customer"
     notify(db, managers(db, order.customer_id), "payment_received", f"{amount} paid for order {order_ref(order)}",
            f"From {who}", f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id},
-           once_key=f"paid:{order.id}:{order.paid_at:%Y%m%d%H%M%S}" if order.paid_at else None)
+           once_key=f"paid:{order.id}:{order.paid_at:%Y%m%d%H%M%S}" if order.paid_at else None,
+           number_id=order.customer_id)
 
 
 def whatsapp_problem(db: Session, owner_id: int, problem: str) -> None:
     """At most once a day: the number can't send (expired token, account blocked...)."""
     notify(db, managers(db, owner_id), "whatsapp_problem", "Your WhatsApp number has a problem", problem[:400],
-           "/dashboard/whatsapp", once_key=f"whatsapp:{now():%Y-%m-%d}")
+           "/dashboard/whatsapp", once_key=f"whatsapp:{owner_id}:{now():%Y-%m-%d}", number_id=owner_id)
 
 
 def waiting_alerts(db: Session) -> int:
@@ -168,7 +188,8 @@ def waiting_alerts(db: Session) -> int:
         alerted += notify(db, people, "customer_waiting", f"{who} has been waiting {minutes} min for a reply",
                           conversation.last_message_preview, f"/dashboard/inbox?c={conversation.id}",
                           {"conversation_id": conversation.id},
-                          once_key=f"wait:{conversation.id}:{conversation.waiting_since.isoformat()}")
+                          once_key=f"wait:{conversation.id}:{conversation.waiting_since.isoformat()}",
+                          number_id=conversation.customer_id)
     db.commit()
     return alerted
 

@@ -68,6 +68,17 @@ def get_connection(db: Session, customer: Customer) -> dict:
 
 def save_connection(db: Session, customer: Customer, payload: ConnectionSchema) -> dict:
     account = _account(db, customer)
+    # one Meta number belongs to one of the workspace's numbers (webhooks are routed by it)
+    main_id = customer.parent_id or customer.id
+    taken = (db.query(WhatsAppAccount).join(Customer, Customer.id == WhatsAppAccount.customer_id)
+             .filter((Customer.id == main_id) | (Customer.parent_id == main_id),
+                     WhatsAppAccount.phone_number_id == payload.phone_number_id,
+                     WhatsAppAccount.status != "disconnected"))
+    if account is not None:
+        taken = taken.filter(WhatsAppAccount.id != account.id)
+    if taken.first() is not None:
+        raise field_error(409, "phone_number_id", "This number is already connected to another of your "
+                                                  "numbers. Switch to it with the number switcher.")
     if account is None:
         if not payload.access_token:
             raise field_error(422, "access_token", "Paste the permanent access token from your Meta system user")

@@ -38,6 +38,12 @@ class Customer(Base, TimestampMixin, SoftDeleteMixin):
     invite_token_hash = Column(String(64), nullable=True, index=True)
     invite_expires_at = Column(DateTime, nullable=True)
     invited_by = Column(String(150), nullable=True)
+    # Numbers: each extra WhatsApp number is its own data space, a row that never signs in, owned by the
+    # main account (parent_id = owner's id). The owner's own row is the first number. See team/access.py.
+    parent_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True, index=True)
+    number_label = Column(String(60), nullable=True)  # the number's name in the switcher
+    # members: may work on every number (True) or only those in wa_number_access
+    all_numbers = Column(Boolean, nullable=False, default=True, server_default=text("true"))
     team_settings = Column(JSON, nullable=True)  # owners only: assignment rules and agent visibility
     automation_settings = Column(JSON, nullable=True)  # owners only: office hours and opt-out keywords
     job_title = Column(String(100), nullable=True)
@@ -58,6 +64,7 @@ class Customer(Base, TimestampMixin, SoftDeleteMixin):
     sessions = relationship("CustomerSession", back_populates="customer", cascade="all, delete-orphan",
                             passive_deletes=True)
     workspace = relationship("Customer", remote_side=[id], foreign_keys=[workspace_id])
+    parent = relationship("Customer", remote_side=[id], foreign_keys=[parent_id])
 
     @property
     def two_factor_enabled(self) -> bool:

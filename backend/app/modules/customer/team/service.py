@@ -12,8 +12,8 @@ from app.modules.customer.account.serializers import serialize_customer
 from app.modules.customer.auth.service import check_password, field_error
 from app.modules.customer.inbox.models import WaConversation, WaMessage, WaResponse
 from app.modules.customer.team import assign as assigning
-from app.modules.customer.team.access import actor, actor_name, settings_of
-from app.modules.customer.team.models import WaTeam, WaTeamMember
+from app.modules.customer.team.access import actor, actor_name, as_main, numbers, people, root_id, settings_of
+from app.modules.customer.team.models import WaNumberAccess, WaTeam, WaTeamMember
 from app.modules.customer.team.schemas import (
     AcceptInviteSchema,
     AvailabilitySchema,
@@ -48,7 +48,20 @@ def _teams_by_member(db: Session, owner_id: int) -> dict[int, list[dict]]:
     return out
 
 
-def serialize_member(m: Customer, owner_id: int, me_id: int, teams: dict, open_chats: dict) -> dict:
+def _access(db: Session, owner_id: int) -> dict[int, list[int]]:
+    """The numbers each limited member may work on."""
+    rows = (db.query(WaNumberAccess.member_id, WaNumberAccess.number_id)
+            .join(Customer, Customer.id == WaNumberAccess.member_id).filter(Customer.workspace_id == owner_id).all())
+    out: dict[int, list[int]] = {}
+    for member_id, number_id in rows:
+        out.setdefault(member_id, []).append(number_id)
+    return out
+
+
+def serialize_member(m: Customer, owner_id: int, me_id: int, teams: dict, open_chats: dict,
+                     access: dict | None = None, number_id: int | None = None) -> dict:
+    every = m.id == owner_id or m.role == "owner" or m.all_numbers
+    mine = sorted((access or {}).get(m.id, []))
     return {
         "id": m.id,
         "name": m.name,
@@ -63,21 +76,33 @@ def serialize_member(m: Customer, owner_id: int, me_id: int, teams: dict, open_c
         "invited_by": m.invited_by,
         "invite_expires_at": iso(m.invite_expires_at),
         "is_you": m.id == me_id,
+        "all_numbers": every,
+        "number_ids": [] if every else mine,
+        "works_here": every or number_id is None or number_id in mine,  # on the number in the switcher
         "created_at": iso(m.created_at),
     }
 
 
-def _open_chats(db: Session, owner_id: int) -> dict[int, int]:
+def _number_ids(db: Session, main: Customer) -> list[int]:
+    return [n.id for n in numbers(db, main)]
+
+
+def _open_chats(db: Session, main: Customer, number_id: int | None = None) -> dict[int, int]:
+    """Open chats per member: on one number, or on all of them."""
+    ids = [number_id] if number_id else _number_ids(db, main)
     return dict(db.query(WaConversation.assignee_id, func.count(WaConversation.id))
-                .filter(WaConversation.customer_id == owner_id, WaConversation.assignee_id.isnot(None),
+                .filter(WaConversation.customer_id.in_(ids), WaConversation.assignee_id.isnot(None),
                         WaConversation.status.in_(assigning.OPEN))
                 .group_by(WaConversation.assignee_id).all())
 
 
-def list_members(db: Session, ws: Customer) -> dict:
-    people = _people(db, ws.id).order_by(case((Customer.id == ws.id, 0), else_=1), Customer.name).all()
-    teams, open_chats = _teams_by_member(db, ws.id), _open_chats(db, ws.id)
-    return {"status": True, "data": [serialize_member(m, ws.id, actor(ws).id, teams, open_chats) for m in people]}
+def list_members(db: Session, number: Customer) -> dict:
+    """The whole team, each marked with whether they work on the number picked in the switcher."""
+    ws = as_main(number)
+    rows = _people(db, ws.id).order_by(case((Customer.id == ws.id, 0), else_=1), Customer.name).all()
+    teams, open_chats, access = _teams_by_member(db, ws.id), _open_chats(db, ws), _access(db, ws.id)
+    return {"status": True, "data": [serialize_member(m, ws.id, actor(ws).id, teams, open_chats, access, number.id)
+                                     for m in rows]}
 
 
 def _member(db: Session, ws: Customer, member_id: int) -> Customer:
@@ -96,12 +121,25 @@ def _set_teams(db: Session, ws: Customer, member: Customer, team_ids: list[int])
         db.add(WaTeamMember(team_id=team_id, member_id=member.id))
 
 
+def _set_numbers(db: Session, ws: Customer, member: Customer, every: bool, number_ids: list[int]) -> None:
+    """Which numbers the member may work on: all of them, or the ones picked."""
+    valid = set(number_ids) & set(_number_ids(db, ws))
+    if not every and not valid:
+        raise field_error(422, "number_ids", "Pick at least one number, or allow all numbers")
+    member.all_numbers = every
+    db.query(WaNumberAccess).filter(WaNumberAccess.member_id == member.id).delete(synchronize_session=False)
+    if not every:
+        db.add_all(WaNumberAccess(member_id=member.id, number_id=i) for i in sorted(valid))
+
+
 def _one(db: Session, ws: Customer, member: Customer, extra: dict | None = None) -> dict:
-    data = serialize_member(member, ws.id, actor(ws).id, _teams_by_member(db, ws.id), _open_chats(db, ws.id))
+    data = serialize_member(member, ws.id, actor(ws).id, _teams_by_member(db, ws.id), _open_chats(db, ws),
+                            _access(db, ws.id))
     return {**data, **(extra or {})}
 
 
 def invite(db: Session, ws: Customer, payload: InviteSchema) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     email = str(payload.email).lower()
     existing = db.query(Customer).filter(func.lower(Customer.email) == email, Customer.not_deleted()).first()
     if existing is not None:
@@ -115,12 +153,14 @@ def invite(db: Session, ws: Customer, payload: InviteSchema) -> dict:
     db.add(member)
     db.flush()
     _set_teams(db, ws, member, payload.team_ids)
+    _set_numbers(db, ws, member, payload.all_numbers, payload.number_ids)
     db.commit()
     return {"status": True, "message": f"Invite ready for {email}. Share the link with them.",
             "data": _one(db, ws, member, {"invite_url": invite_url(token)})}
 
 
 def reinvite(db: Session, ws: Customer, member_id: int) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     member = _member(db, ws, member_id)
     if member.status != INVITED:
         raise HTTPException(422, detail="This person already joined")
@@ -134,6 +174,7 @@ def reinvite(db: Session, ws: Customer, member_id: int) -> dict:
 
 
 def update_member(db: Session, ws: Customer, member_id: int, payload: MemberUpdateSchema) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     member = _member(db, ws, member_id)
     if member.id == ws.id:
         raise HTTPException(422, detail="The owner's role can't be changed")
@@ -141,20 +182,23 @@ def update_member(db: Session, ws: Customer, member_id: int, payload: MemberUpda
         raise HTTPException(422, detail="You can't change your own role")
     member.role = payload.role
     _set_teams(db, ws, member, payload.team_ids)
+    _set_numbers(db, ws, member, payload.all_numbers, payload.number_ids)
     db.commit()
     return {"status": True, "message": "Member updated", "data": _one(db, ws, member)}
 
 
 def remove_member(db: Session, ws: Customer, member_id: int) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     member = _member(db, ws, member_id)
     if member.id == ws.id:
         raise HTTPException(422, detail="The owner can't be removed")
     if member.id == actor(ws).id:
         raise HTTPException(422, detail="You can't remove yourself. Ask another admin.")
-    chats = db.query(WaConversation).filter(WaConversation.customer_id == ws.id,
+    chats = db.query(WaConversation).filter(WaConversation.customer_id.in_(_number_ids(db, ws)),
                                             WaConversation.assignee_id == member.id).all()
     for conversation in chats:
-        assigning.assign(db, ws, conversation, None, conversation.team_id, actor_name(ws))
+        assigning.assign(db, db.get(Customer, conversation.customer_id), conversation, None, conversation.team_id,
+                         actor_name(ws))
     db.query(WaTeamMember).filter(WaTeamMember.member_id == member.id).delete(synchronize_session=False)
     if member.status == INVITED:
         db.delete(member)
@@ -195,6 +239,7 @@ def _serialize_team(db: Session, team: WaTeam) -> dict:
 
 
 def list_teams(db: Session, ws: Customer) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     teams = db.query(WaTeam).filter(WaTeam.customer_id == ws.id).order_by(WaTeam.name).all()
     return {"status": True, "data": [_serialize_team(db, t) for t in teams]}
 
@@ -214,6 +259,7 @@ def _save_team(db: Session, ws: Customer, team: WaTeam, payload: TeamSchema) -> 
 
 
 def create_team(db: Session, ws: Customer, payload: TeamSchema) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     team = WaTeam(customer_id=ws.id)
     db.add(team)
     _save_team(db, ws, team, payload)
@@ -223,6 +269,7 @@ def create_team(db: Session, ws: Customer, payload: TeamSchema) -> dict:
 
 
 def update_team(db: Session, ws: Customer, team_id: int, payload: TeamSchema) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     team = _team(db, ws, team_id)
     _save_team(db, ws, team, payload)
     db.commit()
@@ -231,6 +278,7 @@ def update_team(db: Session, ws: Customer, team_id: int, payload: TeamSchema) ->
 
 
 def delete_team(db: Session, ws: Customer, team_id: int) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     team = _team(db, ws, team_id)
     rules = dict(ws.team_settings or {})
     if rules.get("assign_team_id") == team.id:
@@ -248,6 +296,7 @@ def get_settings(db: Session, ws: Customer) -> dict:
 
 
 def save_settings(db: Session, ws: Customer, payload: SettingsSchema) -> dict:
+    ws = as_main(ws)  # the team is shared by every number
     data = payload.model_dump()
     if data["assign_team_id"] is not None:
         _team(db, ws, data["assign_team_id"])
@@ -260,8 +309,9 @@ def save_settings(db: Session, ws: Customer, payload: SettingsSchema) -> dict:
 
 def performance(db: Session, ws: Customer, days: int) -> dict:
     since = now() - timedelta(days=days)
-    people = _people(db, ws.id).filter(Customer.status == Status.ACTIVE.value).all()
-    open_chats = _open_chats(db, ws.id)
+    main_id = root_id(ws)
+    team = people(db, ws.id).all()  # the people who work on this number
+    open_chats = _open_chats(db, as_main(ws), ws.id)
     resolved = dict(db.query(WaConversation.assignee_id, func.count(WaConversation.id))
                     .filter(WaConversation.customer_id == ws.id, WaConversation.status == "resolved",
                             WaConversation.resolved_at >= since, WaConversation.assignee_id.isnot(None))
@@ -276,10 +326,10 @@ def performance(db: Session, ws: Customer, days: int) -> dict:
                      .group_by(WaResponse.member_id).all())
     responses = {m: (n, avg, fast) for m, n, avg, fast in response_rows}
     rows = []
-    for p in people:
+    for p in team:
         n, avg, fast = responses.get(p.id, (0, None, 0))
         rows.append({
-            "member": {"id": p.id, "name": p.name or p.email, "role": "owner" if p.id == ws.id else p.role,
+            "member": {"id": p.id, "name": p.name or p.email, "role": "owner" if p.id == main_id else p.role,
                        "availability": p.availability},
             "open_chats": open_chats.get(p.id, 0),
             "resolved": resolved.get(p.id, 0),

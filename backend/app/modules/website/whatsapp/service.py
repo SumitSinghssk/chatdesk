@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt_secret
 from app.modules.customer.automation import engine as auto_replies
-from app.modules.customer.inbox.processor import process_payload
+from app.modules.customer.inbox.processor import TEMPLATE_FIELDS, process_payload
 from app.modules.customer.whatsapp.models import WhatsAppAccount, WhatsAppWebhookEvent
 from app.services.whatsapp import verify_signature
 from app.shared.utils.datetime import now
@@ -45,6 +45,38 @@ def _kinds(payload: dict) -> list[str]:
     return kinds or ["other"]
 
 
+def _route(db: Session, account: WhatsAppAccount, payload: dict) -> list[tuple[WhatsAppAccount, dict]]:
+    """Splits a payload between the workspace's numbers.
+
+    One Meta app has one webhook URL, so a business with several numbers in it gets every number's
+    events at whichever URL it set. Messages and statuses go to the number they were sent to
+    (metadata.phone_number_id); template updates go to every number of that WhatsApp Business
+    Account (entry.id), since each number keeps its own copy of the templates.
+    """
+    from app.modules.customer.account.models import Customer
+
+    owner = db.get(Customer, account.customer_id)
+    main_id = (owner.parent_id or owner.id) if owner else account.customer_id
+    siblings = (db.query(WhatsAppAccount).join(Customer, Customer.id == WhatsAppAccount.customer_id)
+                .filter((Customer.id == main_id) | (Customer.parent_id == main_id), Customer.not_deleted(),
+                        WhatsAppAccount.status != "disconnected").all())
+    if len(siblings) <= 1:
+        return [(account, payload)]
+    by_phone = {a.phone_number_id: a for a in siblings}
+    parts: dict[int, tuple[WhatsAppAccount, list]] = {}
+    for entry in payload.get("entry") or []:
+        for change in entry.get("changes") or []:
+            value = change.get("value") or {}
+            if change.get("field") in TEMPLATE_FIELDS:
+                targets = [a for a in siblings if a.waba_id == str(entry.get("id"))] or [account]
+            else:
+                phone_id = (value.get("metadata") or {}).get("phone_number_id")
+                targets = [by_phone.get(phone_id, account)]
+            for target in targets:
+                parts.setdefault(target.id, (target, []))[1].append({"id": entry.get("id"), "changes": [change]})
+    return [(target, {**payload, "entry": entries}) for target, entries in parts.values()] or [(account, payload)]
+
+
 def receive(db: Session, webhook_key: str, body: bytes, signature: str | None) -> tuple[int, str]:
     """Stores the raw event, then turns it into contacts, conversations and messages.
 
@@ -70,7 +102,7 @@ def receive(db: Session, webhook_key: str, body: bytes, signature: str | None) -
     db.commit()
 
     try:
-        counts = process_payload(db, account, payload)
+        done = [(target, process_payload(db, target, part)) for target, part in _route(db, account, payload)]
         for event in events:
             event.processed = True
         db.commit()
@@ -78,11 +110,12 @@ def receive(db: Session, webhook_key: str, body: bytes, signature: str | None) -
         db.rollback()
         logger.exception("WhatsApp webhook processing failed for account %s", account.id)
         return 200, "ok"
-    try:
-        auto_replies.handle(db, account, counts["new_message_ids"])  # welcome, keywords, away, opt-out…
-    except Exception:
-        db.rollback()
-        logger.exception("Automatic replies failed for account %s", account.id)
+    for target, counts in done:
+        try:
+            auto_replies.handle(db, target, counts["new_message_ids"])  # welcome, keywords, away, opt-out…
+        except Exception:
+            db.rollback()
+            logger.exception("Automatic replies failed for account %s", target.id)
     return 200, "ok"
 
 
@@ -95,7 +128,8 @@ def replay_unprocessed(db: Session) -> int:
         account = db.get(WhatsAppAccount, event.account_id)
         if account is None:
             continue
-        process_payload(db, account, event.payload or {})
+        for target, part in _route(db, account, event.payload or {}):
+            process_payload(db, target, part)
         event.processed = True
         db.commit()
         done += 1
