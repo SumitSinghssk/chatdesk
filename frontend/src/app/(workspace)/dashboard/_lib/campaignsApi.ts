@@ -6,9 +6,18 @@ import { BROWSER_API_BASE_URL } from "@/config/site";
 import type { Template } from "./templatesApi";
 
 export type CampaignStatus =
-  "draft" | "scheduled" | "sending" | "paused" | "completed" | "cancelled" | "failed";
+  "draft" | "waiting" | "scheduled" | "sending" | "paused" | "completed" | "cancelled" | "failed";
 export type Segment =
-  "sent" | "delivered" | "read" | "not_read" | "replied" | "not_replied" | "clicked" | "failed";
+  | "sent"
+  | "delivered"
+  | "read"
+  | "not_read"
+  | "replied"
+  | "not_replied"
+  | "read_not_replied"
+  | "clicked"
+  | "not_clicked"
+  | "failed";
 export type RecipientStatus =
   "pending" | "sent" | "delivered" | "read" | "replied" | "clicked" | "failed" | "skipped";
 
@@ -75,8 +84,25 @@ export interface Campaign {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  /** a follow-up: sent this many hours after campaign `follow_up_of` finished */
+  follow_up_of: number | null;
+  follow_up_hours: number | null;
   report: CampaignReport;
   template?: Template;
+  /** the campaign this one follows up on (detail only) */
+  follows?: CampaignBrief | null;
+  /** follow-ups waiting for, or sent after, this campaign (detail only) */
+  follow_ups?: (CampaignBrief & { report: CampaignReport })[];
+}
+
+export interface CampaignBrief {
+  id: number;
+  name: string;
+  status: CampaignStatus;
+  scheduled_at: string | null;
+  completed_at: string | null;
+  follow_up_hours: number | null;
+  segment: Segment | null;
 }
 
 export interface CampaignInput {
@@ -86,8 +112,9 @@ export interface CampaignInput {
   variables: CampaignVariables;
   header_media: string | null;
   location: Location | null;
-  action: "draft" | "now" | "schedule";
+  action: "draft" | "now" | "schedule" | "follow_up";
   scheduled_at: string | null;
+  follow_up_hours: number | null;
 }
 
 export interface AudiencePreview {
@@ -180,6 +207,7 @@ export const campaignsApi = {
     location: Location | null;
     phone: string;
   }) => request<unknown>("POST", C.TEST, body),
+  segments: (id: number) => request<Record<Segment, number>>("GET", C.SEGMENTS(id)),
   recipients: (id: number, params: QueryParams, signal?: AbortSignal) =>
     page<Recipient>(withQuery(C.RECIPIENTS(id), { page: 1, ...params }), signal),
   exportUrl: (id: number, status?: string) => `${BROWSER_API_BASE_URL}${withQuery(C.EXPORT(id), { status })}`,
@@ -190,5 +218,6 @@ export const CAMPAIGNS_QK = {
   LIST: (params: QueryParams) => ["campaigns", "list", params] as const,
   STATS: ["campaigns", "stats"] as const,
   ONE: (id: number) => ["campaigns", "one", id] as const,
+  SEGMENTS: (id: number) => ["campaigns", "segments", id] as const,
   RECIPIENTS: (id: number, params: QueryParams) => ["campaigns", "recipients", id, params] as const,
 };

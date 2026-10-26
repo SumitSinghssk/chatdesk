@@ -13,11 +13,13 @@ import {
   Copy,
   Download,
   Eye,
+  Hourglass,
   MessageCircle,
   MousePointerClick,
   Pause,
   Pencil,
   Play,
+  Plus,
   Search,
   SendHorizontal,
   Target,
@@ -55,12 +57,13 @@ import {
   CAMPAIGNS_QK,
   campaignsApi,
   type Campaign,
+  type CampaignBrief,
   type Recipient,
   type RecipientStatus,
 } from "../../_lib/campaignsApi";
 import { templatesApi } from "../../_lib/templatesApi";
 import { previewValues } from "../../templates/_components/TemplateDetail";
-import { CAMPAIGN_STATUS, pct, RECIPIENT_STATUS, SEGMENTS } from "./labels";
+import { CAMPAIGN_STATUS, pct, RECIPIENT_STATUS, SEGMENTS, segmentText, waitText } from "./labels";
 
 const LIVE = new Set(["scheduled", "sending"]);
 
@@ -75,6 +78,17 @@ function audienceText(c: Campaign, names: Map<number, string>) {
     return `People from “${names.get(a.campaign_id ?? 0) ?? "an earlier campaign"}” who ${seg}${exclude}`;
   }
   return `All contacts${exclude}`;
+}
+
+/** When a follow-up goes out, or how it went. */
+function followUpWhen(f: CampaignBrief & { report: Campaign["report"] }) {
+  if (f.status === "waiting") return `${waitText(f.follow_up_hours)} after this one finishes`;
+  if (f.status === "scheduled" && f.scheduled_at) return `Goes out ${formatDateTime(f.scheduled_at)}`;
+  if (f.status === "sending" || f.status === "paused")
+    return `${CAMPAIGN_STATUS[f.status].label} · ${f.report.sent} sent`;
+  if (f.status === "completed")
+    return `Sent to ${f.report.sent} · ${pct(f.report.read, f.report.sent)}% read`;
+  return CAMPAIGN_STATUS[f.status].label;
 }
 
 function Funnel({ c }: { c: Campaign }) {
@@ -141,6 +155,13 @@ export function CampaignReport({ id }: { id: number }) {
     queryKey: CAMPAIGNS_QK.LIST({ per_page: 100 }),
     queryFn: () => campaignsApi.page({ per_page: 100 }),
     enabled: c?.audience.type === "campaign",
+  });
+  // how many people are in each retargeting group (opted-out and blocked people left out)
+  const { data: segments } = useQuery({
+    queryKey: CAMPAIGNS_QK.SEGMENTS(id),
+    queryFn: async () => (await campaignsApi.segments(id)).data,
+    enabled: (c?.report.sent ?? 0) > 0,
+    refetchInterval: LIVE.has(c?.status ?? "") ? 10_000 : 60_000,
   });
 
   if (isLoading) return <Spinner className="h-full" />;
@@ -262,6 +283,10 @@ export function CampaignReport({ id }: { id: number }) {
   ];
 
   const canRetarget = r.sent > 0;
+  const canFollowUp = ["scheduled", "waiting", "sending", "paused", "completed"].includes(c.status);
+  const hasButtons = !!c.template?.form.buttons.some((b) => b.type === "quick_reply");
+  const followUps = c.follow_ups ?? [];
+  const addFollowUp = () => router.push(CUSTOMER_ROUTES.CAMPAIGN_NEW({ retarget: c.id, follow_up: 1 }));
   const tabs: { value: "all" | RecipientStatus; label: string; count?: number }[] = [
     { value: "all", label: "All", count: r.recipients },
     { value: "read", label: "Read", count: r.read },
@@ -283,7 +308,7 @@ export function CampaignReport({ id }: { id: number }) {
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-48">
           <h1 className="text-fg flex items-center gap-2 text-lg font-semibold">
             <span className="truncate">{c.name}</span>
             <Badge tone={status.tone} dot>
@@ -312,23 +337,39 @@ export function CampaignReport({ id }: { id: number }) {
               Resume
             </Button>
           )}
-          {["draft", "scheduled"].includes(c.status) && (
+          {["draft", "waiting", "scheduled"].includes(c.status) && (
             <Link href={CUSTOMER_ROUTES.CAMPAIGN_EDIT(c.id)}>
               <Button variant="secondary" leftIcon={Pencil}>
                 Edit
               </Button>
             </Link>
           )}
-          {canRetarget && (
+          {(canRetarget || canFollowUp) && (
             <Dropdown
               align="right"
-              width="w-64"
+              width="w-72"
               trigger={() => <Button leftIcon={Target}>Retarget</Button>}
-              items={SEGMENTS.filter((s) => s.value !== "sent").map((s) => ({
-                label: `People who ${s.label.charAt(0).toLowerCase()}${s.label.slice(1)}`,
-                onClick: () =>
-                  router.push(CUSTOMER_ROUTES.CAMPAIGN_NEW({ retarget: c.id, segment: s.value })),
-              }))}
+              items={[
+                ...SEGMENTS.filter((s) => s.value !== "sent" && (!s.buttons || hasButtons)).map((s) => ({
+                  label: (
+                    <span className="flex items-center justify-between gap-3">
+                      <span>{segmentText(s.value)}</span>
+                      <span className="text-fg-faint tabular text-xs">{segments?.[s.value] ?? ""}</span>
+                    </span>
+                  ),
+                  hidden: !canRetarget,
+                  disabled: segments?.[s.value] === 0,
+                  onClick: () =>
+                    router.push(CUSTOMER_ROUTES.CAMPAIGN_NEW({ retarget: c.id, segment: s.value })),
+                })),
+                ...(canRetarget && canFollowUp ? ["divider" as const] : []),
+                {
+                  label: "Follow up automatically…",
+                  icon: Hourglass,
+                  hidden: !canFollowUp,
+                  onClick: addFollowUp,
+                },
+              ]}
             />
           )}
           <Dropdown
@@ -385,6 +426,16 @@ export function CampaignReport({ id }: { id: number }) {
             {new Date(c.scheduled_at) > new Date()
               ? `Sends ${formatDateTime(c.scheduled_at)} (${timeAgo(c.scheduled_at)}). You can edit or cancel it until then.`
               : "Starting now…"}
+          </p>
+        </div>
+      )}
+      {c.status === "waiting" && (
+        <div className="border-line bg-info-soft text-info mb-4 flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm">
+          <Hourglass className="h-4 w-4 shrink-0" />
+          <p>
+            Waiting for “{c.follows?.name ?? "the first campaign"}” to finish sending. It goes out{" "}
+            {waitText(c.follow_up_hours)} after that, to people who still match. You can edit or cancel it
+            until then.
           </p>
         </div>
       )}
@@ -506,9 +557,11 @@ export function CampaignReport({ id }: { id: number }) {
               empty={
                 <EmptyState
                   icon={Users}
-                  title={c.status === "draft" || c.status === "scheduled" ? "Not sent yet" : "Nobody here"}
+                  title={
+                    ["draft", "waiting", "scheduled"].includes(c.status) ? "Not sent yet" : "Nobody here"
+                  }
                   description={
-                    c.status === "draft" || c.status === "scheduled"
+                    ["draft", "waiting", "scheduled"].includes(c.status)
                       ? "Recipients appear when the campaign starts sending."
                       : "Try another tab or search."
                   }
@@ -528,6 +581,65 @@ export function CampaignReport({ id }: { id: number }) {
         </div>
 
         <aside className="space-y-4">
+          {c.follows && (
+            <Card>
+              <CardHeader title="Follow-up of" />
+              <CardBody className="space-y-1">
+                <Link
+                  href={CUSTOMER_ROUTES.CAMPAIGN(c.follows.id)}
+                  className="text-primary block truncate text-sm font-semibold hover:underline"
+                >
+                  {c.follows.name}
+                </Link>
+                <p className="text-fg-subtle text-xs">
+                  {segmentText(c.audience.segment)}, {waitText(c.follow_up_hours)} after it finished sending.
+                </p>
+              </CardBody>
+            </Card>
+          )}
+          {(followUps.length > 0 || canFollowUp) && (
+            <Card>
+              <CardHeader
+                title="Follow-ups"
+                description="Sent automatically after this campaign to people who didn't respond. Who gets one is decided when it goes out."
+              />
+              <CardBody className="space-y-2">
+                {followUps.map((f) => (
+                  <Link
+                    key={f.id}
+                    href={CUSTOMER_ROUTES.CAMPAIGN(f.id)}
+                    className="border-line hover:bg-hover block rounded-lg border px-3 py-2.5 transition"
+                  >
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="text-fg min-w-0 truncate text-sm font-medium">{f.name}</span>
+                      <Badge tone={CAMPAIGN_STATUS[f.status].tone} dot>
+                        {CAMPAIGN_STATUS[f.status].label}
+                      </Badge>
+                    </span>
+                    <span className="text-fg-subtle mt-0.5 block text-xs">
+                      {segmentText(f.segment)} · {followUpWhen(f)}
+                    </span>
+                  </Link>
+                ))}
+                {followUps.length === 0 && (
+                  <p className="text-fg-subtle text-sm">
+                    Remind people who didn&apos;t reply, for example 2 days later. It goes out on its own.
+                  </p>
+                )}
+                {canFollowUp && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    leftIcon={Plus}
+                    className="w-full"
+                    onClick={addFollowUp}
+                  >
+                    Add a follow-up
+                  </Button>
+                )}
+              </CardBody>
+            </Card>
+          )}
           <Card>
             <CardHeader title="Message" />
             <CardBody>

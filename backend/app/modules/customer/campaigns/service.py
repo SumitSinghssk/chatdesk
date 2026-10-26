@@ -1,6 +1,7 @@
 import csv
 import io
-from datetime import timezone
+from datetime import timedelta, timezone
+from typing import get_args
 
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
@@ -15,6 +16,7 @@ from app.modules.customer.campaigns.schemas import (
     AudienceSchema,
     CampaignSchema,
     PreviewSchema,
+    Segment,
     TestSendSchema,
     VariableSource,
     VariablesSchema,
@@ -33,7 +35,7 @@ from app.shared.utils.datetime import iso, now, to_site
 from app.shared.utils.grid import GridField, apply_filters, apply_sort
 from app.shared.utils.search import search_clause
 
-EDITABLE = {"draft", "scheduled"}
+EDITABLE = {"draft", "waiting", "scheduled"}
 ACTIVE = {"sending", "paused"}
 # Rough Meta prices in ₹ per delivered template message (Meta's rate card changes; this is a guide).
 RATES = {
@@ -120,7 +122,9 @@ def audience_query(db: Session, customer: Customer, audience: AudienceSchema):
             "not_read": and_(sent, WaMessage.status != "read", WaMessage.status != "failed"),
             "replied": and_(sent, _replied()),
             "not_replied": and_(sent, WaMessage.status != "failed", not_(_replied())),
+            "read_not_replied": and_(sent, WaMessage.status == "read", not_(_replied())),
             "clicked": and_(sent, _clicked()),
+            "not_clicked": and_(sent, WaMessage.status != "failed", not_(_clicked())),
             "failed": or_(WaCampaignRecipient.status == "failed", WaMessage.status == "failed"),
         }[segment])
         q = q.filter(WaContact.id.in_(rq.subquery().select()))
@@ -258,6 +262,8 @@ def serialize(c: WaCampaign, report: dict | None = None, template: WaTemplate | 
         "error": c.error,
         "total": c.total,
         "skipped": c.skipped,
+        "follow_up_of": c.follow_up_of,
+        "follow_up_hours": c.follow_up_hours,
         "created_by": c.created_by,
         "created_at": iso(c.created_at),
         "updated_at": iso(c.updated_at),
@@ -266,6 +272,12 @@ def serialize(c: WaCampaign, report: dict | None = None, template: WaTemplate | 
     if template is not None:
         data["template"] = templates_service.serialize(template)
     return data
+
+
+def _brief(c: WaCampaign) -> dict:
+    return {"id": c.id, "name": c.name, "status": c.status, "scheduled_at": iso(c.scheduled_at),
+            "completed_at": iso(c.completed_at), "follow_up_hours": c.follow_up_hours,
+            "segment": (c.audience or {}).get("segment")}
 
 
 def list_campaigns(db: Session, customer: Customer, page=None, per_page=None, search=None, status=None,
@@ -299,7 +311,7 @@ def stats(db: Session, customer: Customer) -> dict:
              .filter(WaCampaign.customer_id == customer.id, WaCampaignRecipient.sent_at >= since).scalar() or 0)
     return {"status": True, "data": {
         "total": sum(counts.values()),
-        "scheduled": counts.get("scheduled", 0),
+        "scheduled": counts.get("scheduled", 0) + counts.get("waiting", 0),  # follow-ups are scheduled too
         "active": sum(counts.get(s, 0) for s in ACTIVE),
         "completed": counts.get("completed", 0),
         "draft": counts.get("draft", 0),
@@ -311,7 +323,23 @@ def stats(db: Session, customer: Customer) -> dict:
 def get_campaign(db: Session, customer: Customer, campaign_id: int) -> dict:
     c = _get(db, customer, campaign_id)
     template = db.get(WaTemplate, c.template_id) if c.template_id else None
-    return {"status": True, "data": serialize(c, _report(db, [c.id]).get(c.id), template)}
+    data = serialize(c, _report(db, [c.id]).get(c.id), template)
+    source = db.get(WaCampaign, c.follow_up_of) if c.follow_up_of else None
+    data["follows"] = _brief(source) if source is not None else None
+    children = (db.query(WaCampaign).filter(WaCampaign.follow_up_of == c.id)
+                .order_by(WaCampaign.created_at, WaCampaign.id).all())
+    reports = _report(db, [f.id for f in children])
+    data["follow_ups"] = [{**_brief(f), "report": reports.get(f.id, EMPTY_REPORT)} for f in children]
+    return {"status": True, "data": data}
+
+
+def segment_counts(db: Session, customer: Customer, campaign_id: int) -> dict:
+    """How many people (who can still be messaged) are in each retargeting group of a campaign."""
+    c = _get(db, customer, campaign_id)
+    counts = {s: _eligible(audience_query(db, customer, AudienceSchema(type="campaign", campaign_id=c.id,
+                                                                         segment=s))).count()
+              for s in get_args(Segment)}
+    return {"status": True, "data": counts}
 
 
 # Create, edit, control ----------------------------------------------------------------
@@ -340,7 +368,16 @@ def _apply(db: Session, customer: Customer, campaign: WaCampaign, payload: Campa
     campaign.variables = payload.variables.model_dump()
     campaign.header_media = payload.header_media
     campaign.location = payload.location.model_dump(exclude_none=True) if payload.location else None
-    if payload.action == "schedule":
+    retarget = payload.audience.type == "campaign"
+    campaign.follow_up_hours = payload.follow_up_hours if retarget and payload.action in ("draft", "follow_up") \
+        else None
+    campaign.follow_up_of = None
+    campaign.error = None
+    if payload.action == "follow_up":
+        source = _follow_up_source(db, customer, campaign, payload)
+        campaign.follow_up_of, campaign.status, campaign.scheduled_at = source.id, "waiting", None
+        release(campaign, source)
+    elif payload.action == "schedule":
         when = _utc(payload.scheduled_at)
         if when is None or when <= now():
             raise field_error(422, "scheduled_at", "Pick a time in the future")
@@ -351,6 +388,57 @@ def _apply(db: Session, customer: Customer, campaign: WaCampaign, payload: Campa
         campaign.status, campaign.scheduled_at = "draft", _utc(payload.scheduled_at)
 
 
+FINISHED = {"completed", "cancelled", "failed"}
+
+
+def _follow_up_source(db: Session, customer: Customer, campaign: WaCampaign, payload: CampaignSchema) -> WaCampaign:
+    """The campaign a follow-up waits for, after checking it can be followed up."""
+    if payload.audience.type != "campaign":
+        raise field_error(422, "audience.type", "A follow-up goes to people from an earlier campaign")
+    if not payload.follow_up_hours:
+        raise field_error(422, "follow_up_hours", "Choose how long to wait")
+    source = db.query(WaCampaign).filter(WaCampaign.id == payload.audience.campaign_id,
+                                         WaCampaign.customer_id == customer.id).first()
+    if source is None:
+        raise field_error(422, "audience.campaign_id", "Choose an earlier campaign")
+    if source.status == "draft":
+        raise field_error(422, "audience.campaign_id", f"Send or schedule “{source.name}” first")
+    if source.status in ("cancelled", "failed"):
+        raise field_error(422, "audience.campaign_id",
+                          f"“{source.name}” was {source.status}. Use Send now or Schedule instead")
+    step, seen = source, 0
+    while step is not None and seen < 50:  # A follows B follows A would wait forever
+        if campaign.id is not None and step.id == campaign.id:
+            raise field_error(422, "audience.campaign_id", "A campaign can't follow up on itself")
+        step = db.get(WaCampaign, step.follow_up_of) if step.follow_up_of else None
+        seen += 1
+    return source
+
+
+def release(campaign: WaCampaign, source: WaCampaign | None) -> None:
+    """Moves a waiting follow-up on once the campaign it follows has finished (or is gone)."""
+    if campaign.status != "waiting":
+        return
+    if source is None or source.status in ("cancelled", "failed"):
+        why = "deleted" if source is None else source.status
+        campaign.status, campaign.completed_at = "cancelled", now()
+        campaign.error = f"Not sent: the campaign it follows up on was {why}"
+    elif source.status == "completed":
+        due = (source.completed_at or now()) + timedelta(hours=campaign.follow_up_hours or 0)
+        campaign.status, campaign.scheduled_at = "scheduled", max(due, now())
+
+
+def release_follow_ups(db: Session, source: WaCampaign | None = None) -> None:
+    """Releases waiting follow-ups: those of `source`, or every one whose first campaign is done."""
+    q = db.query(WaCampaign).filter(WaCampaign.status == "waiting")
+    if source is not None:
+        q = q.filter(WaCampaign.follow_up_of == source.id)
+    for campaign in q.with_for_update(skip_locked=True).all():
+        first = source or (db.get(WaCampaign, campaign.follow_up_of) if campaign.follow_up_of else None)
+        if first is None or first.status in FINISHED:
+            release(campaign, first)
+
+
 def _launch(campaign: WaCampaign) -> None:
     from app.modules.customer.campaigns import runner
 
@@ -358,9 +446,18 @@ def _launch(campaign: WaCampaign) -> None:
         runner.kick()
 
 
+def wait_text(hours: int | None) -> str:
+    hours = hours or 0
+    if hours % 24 == 0:
+        return f"{hours // 24} day{'s' if hours != 24 else ''}"
+    return f"{hours} hour{'s' if hours != 1 else ''}"
+
+
 def _message(campaign: WaCampaign) -> str:
     if campaign.status == "draft":
         return "Draft saved"
+    if campaign.status == "waiting":
+        return f"Follow-up saved. It goes out {wait_text(campaign.follow_up_hours)} after the first campaign finishes"
     if campaign.scheduled_at and campaign.scheduled_at > now():
         return f"Scheduled for {to_site(campaign.scheduled_at):%d %b, %I:%M %p}"
     return "Sending started"
@@ -390,7 +487,7 @@ def control(db: Session, customer: Customer, campaign_id: int, action: str) -> d
     allowed = {
         "pause": ({"sending"}, "paused", "Campaign paused"),
         "resume": ({"paused"}, "sending", "Sending resumed"),
-        "cancel": ({"scheduled", "sending", "paused"}, "cancelled", "Campaign cancelled"),
+        "cancel": ({"waiting", "scheduled", "sending", "paused"}, "cancelled", "Campaign cancelled"),
     }
     sources, target, text = allowed[action]
     if campaign.status not in sources:
@@ -401,6 +498,7 @@ def control(db: Session, customer: Customer, campaign_id: int, action: str) -> d
         db.query(WaCampaignRecipient).filter(WaCampaignRecipient.campaign_id == campaign.id,
                                              WaCampaignRecipient.status == "pending") \
             .update({"status": "skipped", "error": "Campaign cancelled"}, synchronize_session=False)
+        release_follow_ups(db, campaign)  # its waiting follow-ups are cancelled too
     if target == "sending":
         campaign.heartbeat_at = None  # lets the sender pick it up again right away
         campaign.error = None
@@ -416,6 +514,9 @@ def delete_campaign(db: Session, customer: Customer, campaign_id: int) -> dict:
     campaign = _get(db, customer, campaign_id)
     if campaign.status in ACTIVE:
         raise HTTPException(422, detail="Pause or cancel the campaign before deleting it")
+    for follow_up in db.query(WaCampaign).filter(WaCampaign.follow_up_of == campaign.id,
+                                                 WaCampaign.status == "waiting"):
+        release(follow_up, None)
     db.delete(campaign)
     db.commit()
     return {"status": True, "message": "Campaign deleted", "data": None}

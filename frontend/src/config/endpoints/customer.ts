@@ -82,6 +82,7 @@ export const CUSTOMER_ENDPOINTS = {
     ONE: (id: number) => `/customer/campaigns/${id}`,
     CONTROL: (id: number, action: string) => `/customer/campaigns/${id}/${action}`,
     RECIPIENTS: (id: number) => `/customer/campaigns/${id}/recipients`,
+    SEGMENTS: (id: number) => `/customer/campaigns/${id}/segments`,
     EXPORT: (id: number) => `/customer/campaigns/${id}/recipients/export`,
   },
   AUTOMATION: {

@@ -5,7 +5,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.modules.customer.inbox.schemas import LocationParam
 
-Segment = Literal["sent", "delivered", "read", "not_read", "replied", "not_replied", "clicked", "failed"]
+Segment = Literal["sent", "delivered", "read", "not_read", "replied", "not_replied", "read_not_replied", "clicked",
+                  "not_clicked", "failed"]
 
 
 class AudienceSchema(BaseModel):
@@ -53,8 +54,10 @@ class CampaignSchema(BaseModel):
     header_media: Optional[str] = Field(None, max_length=80)
     location: Optional[LocationParam] = None
     # draft: save only · now: start sending · schedule: send at `scheduled_at`
-    action: Literal["draft", "now", "schedule"] = "draft"
+    # follow_up: send to people from `audience.campaign_id` `follow_up_hours` after that campaign finishes
+    action: Literal["draft", "now", "schedule", "follow_up"] = "draft"
     scheduled_at: Optional[datetime] = None
+    follow_up_hours: Optional[int] = Field(None, ge=1, le=720)
 
     @field_validator("name", mode="before")
     @classmethod

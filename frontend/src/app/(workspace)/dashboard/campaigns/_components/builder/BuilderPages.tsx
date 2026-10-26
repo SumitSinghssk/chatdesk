@@ -25,6 +25,7 @@ function useCampaign(id: number | null) {
  * /dashboard/campaigns/new
  *   ?from=<id>                      duplicate a campaign
  *   ?retarget=<id>&segment=not_read people from a campaign who did (or didn't do) something
+ *   ?retarget=<id>&follow_up=1      the same, sent automatically some time after that campaign finishes
  *   ?template=<id>                  start with a template
  *   ?contacts=1,2,3                 contacts picked on the Contacts page
  *   ?tag=Diwali                     everyone with a tag (e.g. just imported from a sheet)
@@ -39,14 +40,17 @@ export function NewCampaign() {
   if (sourceId && error) return <ErrorBanner message={errorMessage(error)} />;
 
   if (source && retarget) {
-    const segment = (params.get("segment") as Segment) || "not_read";
+    const followUp = params.get("follow_up") === "1";
+    const segment = (params.get("segment") as Segment) || (followUp ? "read_not_replied" : "not_read");
     const label = SEGMENTS.find((s) => s.value === segment)?.label.toLowerCase() ?? segment;
     const seed = {
       ...seedOf(source, true),
-      name: `${source.name}: ${label}`.slice(0, 150),
+      name: `${source.name}: ${followUp ? "follow-up" : label}`.slice(0, 150),
       audience: { ...EMPTY_AUDIENCE, type: "campaign" as const, campaign_id: source.id, segment },
+      when: followUp ? ("follow_up" as const) : ("now" as const),
+      follow_up_hours: 48,
     };
-    return <CampaignBuilder key={`retarget-${source.id}-${segment}`} seed={seed} />;
+    return <CampaignBuilder key={`retarget-${source.id}-${segment}-${followUp}`} seed={seed} />;
   }
   if (source) return <CampaignBuilder key={`from-${source.id}`} seed={seedOf(source, true)} />;
 
@@ -69,7 +73,7 @@ export function EditCampaign({ id }: { id: number }) {
   const { data, error, isLoading } = useCampaign(id);
   if (isLoading) return <Spinner className="h-full" />;
   if (error || !data) return <ErrorBanner message={errorMessage(error ?? new Error("Campaign not found"))} />;
-  if (!["draft", "scheduled"].includes(data.status)) {
+  if (!["draft", "waiting", "scheduled"].includes(data.status)) {
     return (
       <Card>
         <EmptyState

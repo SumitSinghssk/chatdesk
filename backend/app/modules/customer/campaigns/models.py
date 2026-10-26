@@ -25,8 +25,12 @@ class WaCampaign(Base, TimestampMixin):
     variables = Column(JSON, nullable=False, default=dict)
     header_media = Column(String(80), nullable=True)  # a file uploaded for this campaign (else the template's)
     location = Column(JSON, nullable=True)
-    # draft | scheduled | sending | paused | completed | cancelled | failed
+    # draft | waiting | scheduled | sending | paused | completed | cancelled | failed
+    # (waiting: a follow-up whose first campaign hasn't finished yet)
     status = Column(String(20), nullable=False, default="draft", index=True)
+    # a follow-up goes out `follow_up_hours` after the campaign it follows has finished sending
+    follow_up_of = Column(Integer, ForeignKey("wa_campaigns.id", ondelete="SET NULL"), nullable=True, index=True)
+    follow_up_hours = Column(Integer, nullable=True)
     scheduled_at = Column(DateTime, nullable=True)
     started_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
