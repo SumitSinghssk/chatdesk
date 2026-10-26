@@ -38,6 +38,18 @@ export const CUSTOMER_ENDPOINTS = {
     REFRESH: "/customer/whatsapp/connection/refresh",
     TEST_MESSAGE: "/customer/whatsapp/connection/test-message",
   },
+  INTEGRATIONS: {
+    KEYS: "/customer/integrations/keys",
+    KEY: (id: number) => `/customer/integrations/keys/${id}`,
+    EVENTS: "/customer/integrations/events",
+    WEBHOOKS: "/customer/integrations/webhooks",
+    WEBHOOK: (id: number) => `/customer/integrations/webhooks/${id}`,
+    SECRET: (id: number) => `/customer/integrations/webhooks/${id}/secret`,
+    TEST: (id: number) => `/customer/integrations/webhooks/${id}/test`,
+    DELIVERIES: (id: number) => `/customer/integrations/webhooks/${id}/deliveries`,
+    DELIVERY: (id: number, d: number) => `/customer/integrations/webhooks/${id}/deliveries/${d}`,
+    RESEND: (id: number, d: number) => `/customer/integrations/webhooks/${id}/deliveries/${d}/resend`,
+  },
   NUMBERS: {
     LIST: "/customer/numbers",
     ONE: (id: number) => `/customer/numbers/${id}`,

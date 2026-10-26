@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
+from app.modules.customer.integrations import hooks
 from app.modules.customer.inbox.models import WaContact, WaConversation, WaMessage
 from app.modules.customer.team.assign import auto_assign
 from app.modules.customer.templates.service import apply_webhook as apply_template_update
@@ -56,6 +57,7 @@ def get_or_create_contact(db: Session, customer_id: int, wa_id: str, profile_nam
         contact = WaContact(customer_id=customer_id, wa_id=wa_id, profile_name=profile_name, tags=[])
         db.add(contact)
         db.flush()
+        hooks.contact_created(db, contact)
     elif profile_name and contact.profile_name != profile_name:
         contact.profile_name = profile_name
     return contact
@@ -149,6 +151,7 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
         db.flush()
         auto_assign(db, account.customer_id, conversation)  # round-robin, when the workspace turned it on
     db.flush()
+    hooks.message_event(db, "message.received", message, contact)
     return message
 
 
@@ -165,6 +168,8 @@ def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
     at = _ts(raw.get("timestamp"))
     if state == "failed":
         error = (raw.get("errors") or [{}])[0]
+        if message.status != "failed":
+            hooks.message_event(db, "message.failed", message)
         message.status = "failed"
         message.error_code = error.get("code")
         message.error_message = ((error.get("error_data") or {}).get("details") or error.get("message")
@@ -174,6 +179,7 @@ def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
         return False
     if STATUS_RANK[state] > STATUS_RANK.get(message.status, -1):
         message.status = state
+        hooks.message_event(db, f"message.{state}", message)
     if state == "sent":
         message.sent_at = message.sent_at or at
     elif state == "delivered":

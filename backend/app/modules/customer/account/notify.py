@@ -135,6 +135,9 @@ def campaign_finished(db: Session, campaign) -> None:
         else f"Campaign “{campaign.name}” stopped"
     body = (f"Sent to {campaign.total or 0} people." if campaign.status == "completed"
             else (campaign.error or "It couldn't finish."))
+    from app.modules.customer.integrations import hooks
+
+    hooks.campaign_finished(db, campaign)
     notify(db, managers(db, campaign.customer_id), "campaign_finished", title, body,
            f"/dashboard/campaigns/{campaign.id}", {"campaign_id": campaign.id},
            once_key=f"campaign:{campaign.id}:{campaign.status}", number_id=campaign.customer_id)
@@ -142,7 +145,9 @@ def campaign_finished(db: Session, campaign) -> None:
 
 def new_order(db: Session, order, who: str) -> None:
     from app.modules.customer.commerce.orders import order_ref, total_text
+    from app.modules.customer.integrations import hooks
 
+    hooks.order_event(db, "order.created", order)
     notify(db, managers(db, order.customer_id), "new_order", f"New order {order_ref(order)} from {who}",
            f"{len(order.items)} item{'' if len(order.items) == 1 else 's'} · {total_text(order)}",
            f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id}, once_key=f"order:{order.id}",
@@ -151,7 +156,9 @@ def new_order(db: Session, order, who: str) -> None:
 
 def payment_received(db: Session, order, amount: str) -> None:
     from app.modules.customer.commerce.orders import order_ref
+    from app.modules.customer.integrations import hooks
 
+    hooks.order_event(db, "order.paid", order)
     who = order.customer_name or order.customer_phone or "a customer"
     notify(db, managers(db, order.customer_id), "payment_received", f"{amount} paid for order {order_ref(order)}",
            f"From {who}", f"/dashboard/commerce/orders/{order.id}", {"order_id": order.id},

@@ -12,6 +12,7 @@ from app.modules.customer.account.models import Customer
 from app.modules.customer.auth.service import field_error
 from app.modules.customer.contacts import sheets
 from app.modules.customer.contacts.schemas import BulkSchema, ContactSchema, clean_tags
+from app.modules.customer.integrations import hooks
 from app.modules.customer.inbox.models import WaContact, WaConversation
 from app.services.sms import config as sms_config
 from app.services.sms import normalize_phone
@@ -137,6 +138,8 @@ def create_contact(db: Session, customer: Customer, payload: ContactSchema) -> d
     contact = WaContact(customer_id=customer.id, wa_id=wa_id, source="manual")
     _apply(contact, payload)
     db.add(contact)
+    db.flush()
+    hooks.contact_created(db, contact)
     db.commit()
     db.refresh(contact)
     return {"status": True, "message": "Contact added", "data": serialize(contact)}

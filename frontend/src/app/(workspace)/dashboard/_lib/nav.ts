@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Megaphone,
   MessageCircle,
+  PlugZap,
   Rocket,
   Settings,
   ShoppingBag,
@@ -31,6 +32,7 @@ export type ModuleKey =
   | "commerce"
   | "analytics"
   | "whatsapp"
+  | "integrations"
   | "team"
   | "account";
 
@@ -179,6 +181,16 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
     status: "live",
     roles: MANAGERS,
     description: "Connect your WhatsApp Business number through the Meta Cloud API.",
+  },
+  {
+    key: "integrations",
+    label: "Integrations",
+    href: CUSTOMER_ROUTES.INTEGRATIONS(),
+    icon: PlugZap,
+    section: "settings",
+    status: "live",
+    roles: MANAGERS,
+    description: "API keys and webhooks to connect ChatDesk with your website, CRM, Zapier or Make.",
   },
   {
     key: "team",
