@@ -11,6 +11,7 @@ import {
   FileSpreadsheet,
   FileText,
   FlaskConical,
+  Hourglass,
   Megaphone,
   Paperclip,
   Save,
@@ -35,7 +36,7 @@ import {
 import { useDebouncedValue } from "@/app/admin/_hooks/useDebouncedValue";
 import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ROUTES } from "@/config/routes";
-import { cn } from "@/lib/utils";
+import { cn, formatDateTime } from "@/lib/utils";
 
 import { useDashboard } from "../../../_components/DashboardContext";
 import { PhonePreview, TemplateBubble } from "../../../_components/whatsapp/TemplatePreview";
@@ -58,7 +59,7 @@ import { Section, Segmented } from "../../../templates/_components/editor/parts"
 import { SAMPLE_ACCEPT } from "../../../templates/_components/editor/HeaderField";
 import { categoryLabel, languageName } from "../../../templates/_components/labels";
 import { useBusinessName } from "../../../templates/_components/useBusinessName";
-import { inr, SEGMENTS } from "../labels";
+import { CAMPAIGN_STATUS, inr, SEGMENTS, WAITS, waitText } from "../labels";
 import { VariableRow } from "./VariableFields";
 
 export const EMPTY_AUDIENCE: Audience = {
@@ -71,6 +72,8 @@ export const EMPTY_AUDIENCE: Audience = {
   segment: null,
 };
 const EMPTY_VARIABLES: CampaignVariables = { header: {}, body: {}, buttons: {} };
+// campaigns that can be retargeted or followed up on
+const EARLIER = "completed,sending,paused,cancelled,scheduled,waiting";
 
 export interface CampaignSeed {
   name: string;
@@ -79,8 +82,10 @@ export interface CampaignSeed {
   variables: CampaignVariables;
   header_media: { key: string; url: string; filename: string } | null;
   location: { latitude: string; longitude: string; name: string; address: string };
-  when: "now" | "schedule";
+  /** follow_up: send to people from the chosen campaign some time after it finishes */
+  when: "now" | "schedule" | "follow_up";
   scheduled_at: string; // datetime-local value
+  follow_up_hours: number;
 }
 
 /** "2026-10-23T10:00" in the browser's time zone for a UTC ISO string. */
@@ -104,8 +109,14 @@ export function seedOf(c: Campaign, copy = false): CampaignSeed {
       name: c.location?.name ?? "",
       address: c.location?.address ?? "",
     },
-    when: !copy && c.status === "scheduled" ? "schedule" : "now",
+    when:
+      c.follow_up_hours && c.audience.type === "campaign"
+        ? "follow_up"
+        : !copy && c.status === "scheduled"
+          ? "schedule"
+          : "now",
     scheduled_at: copy ? "" : localInput(c.scheduled_at),
+    follow_up_hours: c.follow_up_hours ?? 48,
   };
 }
 
@@ -118,6 +129,7 @@ export const BLANK_SEED: CampaignSeed = {
   location: { latitude: "", longitude: "", name: "", address: "" },
   when: "now",
   scheduled_at: "",
+  follow_up_hours: 48,
 };
 
 const SHEET_TAG = "Sheet: ";
@@ -197,11 +209,21 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
     queryFn: async () => (await contactsApi.attributes()).data,
   });
   const { data: earlier } = useQuery({
-    queryKey: CAMPAIGNS_QK.LIST({ status: "completed,sending,paused,cancelled", per_page: 100 }),
-    queryFn: () => campaignsApi.page({ status: "completed,sending,paused,cancelled", per_page: 100 }),
+    queryKey: CAMPAIGNS_QK.LIST({ status: EARLIER, per_page: 100 }),
+    queryFn: () => campaignsApi.page({ status: EARLIER, per_page: 100 }),
   });
 
   const template = templates?.find((t) => t.id === state.template_id) ?? null;
+  // "Follow up later" only makes sense for people from an earlier campaign
+  const when = state.when === "follow_up" && state.audience.type !== "campaign" ? "now" : state.when;
+  const followUp = when === "follow_up";
+  const source = earlier?.items.find((c) => c.id === state.audience.campaign_id) ?? null;
+  // a follow-up can wait for a campaign that hasn't gone out yet; sending now needs one that has
+  const sources = (earlier?.items ?? []).filter(
+    (c) =>
+      c.id !== campaign?.id &&
+      (followUp ? !["cancelled", "failed"].includes(c.status) : !["scheduled", "waiting"].includes(c.status))
+  );
   const patch = (changes: Partial<CampaignSeed>) => {
     setState((s) => ({ ...s, ...changes }));
     setErrors({});
@@ -306,6 +328,7 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
     location: location(),
     action,
     scheduled_at: state.scheduled_at ? new Date(state.scheduled_at).toISOString() : null,
+    follow_up_hours: followUp ? state.follow_up_hours : null,
   });
 
   const submit = async (action: CampaignInput["action"]) => {
@@ -377,6 +400,14 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
           : null
       : null;
   const ready = !!template && !!preview && preview.eligible > 0;
+  // who gets a follow-up is worked out when it goes out, so it may have nobody yet
+  const followUpReady = !!template && !!state.audience.campaign_id && !previewError;
+  const sourceDone = source?.status === "completed";
+  const due =
+    sourceDone && source.completed_at
+      ? new Date(new Date(source.completed_at).getTime() + state.follow_up_hours * 3_600_000)
+      : null;
+  const goesOutAt = due ? (due > new Date() ? formatDateTime(due.toISOString()) : "right away") : null;
 
   return (
     <>
@@ -534,13 +565,18 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
                   label="Earlier campaign"
                   searchable
                   value={state.audience.campaign_id ?? ""}
-                  placeholder={earlier?.items.length ? "Choose a campaign" : "No sent campaigns yet"}
-                  options={(earlier?.items ?? [])
-                    .filter((c) => c.id !== campaign?.id)
-                    .map((c) => ({ value: c.id, label: c.name }))}
+                  placeholder={sources.length ? "Choose a campaign" : "No sent campaigns yet"}
+                  options={sources.map((c) => ({
+                    value: c.id,
+                    label: c.name,
+                    description: CAMPAIGN_STATUS[c.status].label,
+                  }))}
                   error={errors["audience.campaign_id"]}
                   onChange={(v) =>
-                    setAudience({ campaign_id: Number(v), segment: state.audience.segment ?? "not_read" })
+                    setAudience({
+                      campaign_id: Number(v),
+                      segment: state.audience.segment ?? (followUp ? "read_not_replied" : "not_read"),
+                    })
                   }
                 />
                 <Select
@@ -568,7 +604,16 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
               />
             )}
             {(!sheetMode || sheet) && (
-              <AudienceSummary template={template} loading={previewing} preview={preview} />
+              <AudienceSummary
+                template={template}
+                loading={previewing}
+                preview={preview}
+                note={
+                  followUp && !sourceDone
+                    ? "This is who matches today. The list is made again when the follow-up goes out."
+                    : undefined
+                }
+              />
             )}
           </Section>
 
@@ -702,16 +747,56 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
             icon={Megaphone}
             hint="Send now, or pick a time. Scheduled campaigns can be edited until they start."
           >
-            <Segmented
+            <Segmented<CampaignSeed["when"]>
               label="When"
-              value={state.when}
-              onChange={(when) => patch({ when })}
+              value={when}
+              onChange={(next) =>
+                patch(
+                  next === "follow_up" && state.audience.segment === null
+                    ? { when: next, audience: { ...state.audience, segment: "read_not_replied" } }
+                    : { when: next }
+                )
+              }
               options={[
                 { value: "now", label: "Send now", icon: SendHorizontal },
                 { value: "schedule", label: "Schedule", icon: CalendarClock },
+                ...(state.audience.type === "campaign"
+                  ? [{ value: "follow_up" as const, label: "Follow up later", icon: Hourglass }]
+                  : []),
               ]}
             />
-            {state.when === "schedule" && (
+            {followUp && (
+              <div className="space-y-2">
+                <Select
+                  id="follow-up-wait"
+                  label="Wait after the first campaign finishes"
+                  value={state.follow_up_hours}
+                  options={WAITS.map((h) => ({ value: h, label: waitText(h) }))}
+                  error={errors.follow_up_hours}
+                  onChange={(v) => patch({ follow_up_hours: Number(v) })}
+                  className="max-w-xs"
+                />
+                <p className="bg-primary-soft/60 text-fg-subtle rounded-lg px-3 py-2 text-xs leading-relaxed">
+                  {source ? (
+                    goesOutAt ? (
+                      <>
+                        “{source.name}” has finished, so this goes out <b className="text-fg">{goesOutAt}</b>.
+                      </>
+                    ) : (
+                      <>
+                        Goes out <b className="text-fg">{waitText(state.follow_up_hours)}</b> after “
+                        {source.name}” finishes sending.
+                      </>
+                    )
+                  ) : (
+                    "Choose the campaign to follow up on."
+                  )}{" "}
+                  It only goes to people who still match then, so anyone who replied in the meantime is left
+                  out.
+                </p>
+              </div>
+            )}
+            {when === "schedule" && (
               <Input
                 name="scheduled_at"
                 type="datetime-local"
@@ -750,7 +835,16 @@ export function CampaignBuilder({ campaign, seed }: { campaign?: Campaign; seed:
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-              {state.when === "schedule" ? (
+              {followUp ? (
+                <Button
+                  leftIcon={Hourglass}
+                  loading={saving === "follow_up"}
+                  disabled={!!saving || !followUpReady}
+                  onClick={() => submit("follow_up")}
+                >
+                  Save follow-up
+                </Button>
+              ) : when === "schedule" ? (
                 <Button
                   leftIcon={CalendarClock}
                   loading={saving === "schedule"}
@@ -821,10 +915,12 @@ function AudienceSummary({
   template,
   loading,
   preview,
+  note,
 }: {
   template: Template | null;
   loading: boolean;
   preview: AudiencePreview | undefined;
+  note?: string;
 }) {
   if (!template)
     return <p className="text-fg-subtle text-sm">Pick a template to see who gets it and the cost.</p>;
@@ -853,6 +949,7 @@ function AudienceSummary({
           limit grows (it rises as you send good-quality messages).
         </p>
       )}
+      {note && <p className="text-fg-subtle mt-2 text-xs">{note}</p>}
       <p className="text-fg-faint mt-2 text-[11px]">
         Cost is an estimate from Meta&apos;s per-message prices; your Meta invoice is final.
       </p>

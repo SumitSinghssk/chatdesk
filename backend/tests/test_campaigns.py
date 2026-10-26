@@ -220,3 +220,110 @@ def test_expired_token_pauses_and_resume_retries(shop, monkeypatch):
     assert resumed["status"] == "sending" and resumed["error"] is None
     assert runner.run_due() == [(cid, "completed")]
     assert shop.get(f"{C}/{cid}").json()["data"]["report"]["sent"] == 1
+
+
+def _follow_up(shop, source_id, segment="read_not_replied", hours=48, **extra):
+    payload = {"name": "Nudge", "template_id": shop.templates["order_update"]["id"], "variables": _vars(),
+               "audience": {"type": "campaign", "campaign_id": source_id, "segment": segment},
+               "action": "follow_up", "follow_up_hours": hours}
+    payload.update(extra)
+    return shop.post(C, headers=WEB, json=payload)
+
+
+def _shift(campaign_id, **times):
+    """Moves a campaign's times, as if the clock had moved on."""
+    from app.modules.customer.campaigns.models import WaCampaign
+
+    db = runner.SessionLocal()
+    try:
+        db.query(WaCampaign).filter(WaCampaign.id == campaign_id).update(times)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_follow_up_waits_then_sends_to_people_who_read_but_did_not_reply(shop):
+    later = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    first = _campaign(shop, action="schedule", scheduled_at=later).json()["data"]
+
+    # rules: a follow-up needs a wait, a retarget audience, and a first campaign that will be sent
+    assert "follow_up_hours" in _follow_up(shop, first["id"], hours=None).json()["errors"]
+    assert "audience.type" in _follow_up(shop, first["id"], audience={"type": "all"}).json()["errors"]
+    draft = _campaign(shop, action="draft").json()["data"]
+    assert "Send or schedule" in _follow_up(shop, draft["id"]).json()["errors"]["audience.campaign_id"][0]
+
+    res = _follow_up(shop, first["id"])
+    assert res.status_code == 200, res.text
+    nudge = res.json()["data"]
+    assert nudge["status"] == "waiting" and nudge["follow_up_of"] == first["id"]
+    assert res.json()["message"].startswith("Follow-up saved. It goes out 2 days after")
+    assert runner.run_due() == []  # neither is due
+
+    # the first campaign can't be changed to follow up on its own follow-up
+    loop = shop.put(f"{C}/{first['id']}", headers=WEB, json={
+        "name": "Loop", "template_id": shop.templates["order_update"]["id"], "variables": _vars(),
+        "audience": {"type": "campaign", "campaign_id": nudge["id"], "segment": "read"},
+        "action": "follow_up", "follow_up_hours": 1})
+    assert loop.status_code == 422 and "itself" in loop.json()["errors"]["audience.campaign_id"][0]
+
+    # the first campaign goes out; its follow-up gets a send time 48 hours after it finished
+    shop.put(f"{C}/{first['id']}", headers=WEB, json={
+        "name": "Diwali VIP", "template_id": shop.templates["order_update"]["id"], "variables": _vars(),
+        "audience": {"type": "tags", "tags": ["VIP"]}, "action": "now"})
+    assert runner.run_due() == [(first["id"], "completed")]
+    detail = shop.get(f"{C}/{first['id']}").json()["data"]
+    waiting = shop.get(f"{C}/{nudge['id']}").json()["data"]
+    assert waiting["status"] == "scheduled" and waiting["follows"]["id"] == first["id"]
+    gap = datetime.fromisoformat(waiting["scheduled_at"]) - datetime.fromisoformat(detail["completed_at"])
+    assert abs(gap - timedelta(hours=48)) < timedelta(seconds=5)
+    assert [f["id"] for f in detail["follow_ups"]] == [nudge["id"]]
+    assert detail["follow_ups"][0]["segment"] == "read_not_replied"
+
+    # Asha read it and hasn't replied: she is in "read but didn't reply" and "didn't tap a button"
+    rows = shop.get(f"{C}/{first['id']}/recipients", params={"page": 1}).json()["data"]
+    asha = next(r for r in rows if r["contact"]["phone"] == "+919800000001")
+    chat = shop.get(f"{BASE}/inbox/conversations/{asha['conversation_id']}/messages").json()["data"][-1]
+    for state in ("delivered", "read"):
+        post_webhook(shop, {"statuses": [{"id": chat["wamid"], "status": state, "timestamp": "1900000000"}]})
+    counts = shop.get(f"{C}/{first['id']}/segments").json()["data"]
+    assert (counts["read_not_replied"], counts["not_clicked"], counts["read"], counts["replied"]) == (1, 1, 1, 0)
+    assert counts["not_read"] == 0 and counts["sent"] == 1  # opted-out and blocked people are never counted
+
+    # two days pass: the follow-up goes to Asha
+    _shift(nudge["id"], scheduled_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=1))
+    assert runner.run_due() == [(nudge["id"], "completed")]
+    assert FakeMeta.sent[-1]["to"] == "919800000001"
+    assert shop.get(f"{C}/{nudge['id']}").json()["data"]["report"]["sent"] == 1
+
+    # once she writes back she leaves the group, and a new follow-up made now finds nobody
+    post_webhook(shop, {"contacts": [{"profile": {"name": "Asha"}, "wa_id": "919800000001"}],
+                        "messages": [{"from": "919800000001", "id": f"wamid.R{uuid.uuid4().hex}",
+                                      "timestamp": "1900000002", "type": "text", "text": {"body": "Thanks!"}}]})
+    counts = shop.get(f"{C}/{first['id']}/segments").json()["data"]
+    assert counts["read_not_replied"] == 0 and counts["replied"] == 1
+    late = _follow_up(shop, first["id"], hours=1).json()["data"]
+    assert late["status"] == "scheduled"  # the first campaign is done, so it gets its time straight away
+
+
+def test_follow_up_is_cancelled_with_its_first_campaign(shop):
+    later = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    first = _campaign(shop, action="schedule", scheduled_at=later).json()["data"]
+    nudge = _follow_up(shop, first["id"], segment="not_read", hours=6).json()["data"]
+    assert shop.post(f"{C}/{first['id']}/cancel", headers=WEB).status_code == 200
+    cancelled = shop.get(f"{C}/{nudge['id']}").json()["data"]
+    assert cancelled["status"] == "cancelled" and "was cancelled" in cancelled["error"]
+    assert "was cancelled" in _follow_up(shop, first["id"]).json()["errors"]["audience.campaign_id"][0]
+
+    # deleting the first campaign cancels its waiting follow-ups too
+    second = _campaign(shop, action="schedule", scheduled_at=later).json()["data"]
+    other = _follow_up(shop, second["id"]).json()["data"]
+    assert shop.post(f"{C}/{other['id']}/cancel", headers=WEB).status_code == 200  # a waiting one can be cancelled
+    third = _follow_up(shop, second["id"]).json()["data"]
+    edited = shop.put(f"{C}/{third['id']}", headers=WEB, json={
+        "name": "Nudge again", "template_id": shop.templates["order_update"]["id"], "variables": _vars(),
+        "audience": {"type": "campaign", "campaign_id": second["id"], "segment": "not_replied"},
+        "action": "follow_up", "follow_up_hours": 24})
+    assert edited.status_code == 200 and edited.json()["data"]["follow_up_hours"] == 24
+    assert shop.delete(f"{C}/{second['id']}", headers=WEB).status_code == 200
+    gone = shop.get(f"{C}/{third['id']}").json()["data"]
+    assert gone["status"] == "cancelled" and "was deleted" in gone["error"] and gone["follows"] is None

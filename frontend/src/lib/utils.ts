@@ -76,7 +76,9 @@ export function formatDateTime(value: string | Date | null | undefined, fallback
 export function timeAgo(value: string | Date | null | undefined, fallback = "—"): string {
   const date = toDate(value);
   if (!date) return fallback;
-  const seconds = Math.round((Date.now() - date.getTime()) / 1000);
+  const diff = Math.round((Date.now() - date.getTime()) / 1000);
+  const seconds = Math.abs(diff);
+  const sign = diff < 0 ? 1 : -1; // a future time reads "in 3 days"
   if (seconds < 45) return "just now";
   const units: [number, Intl.RelativeTimeFormatUnit][] = [
     [60, "minute"],
@@ -84,9 +86,9 @@ export function timeAgo(value: string | Date | null | undefined, fallback = "—
     [86400, "day"],
   ];
   const rtf = new Intl.RelativeTimeFormat("en", { numeric: "auto" });
-  if (seconds < 3600) return rtf.format(-Math.round(seconds / units[0][0]), units[0][1]);
-  if (seconds < 86400) return rtf.format(-Math.round(seconds / units[1][0]), units[1][1]);
-  if (seconds < 86400 * 30) return rtf.format(-Math.round(seconds / units[2][0]), units[2][1]);
+  if (seconds < 3600) return rtf.format(sign * Math.round(seconds / units[0][0]), units[0][1]);
+  if (seconds < 86400) return rtf.format(sign * Math.round(seconds / units[1][0]), units[1][1]);
+  if (seconds < 86400 * 30) return rtf.format(sign * Math.round(seconds / units[2][0]), units[2][1]);
   return formatDate(date);
 }
 

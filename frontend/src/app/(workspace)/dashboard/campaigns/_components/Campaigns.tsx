@@ -7,6 +7,7 @@ import {
   CalendarClock,
   Copy,
   Eye,
+  Hourglass,
   Megaphone,
   MessageCircle,
   Plus,
@@ -24,7 +25,7 @@ import { formatDateTime, timeAgo } from "@/lib/utils";
 
 import { Tooltip } from "../../_components/Tooltip";
 import { CAMPAIGNS_QK, campaignsApi, type Campaign } from "../../_lib/campaignsApi";
-import { CAMPAIGN_STATUS, pct } from "./labels";
+import { CAMPAIGN_STATUS, pct, waitText } from "./labels";
 
 const GRID_ID = "ws-campaigns";
 const muted = <span className="text-fg-faint">—</span>;
@@ -32,7 +33,7 @@ const muted = <span className="text-fg-faint">—</span>;
 type Kpi = "all" | "scheduled" | "active" | "completed" | "draft";
 const KPI_STATUS: Record<Kpi, string> = {
   all: "",
-  scheduled: "scheduled",
+  scheduled: "scheduled,waiting",
   active: "sending,paused",
   completed: "completed",
   draft: "draft",
@@ -210,7 +211,12 @@ export function Campaigns() {
           className="text-fg-subtle flex items-center gap-1 whitespace-nowrap"
         >
           {c.status === "scheduled" && <CalendarClock className="h-3.5 w-3.5" />}
-          {c.status === "scheduled" && c.scheduled_at ? formatDateTime(c.scheduled_at) : timeAgo(when(c))}
+          {c.status === "waiting" && <Hourglass className="h-3.5 w-3.5" />}
+          {c.status === "waiting"
+            ? `${waitText(c.follow_up_hours)} after the first one`
+            : c.status === "scheduled" && c.scheduled_at
+              ? formatDateTime(c.scheduled_at)
+              : timeAgo(when(c))}
         </span>
       ),
     },

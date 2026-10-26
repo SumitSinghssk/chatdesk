@@ -66,6 +66,11 @@ def recipients(campaign_id: int, page: int | None = None, per_page: int | None =
     return service.list_recipients(db, customer, campaign_id, page, per_page, status, search)
 
 
+@router.get("/{campaign_id}/segments")
+def segments(campaign_id: int, customer: Customer = Depends(require_admin), db: Session = Depends(get_db)):
+    return service.segment_counts(db, customer, campaign_id)
+
+
 @router.get("/{campaign_id}/recipients/export")
 def export(campaign_id: int, status: str | None = None, customer: Customer = Depends(require_admin),
            db: Session = Depends(get_db)):

@@ -43,6 +43,10 @@ _lock = threading.Lock()
 
 
 def claim_due(db: Session) -> list[int]:
+    from app.modules.customer.campaigns.service import release_follow_ups
+
+    release_follow_ups(db)  # follow-ups whose first campaign is done get their send time
+    db.commit()
     current = now()
     rows = db.execute(
         update(WaCampaign)
@@ -80,7 +84,10 @@ def _materialize(db: Session, campaign: WaCampaign, customer: Customer) -> None:
 
 
 def _fail(db: Session, campaign: WaCampaign, error: str) -> None:
+    from app.modules.customer.campaigns.service import release_follow_ups
+
     campaign.status, campaign.error, campaign.completed_at = "failed", error, now()
+    release_follow_ups(db, campaign)
     _tell(db, campaign)
     db.commit()
 
@@ -198,6 +205,9 @@ def _run(db: Session, campaign_id: int) -> str:
                 return "paused"
             time.sleep(SEND_GAP)
     campaign.status, campaign.completed_at, campaign.heartbeat_at = "completed", now(), now()
+    from app.modules.customer.campaigns.service import release_follow_ups
+
+    release_follow_ups(db, campaign)  # its follow-ups now know when to go out
     _tell(db, campaign)
     db.commit()
     return "completed"

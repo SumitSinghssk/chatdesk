@@ -4,6 +4,7 @@ import type { CampaignStatus, RecipientStatus, Segment, VariableSourceKind } fro
 
 export const CAMPAIGN_STATUS: Record<CampaignStatus, { label: string; tone: BadgeTone }> = {
   draft: { label: "Draft", tone: "neutral" },
+  waiting: { label: "Waiting", tone: "info" },
   scheduled: { label: "Scheduled", tone: "info" },
   sending: { label: "Sending", tone: "brand" },
   paused: { label: "Paused", tone: "warning" },
@@ -23,17 +24,42 @@ export const RECIPIENT_STATUS: Record<RecipientStatus, { label: string; tone: Ba
   skipped: { label: "Skipped", tone: "warning" },
 };
 
-/** Groups for retargeting: "people from campaign X who …" */
-export const SEGMENTS: { value: Segment; label: string; hint: string }[] = [
+/**
+ * Groups for retargeting: "people from campaign X who …". `buttons`: only for templates with quick
+ * reply buttons.
+ */
+export const SEGMENTS: { value: Segment; label: string; hint: string; buttons?: boolean }[] = [
+  { value: "read_not_replied", label: "Read it but didn't reply", hint: "Opened it and never wrote back" },
   { value: "not_read", label: "Didn't read it", hint: "Delivered or sent, but not opened" },
+  { value: "not_replied", label: "Didn't reply", hint: "Read or not, never wrote back" },
+  {
+    value: "not_clicked",
+    label: "Didn't tap a button",
+    hint: "Got it but used no quick reply",
+    buttons: true,
+  },
+  { value: "clicked", label: "Tapped a button", hint: "Used a quick reply button", buttons: true },
   { value: "read", label: "Read it", hint: "Opened the message" },
-  { value: "not_replied", label: "Didn't reply", hint: "Got it but never wrote back" },
   { value: "replied", label: "Replied", hint: "Wrote back after it" },
-  { value: "clicked", label: "Tapped a button", hint: "Used a quick reply button" },
-  { value: "failed", label: "Failed", hint: "WhatsApp couldn't deliver it" },
-  { value: "delivered", label: "Delivered", hint: "Reached their phone" },
-  { value: "sent", label: "Everyone it was sent to", hint: "All successful sends" },
+  { value: "failed", label: "Didn't get it", hint: "WhatsApp couldn't deliver it" },
+  { value: "delivered", label: "Got it", hint: "Reached their phone" },
+  { value: "sent", label: "Were sent it", hint: "All successful sends" },
 ];
+
+/** "People who read it but didn't reply" */
+export const segmentText = (segment: Segment | null) => {
+  const label = SEGMENTS.find((s) => s.value === segment)?.label ?? "Got it";
+  return `People who ${label.charAt(0).toLowerCase()}${label.slice(1)}`;
+};
+
+/** How long a follow-up waits after the first campaign finishes. */
+export const WAITS = [1, 2, 4, 6, 12, 24, 48, 72, 120, 168];
+
+export const waitText = (hours: number | null) => {
+  const h = hours ?? 0;
+  if (h % 24 === 0) return h === 168 ? "1 week" : `${h / 24} day${h === 24 ? "" : "s"}`;
+  return `${h} hour${h === 1 ? "" : "s"}`;
+};
 
 export const SOURCES: { value: VariableSourceKind; label: string }[] = [
   { value: "first_name", label: "Contact first name" },
