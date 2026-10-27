@@ -174,10 +174,10 @@ export function Diagrams() {
           {items.map((d) => (
             <li
               key={d.id}
-              className="group border-line bg-surface relative overflow-hidden rounded-xl border shadow-xs transition hover:shadow-md"
+              className="group border-line bg-surface relative rounded-xl border shadow-xs transition hover:shadow-md"
             >
               <Link href={CUSTOMER_ROUTES.DIAGRAM(d.id)} className="block" aria-label={`Open ${d.name}`}>
-                <div className="bg-page border-line text-fg-faint flex h-36 items-center justify-center border-b p-3">
+                <div className="bg-page border-line text-fg-faint flex h-36 items-center justify-center overflow-hidden rounded-t-xl border-b p-3">
                   <Thumbnail preview={d.preview} className="h-full w-full" />
                 </div>
                 <div className="space-y-1 p-3 pr-10">
