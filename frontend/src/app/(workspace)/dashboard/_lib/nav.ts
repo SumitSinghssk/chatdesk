@@ -13,6 +13,7 @@ import {
   Sparkles,
   UserRoundCog,
   UsersRound,
+  Workflow,
   Zap,
   Users,
   type LucideIcon,
@@ -24,6 +25,7 @@ export type ModuleKey =
   | "overview"
   | "inbox"
   | "contacts"
+  | "diagrams"
   | "campaigns"
   | "templates"
   | "automation"
@@ -100,6 +102,15 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
       "Opt-in / opt-out tracking",
       "Segments for campaigns",
     ],
+  },
+  {
+    key: "diagrams",
+    label: "Diagrams",
+    href: CUSTOMER_ROUTES.DIAGRAMS(),
+    icon: Workflow,
+    section: "main",
+    status: "live",
+    description: "Draw flows, plans and charts together, live, and share them by link.",
   },
   {
     key: "campaigns",
