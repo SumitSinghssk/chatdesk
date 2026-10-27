@@ -68,6 +68,30 @@ export interface DiagramSummary {
   };
 }
 
+/** The live part that isn't drawing: a workshop timer, dot voting, and approval. */
+export interface LiveState {
+  session: {
+    /** `left`: seconds to go when this was sent (devices count down from when they get it) */
+    timer: { minutes: number; ends_at: string; by: string; left?: number } | null;
+    voting: { open: boolean; per_person: number; votes: Record<string, string[]> };
+  };
+  /** the server's clock when this was sent (timers count down by it, not the device's clock) */
+  now: string;
+  locked: boolean;
+  approval: { approved_at: string | null; approved_by: string | null; version_id: number | null } | null;
+}
+
+export interface SinceApproval {
+  approved_at: string;
+  approved_by: string;
+  added: string[];
+  removed: string[];
+  changed: string[];
+  lines_added: number;
+  lines_removed: number;
+  lines_changed: number;
+}
+
 export interface ShareLink {
   enabled: boolean;
   access: "view" | "comment";
@@ -76,7 +100,7 @@ export interface ShareLink {
   expires_at: string | null;
 }
 
-export interface Diagram {
+export interface Diagram extends LiveState {
   id: number;
   name: string;
   folder: string | null;
@@ -130,6 +154,7 @@ export interface Comment {
   color: string;
   resolved: boolean;
   created_at: string;
+  mentions: { id: number; name: string }[];
 }
 
 export interface Version {
@@ -142,7 +167,16 @@ export interface Version {
 
 export interface Activity {
   id: number;
-  kind: "created" | "edited" | "commented" | "shared" | "restored" | "viewed";
+  kind:
+    | "created"
+    | "edited"
+    | "commented"
+    | "shared"
+    | "restored"
+    | "viewed"
+    | "approved"
+    | "unlocked"
+    | "change_requested";
   actor: string | null;
   guest: boolean;
   detail: string | null;
@@ -155,6 +189,7 @@ export interface CommentInput {
   x?: number | null;
   y?: number | null;
   parent_id?: number | null;
+  mentions?: number[];
 }
 
 const D = CUSTOMER_ENDPOINTS.DIAGRAMS;
@@ -200,6 +235,34 @@ export const diagramsApi = {
       created_at: string;
       created_by: string | null;
     }>("GET", D.VERSION(id, versionId)),
+  timer: (id: number, minutes: number) => request<LiveState>("POST", D.TIMER(id), { minutes }),
+  voting: (id: number, body: { open: boolean; per_person?: number; reset?: boolean }) =>
+    request<LiveState>("PUT", D.VOTING(id), body),
+  vote: (id: number, nodeId: string, on: boolean) =>
+    request<LiveState>("POST", D.VOTES(id), { node_id: nodeId, on }),
+  approve: (id: number) => request<Diagram>("POST", D.APPROVE(id)),
+  unlock: (id: number) => request<Diagram>("POST", D.UNLOCK(id)),
+  requestChange: (id: number, note: string) => request<null>("POST", D.REQUEST_CHANGE(id), { note }),
+  sinceApproval: (id: number) => request<SinceApproval | null>("GET", D.SINCE_APPROVAL(id)),
+  /** stores a picture for an image shape; returns its address */
+  async uploadImage(id: number, file: File) {
+    const form = new FormData();
+    form.append("file", file);
+    let res: Response;
+    try {
+      res = await fetch(`${BROWSER_API_BASE_URL}${D.IMAGES(id)}`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { Accept: "application/json", "X-Requested-With": "sk-web" },
+        body: form,
+      });
+    } catch {
+      throw new CustomerApiError("Can't reach the server. Please try again in a moment.", 0);
+    }
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new CustomerApiError(json.message ?? "The picture couldn't be uploaded", res.status);
+    return (json.data as { url: string }).url;
+  },
   saveVersion: (id: number, name: string) => request<null>("POST", D.VERSIONS(id), { name }),
   restore: (id: number, versionId: number) => request<Diagram>("POST", D.RESTORE(id, versionId)),
   comments: (id: number) => request<Comment[]>("GET", D.COMMENTS(id)),
@@ -224,7 +287,7 @@ export function socketUrl(path: string) {
 
 const S = CUSTOMER_ENDPOINTS.SHARED_DIAGRAMS;
 
-export interface SharedDiagram {
+export interface SharedDiagram extends LiveState {
   name: string;
   content: DiagramContent;
   seq: number;

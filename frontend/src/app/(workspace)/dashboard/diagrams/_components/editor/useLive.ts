@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { CatchUp, DiagramContent, Op, Person } from "../../../_lib/diagramsApi";
+import type { CatchUp, DiagramContent, LiveState, Op, Person } from "../../../_lib/diagramsApi";
 
 export type LiveStatus = "connecting" | "live" | "polling" | "closed";
 
@@ -19,6 +19,8 @@ export interface PeerState {
   cursor: { x: number; y: number } | null;
   selection: string[];
   drag: Record<string, { x: number; y: number }> | null;
+  /** the middle of what they're looking at, and their zoom (follow mode) */
+  view: { x: number; y: number; zoom: number } | null;
   seen: number;
 }
 
@@ -31,6 +33,7 @@ export interface LiveHandlers {
   onMeta?: (meta: { name?: string; folder?: string | null }) => void;
   onLevel?: (level: string) => void;
   onClosed?: (message: string) => void;
+  onState?: (state: LiveState) => void;
 }
 
 interface Options {
@@ -58,11 +61,12 @@ export function useLive({ url, changes, save, seq: initialSeq, handlers }: Optio
   const seq = useRef(initialSeq);
   const nextRef = useRef(1);
   const unacked = useRef(0); // changes sent and not confirmed (a reconnect then asks for the whole diagram)
-  const presence = useRef<{ cursor: PeerState["cursor"]; selection: string[]; drag: PeerState["drag"] }>({
-    cursor: null,
-    selection: [],
-    drag: null,
-  });
+  const presence = useRef<{
+    cursor: PeerState["cursor"];
+    selection: string[];
+    drag: PeerState["drag"];
+    view: PeerState["view"];
+  }>({ cursor: null, selection: [], drag: null, view: null });
   const lastPresence = useRef(0);
   const presenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const live = useRef({ url, changes, save, handlers });
@@ -104,6 +108,7 @@ export function useLive({ url, changes, save, seq: initialSeq, handlers }: Optio
         cursor: change.cursor !== undefined ? change.cursor : (before?.cursor ?? null),
         selection: change.selection !== undefined ? change.selection : (before?.selection ?? []),
         drag: change.drag !== undefined ? change.drag : (before?.drag ?? null),
+        view: change.view !== undefined ? change.view : (before?.view ?? null),
         seen: Date.now(),
       });
       return next;
@@ -162,6 +167,7 @@ export function useLive({ url, changes, save, seq: initialSeq, handlers }: Optio
             setStatus("live");
             unacked.current = 0;
             applyCatchUp(msg as unknown as CatchUp);
+            if (msg.state) h.onState?.(msg.state as LiveState);
             setPeers(new Map());
             sendPresence(true);
             break;
@@ -189,6 +195,7 @@ export function useLive({ url, changes, save, seq: initialSeq, handlers }: Optio
                     cursor: (msg.cursor as PeerState["cursor"]) ?? null,
                     selection: (msg.selection as string[]) ?? [],
                     drag: (msg.drag as PeerState["drag"]) ?? null,
+                    view: (msg.view as PeerState["view"]) ?? null,
                   }
                 : {}),
             });
@@ -199,6 +206,9 @@ export function useLive({ url, changes, save, seq: initialSeq, handlers }: Optio
               next.delete(msg.from as string);
               return next;
             });
+            break;
+          case "state":
+            h.onState?.(msg as unknown as LiveState);
             break;
           case "comments":
             h.onComments?.();

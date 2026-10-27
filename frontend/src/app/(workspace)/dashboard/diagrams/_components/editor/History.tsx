@@ -19,6 +19,9 @@ const DONE: Record<Activity["kind"], string> = {
   shared: "changed sharing",
   restored: "restored a version",
   viewed: "opened it",
+  approved: "approved and locked it",
+  unlocked: "unlocked it for changes",
+  change_requested: "asked to change it",
 };
 
 /** Saved versions (preview, restore, save one now) and who did what. */

@@ -1,6 +1,6 @@
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket
+from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, WebSocket
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -9,9 +9,10 @@ from app.core.database import SessionLocal, get_db
 from app.core.rate_limiter import RateLimit
 from app.modules.customer.account.models import Customer
 from app.modules.customer.diagrams import live, service
-from app.modules.customer.diagrams.schemas import (AccessSchema, CommentSchema, DiagramSchema, DiagramUpdateSchema,
-                                                   GuestCommentSchema, LinkSchema, Op, OpsSchema, ResolveSchema,
-                                                   UnlockSchema, VersionSchema)
+from app.modules.customer.diagrams.schemas import (AccessSchema, ChangeRequestSchema, CommentSchema, DiagramSchema,
+                                                   DiagramUpdateSchema, GuestCommentSchema, LinkSchema, Op, OpsSchema,
+                                                   ResolveSchema, TimerSchema, UnlockSchema, VersionSchema, VoteSchema,
+                                                   VotingSchema)
 from app.modules.customer.team.access import require_workspace
 
 router = APIRouter(prefix="/diagrams", tags=["Customer Diagrams"])
@@ -74,6 +75,51 @@ def save_ops(diagram_id: int, payload: OpsSchema, ws: Customer = Depends(require
 def changes(diagram_id: int, since: int = Query(..., ge=0), ws: Customer = Depends(require_workspace),
             db: Session = Depends(get_db)):
     return service.changes_since(db, ws, diagram_id, since)
+
+
+@router.post("/{diagram_id}/images", dependencies=[Depends(RateLimit(30, 60)), _csrf])
+def upload_image(diagram_id: int, file: UploadFile = File(...), ws: Customer = Depends(require_workspace),
+                 db: Session = Depends(get_db)):
+    return service.upload_image(db, ws, diagram_id, file)
+
+
+@router.post("/{diagram_id}/timer", dependencies=[Depends(RateLimit(30, 60)), _csrf])
+def timer(diagram_id: int, payload: TimerSchema, ws: Customer = Depends(require_workspace),
+          db: Session = Depends(get_db)):
+    return service.set_timer(db, ws, diagram_id, payload.minutes)
+
+
+@router.put("/{diagram_id}/voting", dependencies=[_csrf])
+def voting(diagram_id: int, payload: VotingSchema, ws: Customer = Depends(require_workspace),
+           db: Session = Depends(get_db)):
+    return service.set_voting(db, ws, diagram_id, payload.open, payload.per_person, payload.reset)
+
+
+@router.post("/{diagram_id}/votes", dependencies=[Depends(RateLimit(120, 60)), _csrf])
+def vote(diagram_id: int, payload: VoteSchema, ws: Customer = Depends(require_workspace),
+         db: Session = Depends(get_db)):
+    return service.vote(db, ws, diagram_id, payload.node_id, payload.on)
+
+
+@router.post("/{diagram_id}/approve", dependencies=[_csrf])
+def approve(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.approve(db, ws, diagram_id)
+
+
+@router.post("/{diagram_id}/unlock", dependencies=[_csrf])
+def unlock_changes(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.unlock_changes(db, ws, diagram_id)
+
+
+@router.post("/{diagram_id}/request-change", dependencies=[Depends(RateLimit(5, 60)), _csrf])
+def request_change(diagram_id: int, payload: ChangeRequestSchema, ws: Customer = Depends(require_workspace),
+                   db: Session = Depends(get_db)):
+    return service.request_change(db, ws, diagram_id, payload.note)
+
+
+@router.get("/{diagram_id}/since-approval")
+def since_approval(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.since_approval(db, ws, diagram_id)
 
 
 @router.put("/{diagram_id}/access", dependencies=[_csrf])
