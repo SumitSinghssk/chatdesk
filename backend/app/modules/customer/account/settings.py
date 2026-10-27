@@ -23,6 +23,8 @@ EVENTS: dict[str, dict] = {
                   "default": {"in_app": True, "email": False, "browser": True}},
     "payment_received": {"label": "A customer pays online", "managers": True,
                          "default": {"in_app": True, "email": False, "browser": True}},
+    "diagram_comment": {"label": "Someone comments on your diagram, or replies to you", "managers": False,
+                        "default": {"in_app": True, "email": False, "browser": True}},
 }
 CHANNELS = ("in_app", "email", "browser")
 

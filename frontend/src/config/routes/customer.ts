@@ -7,6 +7,10 @@ export const CUSTOMER_ROUTES = {
   DASHBOARD: route("/dashboard"),
   INBOX: route("/dashboard/inbox"),
   CONTACTS: route("/dashboard/contacts"),
+  DIAGRAMS: route("/dashboard/diagrams"),
+  DIAGRAM: (id: number) => `/dashboard/diagrams/${id}`,
+  /** a diagram shared by link, for people outside the workspace */
+  SHARED_DIAGRAM: (token: string) => `/d/${token}`,
   CAMPAIGNS: route("/dashboard/campaigns"),
   CAMPAIGN_NEW: route("/dashboard/campaigns/new"),
   CAMPAIGN: (id: number) => `/dashboard/campaigns/${id}`,
