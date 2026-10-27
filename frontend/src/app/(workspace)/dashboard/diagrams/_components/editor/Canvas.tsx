@@ -28,9 +28,12 @@ import {
   MessageSquarePlus,
   MoreHorizontal,
   MousePointer2,
+  Presentation,
+  ChevronLeft,
+  ChevronRight,
+  Timer as TimerIcon,
   Palette as PaletteIcon,
   Plus,
-  Printer,
   Redo2,
   Undo2,
   Wifi,
@@ -44,9 +47,17 @@ import { Button, Dropdown, type DropdownItem } from "@/app/admin/_components/ui/
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { cn } from "@/lib/utils";
 
-import type { CatchUp, Comment, CommentInput, DiagramContent, Op, Person } from "../../../_lib/diagramsApi";
+import type {
+  CatchUp,
+  Comment,
+  CommentInput,
+  DiagramContent,
+  LiveState,
+  Op,
+  Person,
+} from "../../../_lib/diagramsApi";
 import { CommentPins, CommentsPanel, pinAt, threads } from "./Comments";
-import { download, print } from "./exportImage";
+import { downloadPdf, downloadPng, downloadSvg } from "./exportDiagram";
 import { Inspector, type Arrange } from "./Inspector";
 import { Line } from "./Line";
 import {
@@ -57,20 +68,25 @@ import {
   layout,
   newId,
   remember,
-  shapeOf,
   snapshot,
   toEdge,
   defaultData,
+  BEHIND,
+  SHAPES,
   type LineData,
+  type PaletteItem,
   type LineEdge,
   type ShapeData,
-  type ShapeKind,
   type ShapeNode,
   type Snapshot,
 } from "./model";
+import { IconPicker } from "./IconPicker";
+import { mentionsIn, MentionInput, type Mentionable } from "./MentionInput";
+import { TimerPill, WorkshopPanel } from "./Workshop";
 import { DRAG_TYPE, Palette } from "./Palette";
 import { Avatars, Cursors } from "./Presence";
 import { EditorContext, Shape } from "./Shape";
+import { SPECIAL } from "./Special";
 import { useLive, type Batch, type LiveStatus } from "./useLive";
 
 const NODE_TYPES = { shape: Shape };
@@ -133,9 +149,27 @@ export interface CanvasProps {
   onMeta?: (meta: { name?: string; folder?: string | null }) => void;
   onLevel?: (level: string) => void;
   focusComment?: number | null;
+  /** stores a picture for an image shape and returns its address (members who can edit) */
+  uploadImage?: (file: File) => Promise<string>;
+  /** timer, votes and approval when the page loaded; kept current by the live connection */
+  state?: LiveState | null;
+  onState?: (state: LiveState) => void;
+  /** team members who can be @mentioned in comments */
+  people?: Mentionable[];
+  /** workshop controls (members): `canRun` starts timers and votes */
+  workshop?: {
+    canRun: boolean;
+    timer: (minutes: number) => Promise<unknown>;
+    voting: (body: { open: boolean; per_person?: number; reset?: boolean }) => Promise<unknown>;
+    vote: (nodeId: string, on: boolean) => Promise<unknown>;
+  } | null;
+  /** a note under the top bar (e.g. "Approved and locked") */
+  banner?: ReactNode;
+  /** someone starts writing a comment (the page refreshes who can be @mentioned) */
+  onCommenting?: () => void;
 }
 
-type Panel = "comments" | "extra" | null;
+type Panel = "comments" | "extra" | "workshop" | null;
 
 export function Canvas(props: CanvasProps) {
   const { live: liveApi, comments } = props;
@@ -176,7 +210,18 @@ export function Canvas(props: CanvasProps) {
   const clipboard = useRef<{ nodes: ShapeNode[]; edges: LineEdge[] } | null>(null);
 
   const previewing = !!props.preview;
-  const canEdit = (level === "edit" || level === "manage") && !previewing && !closed;
+  const [liveState, setLiveState] = useState<LiveState | null>(props.state ?? null);
+  // when the shared timer ends, on this device's clock: counted from the moment the server's word arrived
+  const [timerEnds, setTimerEnds] = useState<number | null>(null);
+  const hearState = useCallback((next: LiveState) => {
+    const t = next.session.timer;
+    setLiveState(next);
+    setTimerEnds(t && typeof t.left === "number" ? Date.now() + t.left * 1000 : null);
+  }, []);
+  const locked = !!liveState?.locked;
+  const [presenting, setPresenting] = useState<number | null>(null); // the slide on screen, when presenting
+  const canEdit =
+    (level === "edit" || level === "manage") && !previewing && !closed && !locked && presenting === null;
   const canComment = !!comments?.canComment && !previewing && !closed;
   const canEditRef = useRef(canEdit);
   useEffect(() => {
@@ -292,6 +337,10 @@ export function Canvas(props: CanvasProps) {
         );
       },
       onClosed: (message) => setClosed(message),
+      onState: (next) => {
+        hearState(next);
+        props.onState?.(next);
+      },
     },
   });
 
@@ -417,9 +466,25 @@ export function Canvas(props: CanvasProps) {
     commitWith(nextNodes, nextEdges, record);
   };
 
-  const addShape = (kind: ShapeKind, at?: { x: number; y: number }) => {
+  /** Adds a shape from the palette (or a picked icon / uploaded picture) in the middle of the screen or at `at`. */
+  const addShape = (
+    item: PaletteItem,
+    at?: { x: number; y: number },
+    extra?: Partial<ShapeData>,
+    dims?: { w: number; h: number }
+  ) => {
     if (!canEdit) return;
-    const size = shapeOf(kind);
+    if (item.action === "icon" && !extra) {
+      setIconFor({ mode: "add", at });
+      return;
+    }
+    if (item.action === "image" && !extra) {
+      imageAt.current = { mode: "add", at };
+      fileInput.current?.click();
+      return;
+    }
+    const kind = item.kind;
+    const size = dims ?? { w: item.w, h: item.h };
     const box = wrapper.current?.getBoundingClientRect();
     const center =
       at ??
@@ -434,7 +499,7 @@ export function Canvas(props: CanvasProps) {
       const taken = (x: number, y: number) =>
         current.current.nodes.some(
           (n) =>
-            n.data.shape !== "frame" &&
+            !BEHIND.includes(n.data.shape) &&
             Math.abs(n.position.x + (n.width ?? 160) / 2 - (x + size.w / 2)) < 40 &&
             Math.abs(n.position.y + (n.height ?? 64) / 2 - (y + size.h / 2)) < 40
         );
@@ -443,14 +508,15 @@ export function Canvas(props: CanvasProps) {
         spot.y += 32;
       }
     }
+    const plain = !SPECIAL.has(kind) && kind !== "text" && kind !== "frame";
     const node: ShapeNode = {
       id,
       type: "shape",
       position: spot,
       width: size.w,
       height: size.h,
-      zIndex: kind === "frame" ? -1 : 0,
-      data: defaultData(kind, kind === "text" || kind === "frame" ? undefined : size.label),
+      zIndex: BEHIND.includes(kind) ? -1 : 0,
+      data: { ...defaultData(kind, plain ? item.label : undefined), ...(item.data ?? {}), ...(extra ?? {}) },
       selected: true,
     };
     replace(
@@ -458,7 +524,59 @@ export function Canvas(props: CanvasProps) {
       current.current.edges.map((e) => ({ ...e, selected: false }))
     );
     setSheet(null);
-    if (kind !== "frame") setTimeout(() => setEditingId(id), 30);
+    if (plain || kind === "text" || kind === "bubble-out" || kind === "bubble-in" || kind === "mind")
+      setTimeout(() => setEditingId(id), 30);
+  };
+
+  // pictures: upload, then add (or swap into the selected picture) ---------------------------------------------
+  const fileInput = useRef<HTMLInputElement>(null);
+  const imageAt = useRef<{ mode: "add" | "replace"; at?: { x: number; y: number } }>({ mode: "add" });
+  const [iconFor, setIconFor] = useState<{ mode: "add" | "replace"; at?: { x: number; y: number } } | null>(
+    null
+  );
+  const [uploading, setUploading] = useState(false);
+  const addPicture = async (
+    file: File,
+    target: { mode: "add" | "replace"; at?: { x: number; y: number } }
+  ) => {
+    if (!props.uploadImage || !canEdit) return;
+    if (!/^image\/(png|jpe?g|webp|gif)$/.test(file.type)) {
+      toast.error("Use a PNG, JPG, WEBP or GIF picture");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error("Pictures can be up to 10 MB");
+      return;
+    }
+    setUploading(true);
+    try {
+      const url = await props.uploadImage(file);
+      const natural = await new Promise<{ w: number; h: number }>((resolve) => {
+        const img = new window.Image();
+        img.onload = () => resolve({ w: img.naturalWidth || 220, h: img.naturalHeight || 150 });
+        img.onerror = () => resolve({ w: 220, h: 150 });
+        img.src = url;
+      });
+      const scale = Math.min(1, 320 / natural.w, 320 / natural.h);
+      const dims = {
+        w: Math.max(40, Math.round(natural.w * scale)),
+        h: Math.max(40, Math.round(natural.h * scale)),
+      };
+      if (target.mode === "replace") {
+        replace(
+          current.current.nodes.map((n) =>
+            n.selected && n.data.shape === "image" ? { ...n, data: { ...n.data, src: url } } : n
+          )
+        );
+      } else {
+        const item = SHAPES.find((x) => x.key === "image:upload")!;
+        addShape(item, target.at, { src: url, label: file.name.replace(/\.[^.]+$/, "").slice(0, 60) }, dims);
+      }
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setUploading(false);
+    }
   };
 
   // copy, paste, undo -----------------------------------------------------------------------------------------
@@ -551,6 +669,40 @@ export function Canvas(props: CanvasProps) {
         current.current.nodes.map((n) => (ids.has(n.id) && !n.data.locked ? { ...n, position: fn(n) } : n))
       );
     switch (action) {
+      case "pick-icon":
+        setIconFor({ mode: "replace" });
+        return;
+      case "replace-image":
+        imageAt.current = { mode: "replace" };
+        fileInput.current?.click();
+        return;
+      case "row-add":
+      case "row-remove":
+      case "col-add":
+      case "col-remove": {
+        replace(
+          current.current.nodes.map((n) => {
+            if (!ids.has(n.id) || n.data.shape !== "table") return n;
+            let rows = (n.data.rows ?? [[""]]).map((r) => [...r]);
+            const cols = rows[0]?.length ?? 1;
+            if (action === "row-add") rows.push(Array(cols).fill(""));
+            if (action === "row-remove" && rows.length > 1) rows = rows.slice(0, -1);
+            if (action === "col-add") rows = rows.map((r) => [...r, ""]);
+            if (action === "col-remove" && cols > 1) rows = rows.map((r) => r.slice(0, -1));
+            const rowH = Math.max(24, Math.round((n.data.fontSize ?? 13) * 2.2));
+            const colW = (n.width ?? 320) / cols;
+            return {
+              ...n,
+              width: action.startsWith("col")
+                ? Math.max(80, Math.round(colW * (rows[0]?.length ?? 1)))
+                : n.width,
+              height: action.startsWith("row") ? Math.max(rowH, rowH * rows.length + 4) : n.height,
+              data: { ...n.data, rows },
+            };
+          })
+        );
+        return;
+      }
       case "delete":
         void flow.deleteElements({ nodes: picked, edges: current.current.edges.filter((e) => e.selected) });
         return;
@@ -568,7 +720,7 @@ export function Canvas(props: CanvasProps) {
         const value = action === "front" ? Math.max(0, ...z) + 1 : Math.min(0, ...z) - 1;
         replace(
           current.current.nodes.map((n) =>
-            ids.has(n.id) && n.data.shape !== "frame" ? { ...n, zIndex: value } : n
+            ids.has(n.id) && !BEHIND.includes(n.data.shape) ? { ...n, zIndex: value } : n
           )
         );
         return;
@@ -666,6 +818,82 @@ export function Canvas(props: CanvasProps) {
   // presence -------------------------------------------------------------------------------------------------------
   const wrapper = useRef<HTMLDivElement>(null);
   const peers = [...live.peers.values()];
+
+  // follow mode: my screen shows what someone else is looking at --------------------------------------------
+  const [following, setFollowing] = useState<string | null>(null);
+  const followed = following ? (live.peers.get(following) ?? null) : null;
+  const followView = followed?.view;
+  useEffect(() => {
+    if (!following) return;
+    if (!live.peers.has(following)) {
+      setFollowing(null); // eslint-disable-line react-hooks/set-state-in-effect -- they left the diagram
+      return;
+    }
+    if (followView) void flow.setCenter(followView.x, followView.y, { zoom: followView.zoom, duration: 250 });
+  }, [following, followView, live.peers, flow]);
+
+  // presentation: frames are the slides (top to bottom, left to right); no frames = the whole diagram -------
+  const root = useRef<HTMLDivElement>(null);
+  const slides = useMemo(() => {
+    const frames = nodes.filter((n) => n.data.shape === "frame");
+    const rowOf = (n: ShapeNode) => Math.round(n.position.y / 200);
+    return frames.sort((a, b) => rowOf(a) - rowOf(b) || a.position.x - b.position.x);
+  }, [nodes]);
+  const slideCount = Math.max(1, slides.length);
+  const present = (index: number) => {
+    const i = Math.max(0, Math.min(slideCount - 1, index));
+    setPresenting(i);
+    setFollowing(null);
+    setPanel(null);
+    setCommentMode(false);
+    if (presenting === null && root.current && !document.fullscreenElement) {
+      void root.current.requestFullscreen?.().catch(() => null);
+    }
+    setTimeout(() => {
+      const slide = slides[i];
+      if (slide) {
+        void flow.fitBounds(
+          {
+            x: slide.position.x,
+            y: slide.position.y,
+            width: slide.width ?? 420,
+            height: slide.height ?? 280,
+          },
+          { padding: 0.04, duration: 450 }
+        );
+      } else void flow.fitView({ padding: 0.08, duration: 450 });
+    }, 60);
+  };
+  const stopPresenting = () => {
+    setPresenting(null);
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => null);
+  };
+  useEffect(() => {
+    if (presenting === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (["ArrowRight", "ArrowDown", "PageDown", " "].includes(e.key)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        present(presenting + 1);
+      } else if (["ArrowLeft", "ArrowUp", "PageUp"].includes(e.key)) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        present(presenting - 1);
+      } else if (e.key === "Escape") {
+        e.stopImmediatePropagation();
+        stopPresenting();
+      }
+    };
+    const onFull = () => {
+      if (!document.fullscreenElement) setPresenting(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    document.addEventListener("fullscreenchange", onFull);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      document.removeEventListener("fullscreenchange", onFull);
+    };
+  });
   const peerSelection = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const p of live.peers.values())
@@ -696,9 +924,30 @@ export function Canvas(props: CanvasProps) {
     openThread(props.focusComment);
   });
 
+  const myVoteKey = props.me.id ? `m:${props.me.id}` : null;
+  const votes = useMemo(() => {
+    const voting = liveState?.session.voting;
+    if (!voting) return undefined;
+    const counts = new Map(Object.entries(voting.votes).map(([id, v]) => [id, v.length]));
+    const mine = new Set(
+      Object.entries(voting.votes)
+        .filter(([, v]) => myVoteKey && v.includes(myVoteKey))
+        .map(([id]) => id)
+    );
+    const vote = props.workshop?.vote;
+    return {
+      open: voting.open,
+      canVote: !!vote && !props.me.guest && !previewing,
+      counts,
+      mine,
+      onVote: (id: string) => {
+        void vote?.(id, !mine.has(id)).catch((err: Error) => toast.error(errorMessage(err)));
+      },
+    };
+  }, [liveState, myVoteKey, props.workshop?.vote, props.me.guest, previewing]);
   const ctx = useMemo(
-    () => ({ editable: canEdit, editingId, setEditingId, peerSelection, commentCount }),
-    [canEdit, editingId, peerSelection, commentCount]
+    () => ({ editable: canEdit, editingId, setEditingId, peerSelection, commentCount, votes }),
+    [canEdit, editingId, peerSelection, commentCount, votes]
   );
 
   const shown = useMemo(() => (props.preview ? fromContent(props.preview.content) : null), [props.preview]);
@@ -707,13 +956,18 @@ export function Canvas(props: CanvasProps) {
   const empty = !nodes.length && !shown;
   const unsaved = saving > 0;
 
+  const [exporting, setExporting] = useState(false);
   const exportAs = async (format: "png" | "svg" | "pdf") => {
+    // what's on screen (or the version being looked at), without selection or anyone's cursor
+    const source = shown ?? { nodes, edges };
+    setExporting(true);
     try {
-      const all = flow.getNodes();
-      if (format === "pdf") await print(all, name);
-      else await download(all, format, name, dark);
+      const save = format === "pdf" ? downloadPdf : format === "svg" ? downloadSvg : downloadPng;
+      await save(source.nodes, source.edges, props.preview ? `${name} (${props.preview.label})` : name);
     } catch (err) {
       toast.error(errorMessage(err));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -750,14 +1004,33 @@ export function Canvas(props: CanvasProps) {
 
   return (
     <EditorContext.Provider value={ctx}>
-      <div className="bg-page relative flex h-full min-h-0 flex-col">
+      <div
+        ref={root}
+        className={cn(
+          "bg-page relative flex h-full min-h-0 flex-col",
+          presenting !== null && "fixed inset-0 z-[70] h-dvh"
+        )}
+      >
         {/* top bar */}
-        <div className="border-line bg-surface flex items-center gap-1.5 border-b px-2 py-1.5 sm:gap-2 sm:px-3">
+        <div
+          className={cn(
+            "border-line bg-surface flex items-center gap-1.5 border-b px-2 py-1.5 sm:gap-2 sm:px-3",
+            presenting !== null && "hidden"
+          )}
+        >
           {props.title({ name, canEdit, status: live.status })}
           {statusChip}
           <div className="ml-auto flex items-center gap-1 sm:gap-1.5">
             <span className="hidden sm:block">
-              <Avatars me={props.me} peers={peers} />
+              <Avatars
+                me={props.me}
+                peers={peers}
+                following={following}
+                onFollow={(peerId) => {
+                  setFollowing(peerId === following ? null : peerId);
+                  setPresenting(null);
+                }}
+              />
             </span>
             {canEdit && (
               <span className="hidden items-center md:flex">
@@ -783,13 +1056,36 @@ export function Canvas(props: CanvasProps) {
                 />
               </span>
             )}
+            <Button
+              size="sm"
+              variant="ghost"
+              iconOnly
+              leftIcon={Presentation}
+              aria-label="Present"
+              title="Present (frames are slides)"
+              onClick={() => present(0)}
+            />
+            {props.workshop && (
+              <Button
+                size="sm"
+                variant={panel === "workshop" ? "secondary" : "ghost"}
+                iconOnly
+                leftIcon={TimerIcon}
+                aria-label="Workshop"
+                title="Workshop: timer and voting"
+                onClick={() => setPanel(panel === "workshop" ? null : "workshop")}
+              />
+            )}
             {comments && (
               <Button
                 size="sm"
                 variant={panel === "comments" ? "secondary" : "ghost"}
                 leftIcon={MessageSquare}
                 aria-label="Comments"
-                onClick={() => setPanel(panel === "comments" ? null : "comments")}
+                onClick={() => {
+                  if (panel !== "comments") props.onCommenting?.();
+                  setPanel(panel === "comments" ? null : "comments");
+                }}
               >
                 <span className="hidden lg:inline">Comments</span>
                 {list.filter((t) => !t.root.resolved).length > 0 && (
@@ -826,7 +1122,7 @@ export function Canvas(props: CanvasProps) {
               items={[
                 { label: "PNG image", icon: FileImage, onClick: () => void exportAs("png") },
                 { label: "SVG (sharp at any size)", icon: FileImage, onClick: () => void exportAs("svg") },
-                { label: "PDF / print", icon: Printer, onClick: () => void exportAs("pdf") },
+                { label: "PDF document", icon: FileText, onClick: () => void exportAs("pdf") },
               ]}
             />
             {props.actions}
@@ -857,6 +1153,22 @@ export function Canvas(props: CanvasProps) {
           </div>
         </div>
 
+        {props.banner}
+        {followed && (
+          <div
+            className="flex items-center gap-2 border-b px-4 py-1.5 text-sm font-medium text-white"
+            style={{ background: followed.person.color }}
+          >
+            Following {followed.person.name}. Move around yourself to stop.
+            <button
+              type="button"
+              className="ml-auto rounded px-2 py-0.5 text-xs underline"
+              onClick={() => setFollowing(null)}
+            >
+              Stop following
+            </button>
+          </div>
+        )}
         {closed && (
           <div className="border-danger/30 bg-danger-soft text-danger flex items-center gap-2 border-b px-4 py-2 text-sm">
             <CircleAlert className="h-4 w-4 shrink-0" /> {closed}
@@ -881,7 +1193,7 @@ export function Canvas(props: CanvasProps) {
               className="border-line bg-surface hidden w-[11.5rem] shrink-0 overflow-y-auto border-r lg:block"
               aria-label="Shapes"
             >
-              <Palette onAdd={(k) => addShape(k)} />
+              <Palette onAdd={(item) => addShape(item)} />
             </aside>
           )}
 
@@ -897,16 +1209,27 @@ export function Canvas(props: CanvasProps) {
             }}
             onPointerLeave={() => live.setPresence({ cursor: null })}
             onDragOver={(e) => {
-              if (e.dataTransfer.types.includes(DRAG_TYPE)) {
+              if (
+                canEdit &&
+                (e.dataTransfer.types.includes(DRAG_TYPE) || e.dataTransfer.types.includes("Files"))
+              ) {
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "copy";
               }
             }}
             onDrop={(e) => {
-              const kind = e.dataTransfer.getData(DRAG_TYPE) as ShapeKind;
-              if (!kind) return;
+              if (!canEdit) return;
+              const at = flow.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+              const file = [...e.dataTransfer.files].find((f) => f.type.startsWith("image/"));
+              if (file) {
+                e.preventDefault();
+                void addPicture(file, { mode: "add", at });
+                return;
+              }
+              const item = SHAPES.find((x) => x.key === e.dataTransfer.getData(DRAG_TYPE));
+              if (!item) return;
               e.preventDefault();
-              addShape(kind, flow.screenToFlowPosition({ x: e.clientX, y: e.clientY }));
+              addShape(item, at);
             }}
           >
             <ReactFlow<ShapeNode, LineEdge>
@@ -958,6 +1281,20 @@ export function Canvas(props: CanvasProps) {
                 commit();
               }}
               onSelectionChange={({ nodes: sel }) => live.setPresence({ selection: sel.map((n) => n.id) })}
+              onMoveStart={(event) => {
+                if (event && following) setFollowing(null); // they moved the view themselves
+              }}
+              onMove={(_, vp) => {
+                const box = wrapper.current?.getBoundingClientRect();
+                if (!box) return;
+                live.setPresence({
+                  view: {
+                    x: (box.width / 2 - vp.x) / vp.zoom,
+                    y: (box.height / 2 - vp.y) / vp.zoom,
+                    zoom: vp.zoom,
+                  },
+                });
+              }}
               onNodeClick={(e, node) => {
                 if (commentMode && canComment) {
                   e.stopPropagation();
@@ -992,8 +1329,9 @@ export function Canvas(props: CanvasProps) {
                   onOpen={openThread}
                   draft={draftPin && !draftPin.node_id ? draftPin : null}
                   onDraftCancel={() => setDraftPin(null)}
-                  onDraftSave={async (body) => {
-                    await comments.add({ body, x: draftPin!.x, y: draftPin!.y });
+                  people={props.people}
+                  onDraftSave={async (body, mentions) => {
+                    await comments.add({ body, x: draftPin!.x, y: draftPin!.y, mentions });
                     setDraftPin(null);
                     setCommentMode(false);
                     setPanel("comments");
@@ -1003,7 +1341,10 @@ export function Canvas(props: CanvasProps) {
             </ReactFlow>
 
             {/* tools floating on the canvas */}
-            <div className="pointer-events-none absolute top-3 left-1/2 z-10 flex -translate-x-1/2 gap-1">
+            <div
+              hidden={presenting !== null}
+              className="pointer-events-none absolute top-3 left-1/2 z-10 flex -translate-x-1/2 gap-1"
+            >
               <div className="border-line bg-surface pointer-events-auto flex items-center gap-0.5 rounded-xl border p-1 shadow-md">
                 <Button
                   size="sm"
@@ -1038,6 +1379,7 @@ export function Canvas(props: CanvasProps) {
                     aria-label="Add a comment"
                     title="Add a comment: click anywhere, or on a shape"
                     onClick={() => {
+                      if (!commentMode) props.onCommenting?.();
                       setCommentMode((v) => !v);
                       setDraftPin(null);
                     }}
@@ -1081,6 +1423,41 @@ export function Canvas(props: CanvasProps) {
                 )}
               </div>
             </div>
+            {liveState && <TimerPill timer={liveState.session.timer} endsAt={timerEnds} />}
+            {presenting !== null && (
+              <div className="bg-fg/90 text-page absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full px-2 py-1.5 shadow-lg">
+                <button
+                  type="button"
+                  aria-label="Previous slide"
+                  onClick={() => present(presenting - 1)}
+                  disabled={presenting === 0}
+                  className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <span className="min-w-20 text-center text-sm font-medium tabular-nums">
+                  {slides[presenting]?.data.label || (slides.length ? "Slide" : "Whole diagram")} ·{" "}
+                  {presenting + 1}/{slideCount}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Next slide"
+                  onClick={() => present(presenting + 1)}
+                  disabled={presenting >= slideCount - 1}
+                  className="rounded-full p-1.5 hover:bg-white/15 disabled:opacity-40"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  aria-label="Stop presenting"
+                  onClick={stopPresenting}
+                  className="ml-1 rounded-full p-1.5 hover:bg-white/15"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             {commentMode && (
               <p className="bg-fg text-page pointer-events-none absolute top-16 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium shadow">
                 Click where the comment goes · Esc to stop
@@ -1089,9 +1466,10 @@ export function Canvas(props: CanvasProps) {
 
             {draftPin?.node_id && comments && (
               <NodeCommentBox
+                people={props.people}
                 onCancel={() => setDraftPin(null)}
-                onSave={async (body) => {
-                  await comments.add({ body, node_id: draftPin.node_id });
+                onSave={async (body, mentions) => {
+                  await comments.add({ body, node_id: draftPin.node_id, mentions });
                   setDraftPin(null);
                   setCommentMode(false);
                   setPanel("comments");
@@ -1139,11 +1517,31 @@ export function Canvas(props: CanvasProps) {
                   onResolve={comments.resolve}
                   onDelete={comments.remove}
                   onClose={() => setPanel(null)}
+                  people={props.people}
                   hint={
                     canComment
                       ? "Click the speech bubble above the canvas, then click where the comment goes."
                       : "No comments yet."
                   }
+                />
+              ) : panel === "workshop" && props.workshop && liveState ? (
+                <WorkshopPanel
+                  state={liveState}
+                  endsAt={timerEnds}
+                  me={myVoteKey}
+                  canRun={props.workshop.canRun}
+                  canVote={!props.me.guest}
+                  labelOf={(id) => {
+                    const n = nodes.find((x) => x.id === id);
+                    return n ? n.data.label || "" : null;
+                  }}
+                  onFocus={(id) => {
+                    const n = nodes.find((x) => x.id === id);
+                    if (n) flow.fitView({ nodes: [n], padding: 1.2, duration: 300, maxZoom: 1.2 });
+                  }}
+                  onTimer={props.workshop.timer}
+                  onVoting={props.workshop.voting}
+                  onClose={() => setPanel(null)}
                 />
               ) : panel === "extra" && props.sidePanel ? (
                 props.sidePanel.render(() => setPanel(null))
@@ -1151,6 +1549,54 @@ export function Canvas(props: CanvasProps) {
             </aside>
           )}
         </div>
+
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          className="hidden"
+          aria-label="Picture to add"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = "";
+            if (file) void addPicture(file, imageAt.current);
+          }}
+        />
+        {exporting && (
+          <p
+            role="status"
+            className="bg-fg text-page absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium shadow"
+          >
+            Preparing the download…
+          </p>
+        )}
+        {uploading && (
+          <p className="bg-fg text-page absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium shadow">
+            Uploading picture…
+          </p>
+        )}
+        {iconFor && (
+          <IconPicker
+            open
+            onClose={() => setIconFor(null)}
+            onPick={(name) => {
+              if (iconFor.mode === "replace") {
+                replace(
+                  current.current.nodes.map((n) =>
+                    n.selected && n.data.shape === "icon" ? { ...n, data: { ...n.data, icon: name } } : n
+                  )
+                );
+              } else {
+                const item = SHAPES.find((x) => x.key === "icon:pick")!;
+                addShape(item, iconFor.at, {
+                  icon: name,
+                  label: name.replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+                });
+              }
+              setIconFor(null);
+            }}
+          />
+        )}
 
         {/* phone sheets */}
         {sheet && (
@@ -1166,7 +1612,7 @@ export function Canvas(props: CanvasProps) {
             >
               <div className="bg-line mx-auto mt-2 h-1 w-10 rounded-full" />
               {sheet === "shapes" ? (
-                <Palette compact onAdd={(k) => addShape(k)} />
+                <Palette compact onAdd={(item) => addShape(item)} />
               ) : (
                 <Inspector
                   nodes={selectedNodes}
@@ -1191,9 +1637,11 @@ export function Canvas(props: CanvasProps) {
 function NodeCommentBox({
   onCancel,
   onSave,
+  people,
 }: {
   onCancel: () => void;
-  onSave: (body: string) => Promise<void>;
+  onSave: (body: string, mentions: number[]) => Promise<void>;
+  people?: Mentionable[];
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -1205,31 +1653,28 @@ function NodeCommentBox({
         if (!text.trim()) return;
         setBusy(true);
         try {
-          await onSave(text.trim());
+          await onSave(text.trim(), mentionsIn(text, people));
         } catch (err) {
           toast.error(errorMessage(err));
         } finally {
           setBusy(false);
         }
       }}
+      id="diagram-shape-comment"
     >
       <p className="text-fg-subtle mb-1 px-1 text-xs">Comment on this shape</p>
-      <textarea
+      <MentionInput
+        multiline
         autoFocus
         value={text}
-        rows={2}
-        maxLength={2000}
-        aria-label="Comment"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          e.stopPropagation();
-          if (e.key === "Escape") onCancel();
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            e.currentTarget.form?.requestSubmit();
-          }
-        }}
-        placeholder="Write a comment…"
+        onChange={setText}
+        people={people}
+        onCancel={onCancel}
+        onSubmit={() =>
+          (document.getElementById("diagram-shape-comment") as HTMLFormElement | null)?.requestSubmit()
+        }
+        placeholder={people?.length ? "Write a comment… (@ to mention)" : "Write a comment…"}
+        label="Comment"
         className="text-fg w-full resize-none bg-transparent px-1 text-sm outline-none"
       />
       <div className="flex justify-end gap-1">

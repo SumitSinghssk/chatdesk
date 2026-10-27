@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useStore, ViewportPortal } from "@xyflow/react";
+import { useStore } from "@xyflow/react";
 import { Check, MessageSquare, RotateCcw, SendHorizontal, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -10,6 +10,7 @@ import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { cn, timeAgo } from "@/lib/utils";
 
 import type { Comment, CommentInput } from "../../../_lib/diagramsApi";
+import { MentionInput, mentionsIn, WithMentions, type Mentionable } from "./MentionInput";
 import type { ShapeNode } from "./model";
 
 export interface Thread {
@@ -42,6 +43,7 @@ export function CommentPins({
   draft,
   onDraftCancel,
   onDraftSave,
+  people,
 }: {
   list: Thread[];
   nodes: ShapeNode[];
@@ -49,15 +51,17 @@ export function CommentPins({
   onOpen: (id: number) => void;
   draft: { x: number; y: number } | null;
   onDraftCancel: () => void;
-  onDraftSave: (body: string) => Promise<void>;
+  onDraftSave: (body: string, mentions: number[]) => Promise<void>;
+  people?: Mentionable[];
 }) {
-  const zoom = useStore((s) => s.transform[2]);
+  // drawn above the canvas (so they can be clicked), placed where the diagram point is on screen
+  const [tx, ty, zoom] = useStore((s) => s.transform);
+  const screen = (x: number, y: number) => `translate(${x * zoom + tx}px, ${y * zoom + ty}px)`;
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
-  const scale = { transform: `scale(${1 / zoom})`, transformOrigin: "0 100%" };
   return (
-    <ViewportPortal>
+    <div className="diagram-overlay pointer-events-none absolute inset-0 z-[6] overflow-hidden">
       {list
         .filter((t) => !t.root.resolved || t.root.id === active)
         .map((t) => {
@@ -66,8 +70,8 @@ export function CommentPins({
           return (
             <div
               key={t.root.id}
-              className="diagram-overlay absolute"
-              style={{ transform: `translate(${at.x}px, ${at.y}px)` }}
+              className="pointer-events-auto absolute top-0 left-0"
+              style={{ transform: screen(at.x, at.y) }}
             >
               <button
                 type="button"
@@ -77,7 +81,7 @@ export function CommentPins({
                   "nodrag flex -translate-y-full items-center gap-1 rounded-full rounded-bl-sm border-2 border-white py-0.5 pr-2 pl-0.5 shadow-md transition hover:scale-105",
                   active === t.root.id && "ring-primary ring-2"
                 )}
-                style={{ ...scale, background: t.root.color }}
+                style={{ background: t.root.color }}
               >
                 <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/25 text-[10px] font-bold text-white">
                   {initials(t.root.author)}
@@ -91,19 +95,20 @@ export function CommentPins({
         })}
       {draft && (
         <div
-          className="diagram-overlay absolute"
-          style={{ transform: `translate(${draft.x}px, ${draft.y}px)` }}
+          className="pointer-events-auto absolute top-0 left-0"
+          style={{ transform: screen(draft.x, draft.y) }}
         >
-          <div style={{ ...scale, transformOrigin: "0 0" }} className="nodrag nowheel">
+          <div className="nodrag nowheel">
             <span className="bg-primary block h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow" />
             <form
+              id="diagram-new-comment"
               className="bg-surface border-line mt-1 w-64 rounded-xl border p-2 shadow-xl"
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!text.trim()) return;
                 setBusy(true);
                 try {
-                  await onDraftSave(text.trim());
+                  await onDraftSave(text.trim(), mentionsIn(text, people));
                   setText("");
                 } catch (err) {
                   toast.error(errorMessage(err));
@@ -112,22 +117,18 @@ export function CommentPins({
                 }
               }}
             >
-              <textarea
+              <MentionInput
+                multiline
                 autoFocus
                 value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  e.stopPropagation();
-                  if (e.key === "Escape") onDraftCancel();
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    e.currentTarget.form?.requestSubmit();
-                  }
-                }}
-                rows={2}
-                maxLength={2000}
-                placeholder="Write a comment…"
-                aria-label="Comment"
+                onChange={setText}
+                people={people}
+                onCancel={onDraftCancel}
+                onSubmit={() =>
+                  (document.getElementById("diagram-new-comment") as HTMLFormElement | null)?.requestSubmit()
+                }
+                placeholder={people?.length ? "Write a comment… (@ to mention)" : "Write a comment…"}
+                label="Comment"
                 className="text-fg w-full resize-none bg-transparent px-1 text-sm outline-none"
               />
               <div className="flex justify-end gap-1">
@@ -142,7 +143,7 @@ export function CommentPins({
           </div>
         </div>
       )}
-    </ViewportPortal>
+    </div>
   );
 }
 
@@ -158,6 +159,7 @@ export function CommentsPanel({
   onDelete,
   onClose,
   hint,
+  people,
 }: {
   list: Thread[];
   active: number | null;
@@ -169,6 +171,7 @@ export function CommentsPanel({
   onDelete?: (id: number) => Promise<void>;
   onClose: () => void;
   hint: string;
+  people?: Mentionable[];
 }) {
   const [show, setShow] = useState<"open" | "resolved">("open");
   const shown = list.filter((t) => (show === "open" ? !t.root.resolved : t.root.resolved)).reverse();
@@ -217,7 +220,8 @@ export function CommentsPanel({
             onOpen={() => onOpen(t.root.id)}
             canComment={canComment}
             canDelete={canDelete}
-            onReply={(body) => onReply({ body, parent_id: t.root.id })}
+            onReply={(body) => onReply({ body, parent_id: t.root.id, mentions: mentionsIn(body, people) })}
+            people={people}
             onResolve={onResolve}
             onDelete={onDelete}
           />
@@ -236,6 +240,7 @@ function ThreadCard({
   onReply,
   onResolve,
   onDelete,
+  people,
 }: {
   thread: Thread;
   active: boolean;
@@ -245,9 +250,11 @@ function ThreadCard({
   onReply: (body: string) => Promise<void>;
   onResolve?: (id: number, resolved: boolean) => Promise<void>;
   onDelete?: (id: number) => Promise<void>;
+  people?: Mentionable[];
 }) {
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
+  const formId = `reply-${thread.root.id}`;
   const run = async (fn: () => Promise<void>) => {
     try {
       await fn();
@@ -284,7 +291,7 @@ function ThreadCard({
                 <span className="text-fg-faint ml-auto shrink-0 text-[10.5px]">{timeAgo(c.created_at)}</span>
               </span>
               <span className="text-fg-muted mt-0.5 block text-[13px] leading-snug break-words whitespace-pre-wrap">
-                {c.body}
+                <WithMentions text={c.body} names={(c.mentions ?? []).map((m) => m.name)} />
               </span>
             </span>
             {onDelete && canDelete(c) && (
@@ -307,6 +314,7 @@ function ThreadCard({
       </button>
       {canComment && (
         <form
+          id={formId}
           className="mt-2 flex items-end gap-1.5"
           onSubmit={async (e) => {
             e.preventDefault();
@@ -319,14 +327,14 @@ function ThreadCard({
             setBusy(false);
           }}
         >
-          <input
+          <MentionInput
             value={text}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
-            placeholder="Reply…"
-            aria-label="Reply"
-            maxLength={2000}
-            className="border-line bg-page text-fg focus:border-primary h-8 min-w-0 flex-1 rounded-lg border px-2 text-[13px] outline-none"
+            onChange={setText}
+            people={people}
+            onSubmit={() => (document.getElementById(formId) as HTMLFormElement | null)?.requestSubmit()}
+            placeholder={people?.length ? "Reply… (@ to mention)" : "Reply…"}
+            label="Reply"
+            className="border-line bg-page text-fg focus:border-primary h-8 w-full rounded-lg border px-2 text-[13px] outline-none"
           />
           <Button
             type="submit"

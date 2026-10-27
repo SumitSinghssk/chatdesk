@@ -45,7 +45,16 @@ export type Arrange =
   | "spread-y"
   | "tidy-TB"
   | "tidy-LR"
-  | "edit-text";
+  | "edit-text"
+  | "pick-icon"
+  | "replace-image"
+  | "row-add"
+  | "row-remove"
+  | "col-add"
+  | "col-remove";
+
+/** Shapes that keep their own look (no colour / border choices). */
+const OWN_LOOK = new Set(["bubble-out", "bubble-in", "phone", "icon", "image"]);
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -172,9 +181,10 @@ export function Inspector({
         )}
       </div>
 
+      {first && !many && <ShapeSettings data={first} onNodeData={onNodeData} onArrange={onArrange} />}
       {first && (
         <>
-          {first.shape !== "text" && (
+          {first.shape !== "text" && !OWN_LOOK.has(first.shape) && (
             <Group title="Colour">
               <div className="grid grid-cols-6 gap-1.5">
                 {COLORS.map((c) => (
@@ -245,7 +255,7 @@ export function Inspector({
               {!many && <Tool label="Edit text" icon={Pencil} onClick={() => onArrange("edit-text")} />}
             </div>
           </Group>
-          {first.shape !== "text" && (
+          {first.shape !== "text" && !OWN_LOOK.has(first.shape) && (
             <Group title="Border">
               <Choice
                 label="Border style"
@@ -417,4 +427,163 @@ export function Inspector({
       )}
     </div>
   );
+}
+
+const field =
+  "border-line bg-page text-fg focus:border-primary w-full rounded-lg border px-2 py-1.5 text-[12.5px] leading-snug outline-none";
+
+/** What only some shapes have: icons, pictures, tables, database tables, UML classes, message times. */
+function ShapeSettings({
+  data,
+  onNodeData,
+  onArrange,
+}: {
+  data: ShapeData;
+  onNodeData: (patch: Partial<ShapeData>) => void;
+  onArrange: (action: Arrange) => void;
+}) {
+  switch (data.shape) {
+    case "icon":
+      return (
+        <Group title="Icon">
+          <Tool label="Change icon" icon={Pencil} onClick={() => onArrange("pick-icon")}>
+            Change icon
+          </Tool>
+          <div className="flex flex-wrap gap-1.5">
+            {LINE_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-label={`Icon colour ${c}`}
+                aria-pressed={(data.text ?? "#334155") === c}
+                onClick={() => onNodeData({ text: c })}
+                className={cn(
+                  "h-6 w-6 rounded-full transition hover:scale-110",
+                  data.text === c && "ring-primary ring-2 ring-offset-2"
+                )}
+                style={{ background: c }}
+              />
+            ))}
+          </div>
+          <Choice
+            label="Background"
+            value={data.fill ? "on" : "off"}
+            onChange={(v) => onNodeData({ fill: v === "on" ? "#f1f5f9" : undefined })}
+            options={[
+              { value: "off", label: "No background" },
+              { value: "on", label: "Soft tile" },
+            ]}
+          />
+        </Group>
+      );
+    case "image":
+      return (
+        <Group title="Picture">
+          <Tool label="Replace picture" icon={Pencil} onClick={() => onArrange("replace-image")}>
+            Replace picture
+          </Tool>
+          <Choice
+            label="Fit"
+            value={data.fit ?? "contain"}
+            onChange={(fit) => onNodeData({ fit })}
+            options={[
+              { value: "contain", label: "Show all" },
+              { value: "cover", label: "Fill the box" },
+            ]}
+          />
+        </Group>
+      );
+    case "table":
+      return (
+        <Group title="Table">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-fg-subtle w-16 text-xs">Rows</span>
+            <Tool label="Remove a row" onClick={() => onArrange("row-remove")}>
+              −
+            </Tool>
+            <Tool label="Add a row" onClick={() => onArrange("row-add")}>
+              +
+            </Tool>
+          </div>
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="text-fg-subtle w-16 text-xs">Columns</span>
+            <Tool label="Remove a column" onClick={() => onArrange("col-remove")}>
+              −
+            </Tool>
+            <Tool label="Add a column" onClick={() => onArrange("col-add")}>
+              +
+            </Tool>
+          </div>
+          <Tool
+            label="First row is a header"
+            on={data.header !== false}
+            onClick={() => onNodeData({ header: data.header === false })}
+          >
+            Header row
+          </Tool>
+          <p className="text-fg-faint text-[11px]">Double-click a cell to type. Tab moves to the next one.</p>
+        </Group>
+      );
+    case "entity":
+      return (
+        <Group title="Columns">
+          <textarea
+            aria-label="Columns"
+            rows={6}
+            defaultValue={data.fields}
+            key={data.fields}
+            onKeyDown={(e) => e.stopPropagation()}
+            onBlur={(e) => e.target.value !== data.fields && onNodeData({ fields: e.target.value })}
+            className={cn(field, "font-mono")}
+          />
+          <p className="text-fg-faint text-[11px]">
+            One per line: name, two spaces, type, two spaces, PK or FK.
+          </p>
+        </Group>
+      );
+    case "uml":
+      return (
+        <Group title="Class">
+          <label className="text-fg-subtle block text-xs">Fields</label>
+          <textarea
+            aria-label="Fields"
+            rows={4}
+            defaultValue={data.fields}
+            key={`f${data.fields}`}
+            onKeyDown={(e) => e.stopPropagation()}
+            onBlur={(e) => e.target.value !== data.fields && onNodeData({ fields: e.target.value })}
+            className={cn(field, "font-mono")}
+          />
+          <label className="text-fg-subtle block text-xs">Methods</label>
+          <textarea
+            aria-label="Methods"
+            rows={3}
+            defaultValue={data.methods}
+            key={`m${data.methods}`}
+            onKeyDown={(e) => e.stopPropagation()}
+            onBlur={(e) => e.target.value !== data.methods && onNodeData({ methods: e.target.value })}
+            className={cn(field, "font-mono")}
+          />
+        </Group>
+      );
+    case "bubble-out":
+    case "bubble-in":
+      return (
+        <Group title="Message">
+          <input
+            aria-label="Time shown"
+            defaultValue={data.time}
+            key={data.time}
+            maxLength={12}
+            onKeyDown={(e) => e.stopPropagation()}
+            onBlur={(e) => e.target.value !== data.time && onNodeData({ time: e.target.value })}
+            className={field}
+            placeholder="10:24"
+          />
+          <p className="text-fg-faint text-[11px]">Double-click the bubble to change the message.</p>
+        </Group>
+      );
+    default:
+      return null;
+  }
 }

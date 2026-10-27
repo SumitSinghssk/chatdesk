@@ -11,6 +11,7 @@ case "$1" in
       --port "${PORT:-8001}" \
       --workers "${WEB_CONCURRENCY:-2}" \
       --timeout-keep-alive 75 \
+      --timeout-graceful-shutdown 10 \
       --no-server-header
     ;;
   scheduler)

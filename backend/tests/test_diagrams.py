@@ -203,3 +203,81 @@ def test_share_link_view_comment_password_and_turning_it_off(business):
 
         # other businesses can't see it
         assert guest.get(f"{D}/{d['id']}").status_code == 401
+
+
+PNG = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+       b"\x00\x00\x00\rIDATx\x9cc\xf8\xff\xff?\x00\x05\xfe\x02\xfe\xa7V\xbd\xfa\x00\x00\x00\x00IEND\xaeB`\x82")
+
+
+def test_pictures_mentions_timer_and_voting(business):
+    d = _create(business)
+    # a picture for an image shape; anything that isn't a real picture is refused
+    up = business.post(f"{D}/{d['id']}/images", headers=WEB, files={"file": ("logo.png", PNG, "image/png")})
+    assert up.status_code == 200, up.text
+    assert up.json()["data"]["url"].startswith("/storage/uploads/diagrams-")
+    assert business.get(up.json()["data"]["url"]).status_code == 200
+    fake = business.post(f"{D}/{d['id']}/images", headers=WEB, files={"file": ("x.png", b"<svg>", "image/png")})
+    svg = business.post(f"{D}/{d['id']}/images", headers=WEB, files={"file": ("x.svg", b"<svg/>", "image/svg+xml")})
+    assert fake.status_code == 400 and svg.status_code == 400
+
+    # @mentions: the person is told, by name, and the comment remembers who
+    agent = _join(business)
+    try:
+        said = business.post(f"{D}/{d['id']}/comments", headers=WEB, json={
+            "body": "@Ravi Agent can you check this?", "x": 0, "y": 0, "mentions": [agent.member_id, 999999]})
+        assert said.json()["data"]["mentions"] == [{"id": agent.member_id, "name": "Ravi Agent"}]
+        notes = agent.get(f"{BASE}/account/notifications").json()["data"]["items"]
+        assert any("mentioned you in “Enquiry flow”" in n["title"] for n in notes)
+
+        # a shared 5-minute timer and dot voting (3 votes each)
+        timer = business.post(f"{D}/{d['id']}/timer", headers=WEB, json={"minutes": 5}).json()["data"]["session"]["timer"]
+        assert timer["minutes"] == 5 and timer["by"] == "Inbox Owner"
+        assert agent.post(f"{D}/{d['id']}/votes", headers=WEB, json={"node_id": "a"}).status_code == 422  # not open
+        business.put(f"{D}/{d['id']}/voting", headers=WEB, json={"open": True, "per_person": 1})
+        voted = agent.post(f"{D}/{d['id']}/votes", headers=WEB, json={"node_id": "a"}).json()["data"]
+        assert voted["session"]["voting"]["votes"] == {"a": [f"m:{agent.member_id}"]}
+        assert agent.post(f"{D}/{d['id']}/votes", headers=WEB, json={"node_id": "b"}).status_code == 422  # 1 each
+        agent.post(f"{D}/{d['id']}/votes", headers=WEB, json={"node_id": "a", "on": False})
+        assert agent.post(f"{D}/{d['id']}/votes", headers=WEB, json={"node_id": "b"}).status_code == 200
+        state = business.get(f"{D}/{d['id']}").json()["data"]["session"]
+        assert state["voting"]["votes"] == {"b": [f"m:{agent.member_id}"]} and state["timer"]["minutes"] == 5
+        closed = business.put(f"{D}/{d['id']}/voting", headers=WEB, json={"open": False}).json()["data"]
+        assert closed["session"]["voting"]["open"] is False and closed["session"]["voting"]["votes"]  # results stay
+        assert business.post(f"{D}/{d['id']}/timer", headers=WEB, json={"minutes": 0}).json()["data"]["session"]["timer"] is None
+    finally:
+        agent.__exit__(None, None, None)
+
+
+def test_approval_locks_until_unlocked_and_shows_what_changed(business):
+    d = _create(business)
+    agent = _join(business)
+    try:
+        assert agent.post(f"{D}/{d['id']}/approve", headers=WEB).status_code == 403  # only who manages it
+        with agent.websocket_connect(f"{D}/{d['id']}/live?since=0") as tab:
+            tab.receive_json()
+            approved = business.post(f"{D}/{d['id']}/approve", headers=WEB).json()["data"]
+            assert approved["locked"] and approved["approval"]["approved_by"] == "Inbox Owner"
+            assert _until(tab, "state")["locked"] is True  # open tabs stop editing straight away
+
+        # nobody changes it while it's locked, not even the owner
+        change = {"ops": [{"k": "n", "id": "a", "v": None}]}
+        assert business.post(f"{D}/{d['id']}/ops", headers=WEB, json=change).status_code == 423
+        assert agent.post(f"{D}/{d['id']}/ops", headers=WEB, json=change).status_code == 423
+
+        # the agent asks; the owner is told and unlocks it
+        assert agent.post(f"{D}/{d['id']}/request-change", headers=WEB, json={"note": "Add a payment step"}).status_code == 200
+        notes = business.get(f"{BASE}/account/notifications").json()["data"]["items"]
+        assert any("asks to change “Enquiry flow”" in n["title"] for n in notes)
+        assert business.post(f"{D}/{d['id']}/unlock", headers=WEB).json()["data"]["locked"] is False
+        assert business.post(f"{D}/{d['id']}/request-change", headers=WEB, json={}).status_code == 422
+
+        # changes after approval are listed
+        agent.post(f"{D}/{d['id']}/ops", headers=WEB, json={"ops": [
+            {"k": "n", "id": "b", "v": None},
+            {"k": "n", "id": "c", "v": _node("c", "Payment", 0, 240)},
+            {"k": "n", "id": "a", "v": _node("a", "Enquiry on WhatsApp")}]})
+        since = business.get(f"{D}/{d['id']}/since-approval").json()["data"]
+        assert since["added"] == ["Payment"] and since["removed"] == ["Reply"] and since["changed"] == ["Enquiry on WhatsApp"]
+        assert since["lines_removed"] == 1 and since["approved_by"] == "Inbox Owner"
+    finally:
+        agent.__exit__(None, None, None)

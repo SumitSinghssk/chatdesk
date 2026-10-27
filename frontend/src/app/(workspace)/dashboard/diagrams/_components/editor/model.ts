@@ -18,7 +18,16 @@ export type ShapeKind =
   | "cloud"
   | "note"
   | "text"
-  | "frame";
+  | "frame"
+  | "bubble-out"
+  | "bubble-in"
+  | "phone"
+  | "table"
+  | "entity"
+  | "uml"
+  | "mind"
+  | "icon"
+  | "image";
 
 export interface ShapeData extends Record<string, unknown> {
   shape: ShapeKind;
@@ -33,7 +42,23 @@ export interface ShapeData extends Record<string, unknown> {
   strokeStyle?: "solid" | "dashed" | "dotted";
   strokeWidth?: number;
   locked?: boolean;
+  /** icon: a Lucide icon name, e.g. "server" */
+  icon?: string;
+  /** image: where the picture is, and how it fills the shape */
+  src?: string;
+  fit?: "contain" | "cover";
+  /** table: cells, row by row; the first row is the header when `header` is on */
+  rows?: string[][];
+  header?: boolean;
+  /** UML class and database table: one per line */
+  fields?: string;
+  methods?: string;
+  /** message bubbles: the time shown (and ticks on sent ones) */
+  time?: string;
 }
+
+/** Shapes that sit behind everything else (others are dropped on top of them). */
+export const BEHIND: ShapeKind[] = ["frame", "phone"];
 
 export interface LineData extends Record<string, unknown> {
   label?: string;
@@ -49,37 +74,81 @@ export interface LineData extends Record<string, unknown> {
 export type ShapeNode = Node<ShapeData, "shape">;
 export type LineEdge = Edge<LineData, "line">;
 
-export const SHAPES: { kind: ShapeKind; label: string; w: number; h: number; group: string; hint: string }[] =
-  [
-    { kind: "process", label: "Process", w: 160, h: 64, group: "Flowchart", hint: "A step or task" },
-    { kind: "decision", label: "Decision", w: 150, h: 100, group: "Flowchart", hint: "A yes / no question" },
-    {
-      kind: "terminal",
-      label: "Start / end",
-      w: 150,
-      h: 56,
-      group: "Flowchart",
-      hint: "Where the flow starts or ends",
-    },
-    { kind: "io", label: "Input / output", w: 170, h: 64, group: "Flowchart", hint: "Data in or out" },
-    {
-      kind: "document",
-      label: "Document",
-      w: 150,
-      h: 76,
-      group: "Flowchart",
-      hint: "A file, form or report",
-    },
-    { kind: "database", label: "Database", w: 120, h: 90, group: "Flowchart", hint: "Stored data" },
-    { kind: "rounded", label: "Rounded box", w: 160, h: 64, group: "Basic", hint: "A softer box" },
-    { kind: "circle", label: "Circle", w: 100, h: 100, group: "Basic", hint: "A state or point" },
-    { kind: "hexagon", label: "Hexagon", w: 150, h: 80, group: "Basic", hint: "A preparation step" },
-    { kind: "cloud", label: "Cloud", w: 170, h: 100, group: "Basic", hint: "An outside service" },
-    { kind: "person", label: "Person", w: 90, h: 110, group: "Basic", hint: "Someone involved" },
-    { kind: "note", label: "Sticky note", w: 170, h: 120, group: "Notes", hint: "A note or idea" },
-    { kind: "text", label: "Text", w: 180, h: 40, group: "Notes", hint: "Free text" },
-    { kind: "frame", label: "Frame", w: 420, h: 280, group: "Notes", hint: "Group things in an area" },
-  ];
+export interface PaletteItem {
+  /** unique per palette entry (several entries can share a kind, e.g. the network icons) */
+  key: string;
+  kind: ShapeKind;
+  label: string;
+  w: number;
+  h: number;
+  group: string;
+  hint: string;
+  /** what the new shape starts with (on top of the kind's defaults) */
+  data?: Partial<ShapeData>;
+  /** picks something first: an icon from the library, or an image file */
+  action?: "icon" | "image";
+}
+
+const item = (
+  kind: ShapeKind,
+  label: string,
+  w: number,
+  h: number,
+  group: string,
+  hint: string,
+  extra: Partial<PaletteItem> = {}
+): PaletteItem => ({ key: kind, kind, label, w, h, group, hint, ...extra });
+
+const network = (icon: string, label: string): PaletteItem =>
+  item("icon", label, 76, 92, "Network & cloud", label, { key: `icon:${icon}`, data: { icon, label } });
+
+export const SHAPES: PaletteItem[] = [
+  item("process", "Process", 160, 64, "Flowchart", "A step or task"),
+  item("decision", "Decision", 150, 100, "Flowchart", "A yes / no question"),
+  item("terminal", "Start / end", 150, 56, "Flowchart", "Where the flow starts or ends"),
+  item("io", "Input / output", 170, 64, "Flowchart", "Data in or out"),
+  item("document", "Document", 150, 76, "Flowchart", "A file, form or report"),
+  item("database", "Database", 120, 90, "Flowchart", "Stored data"),
+  item("rounded", "Rounded box", 160, 64, "Basic", "A softer box"),
+  item("circle", "Circle", 100, 100, "Basic", "A state or point"),
+  item("hexagon", "Hexagon", 150, 80, "Basic", "A preparation step"),
+  item("cloud", "Cloud", 170, 100, "Basic", "An outside service"),
+  item("person", "Person", 90, 110, "Basic", "Someone involved"),
+  item("bubble-out", "Message sent", 230, 72, "WhatsApp", "A message your business sends"),
+  item("bubble-in", "Message received", 230, 64, "WhatsApp", "A message from the customer"),
+  item("phone", "Phone screen", 280, 520, "WhatsApp", "A WhatsApp chat on a phone: put messages on it"),
+  item("table", "Table", 320, 130, "Data", "Rows and columns you can type in"),
+  item("entity", "Database table", 230, 150, "Data", "A table with its columns and keys"),
+  item("uml", "UML class", 220, 160, "Data", "A class with its fields and methods"),
+  item("mind", "Idea", 150, 52, "Mind map", "A branch of a mind map"),
+  item("mind", "Main topic", 190, 70, "Mind map", "The centre of a mind map", {
+    key: "mind:main",
+    data: { label: "Main topic", fill: "#4c1d95", stroke: "#4c1d95", text: "#ffffff", fontSize: 18 },
+  }),
+  network("server", "Server"),
+  network("database", "Database"),
+  network("cloud", "Cloud"),
+  network("router", "Router"),
+  network("wifi", "Wi-Fi"),
+  network("laptop", "Laptop"),
+  network("smartphone", "Phone"),
+  network("shield-check", "Firewall"),
+  network("globe", "Internet"),
+  network("hard-drive", "Storage"),
+  network("users", "Users"),
+  network("mail", "Email"),
+  item("icon", "Icon…", 76, 92, "Images & icons", "Search 2,000+ icons", {
+    key: "icon:pick",
+    action: "icon",
+  }),
+  item("image", "Image or logo…", 220, 150, "Images & icons", "Upload a picture or logo", {
+    key: "image:upload",
+    action: "image",
+  }),
+  item("note", "Sticky note", 170, 120, "Notes", "A note or idea"),
+  item("text", "Text", 180, 40, "Notes", "Free text"),
+  item("frame", "Frame", 420, 280, "Notes", "Group things in an area"),
+];
 
 export const shapeOf = (kind: string | undefined) => SHAPES.find((s) => s.kind === kind) ?? SHAPES[0];
 
@@ -109,7 +178,61 @@ export const LINE_COLORS = [
   "#8b5cf6",
 ];
 
+const EXTRA: Partial<Record<ShapeKind, Partial<ShapeData>>> = {
+  "bubble-out": {
+    label: "Hi! Your order is on its way 🚚",
+    fill: "#d9fdd3",
+    stroke: "#d9fdd3",
+    text: "#111b21",
+    time: "10:24",
+    align: "left",
+  },
+  "bubble-in": {
+    label: "When will it arrive?",
+    fill: "#ffffff",
+    stroke: "#ffffff",
+    text: "#111b21",
+    time: "10:25",
+    align: "left",
+  },
+  phone: { label: "Your Business", fill: "#efeae2", stroke: "#111827", text: "#ffffff" },
+  table: {
+    label: "",
+    header: true,
+    rows: [
+      ["Name", "Phone", "Status"],
+      ["", "", ""],
+      ["", "", ""],
+    ],
+    fontSize: 13,
+  },
+  entity: {
+    label: "contacts",
+    fields: "id  int  PK\nname  text\nphone  text\nnumber_id  int  FK",
+    fill: "#dbeafe",
+    stroke: "#3b82f6",
+    text: "#1e3a8a",
+    fontSize: 13,
+  },
+  uml: {
+    label: "Customer",
+    fields: "+ name: string\n+ phone: string",
+    methods: "+ sendMessage()\n+ placeOrder()",
+    fill: "#fef9c3",
+    stroke: "#eab308",
+    text: "#713f12",
+    fontSize: 13,
+  },
+  mind: { label: "Idea", fill: "#ede9fe", stroke: "#8b5cf6", text: "#4c1d95", bold: true },
+  icon: { label: "", icon: "star", text: "#334155", fontSize: 12 },
+  image: { label: "", fit: "contain" },
+};
+
 export function defaultData(kind: ShapeKind, label?: string): ShapeData {
+  if (EXTRA[kind]) {
+    const extra = EXTRA[kind]!;
+    return { shape: kind, fontSize: 14, ...extra, label: label ?? extra.label ?? "" } as ShapeData;
+  }
   const color =
     kind === "note"
       ? COLORS[4]
@@ -148,7 +271,7 @@ export function toNode(n: DiagramNode): ShapeNode {
     position: { x: n.position?.x ?? 0, y: n.position?.y ?? 0 },
     width: n.width ?? shapeOf(data.shape).w,
     height: n.height ?? shapeOf(data.shape).h,
-    zIndex: data.shape === "frame" ? -1 : (n.zIndex ?? 0),
+    zIndex: BEHIND.includes(data.shape) ? -1 : (n.zIndex ?? 0),
     draggable: !data.locked,
     data,
   };
@@ -162,7 +285,7 @@ export function fromNode(n: Node): DiagramNode {
     position: { x: round(n.position.x), y: round(n.position.y) },
     width: round(n.width ?? n.measured?.width ?? shapeOf(data.shape).w),
     height: round(n.height ?? n.measured?.height ?? shapeOf(data.shape).h),
-    ...(n.zIndex && data.shape !== "frame" ? { zIndex: n.zIndex } : {}),
+    ...(n.zIndex && !BEHIND.includes(data.shape) ? { zIndex: n.zIndex } : {}),
     data,
   };
 }
@@ -301,7 +424,7 @@ export function applyOps(nodes: ShapeNode[], edges: LineEdge[], ops: Op[], skip?
  */
 export function layout(nodes: ShapeNode[], edges: LineEdge[], direction: "TB" | "LR", only?: Set<string>) {
   const movable = nodes.filter(
-    (n) => n.data.shape !== "frame" && n.data.shape !== "text" && (!only || only.has(n.id))
+    (n) => !BEHIND.includes(n.data.shape) && n.data.shape !== "text" && (!only || only.has(n.id))
   );
   if (movable.length < 2) return nodes;
   const ids = new Set(movable.map((n) => n.id));

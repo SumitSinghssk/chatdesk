@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, Clock, Copy, Folder, Share2, Star, Trash2, Workflow } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Clock, Copy, Folder, Share2, Star, Trash2, Workflow } from "lucide-react";
 import { toast } from "sonner";
 
 import { useConfirm } from "@/app/admin/_components/ConfirmProvider";
@@ -14,8 +14,15 @@ import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
-import { DIAGRAMS_QK, diagramsApi, type Diagram, type DiagramContent } from "../../_lib/diagramsApi";
+import {
+  DIAGRAMS_QK,
+  diagramsApi,
+  type Diagram,
+  type DiagramContent,
+  type LiveState,
+} from "../../_lib/diagramsApi";
 import { Canvas } from "./editor/Canvas";
+import { ApprovalBanner } from "./editor/Approval";
 import { History } from "./editor/History";
 import { ShareDialog } from "./editor/ShareDialog";
 import { FolderDialog } from "./FolderDialog";
@@ -68,6 +75,17 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
   const refreshList = () => void queryClient.invalidateQueries({ queryKey: ["diagrams", "list"] });
   const manage = d.level === "manage";
   const canComment = d.level !== "view";
+  const [state, setState] = useState<LiveState>({
+    session: initial.session,
+    now: initial.now,
+    locked: initial.locked,
+    approval: initial.approval,
+  });
+  const team = useQuery({ queryKey: DIAGRAMS_QK.TEAM, queryFn: async () => (await diagramsApi.team()).data });
+  const people = (team.data ?? [])
+    .filter((p) => p.id !== d.me.id)
+    .map((p) => ({ id: p.id, name: p.name, color: p.color }));
+  const canEditLevel = d.level === "edit" || manage;
 
   const rename = async (name: string) => {
     setRenaming(null);
@@ -108,6 +126,18 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
         level={d.level}
         me={d.me}
         focusComment={focusComment}
+        uploadImage={(file) => diagramsApi.uploadImage(d.id, file)}
+        state={state}
+        onState={setState}
+        people={people}
+        onCommenting={() => void team.refetch()}
+        workshop={{
+          canRun: canEditLevel,
+          timer: (minutes) => diagramsApi.timer(d.id, minutes),
+          voting: (body) => diagramsApi.voting(d.id, body),
+          vote: (nodeId, on) => diagramsApi.vote(d.id, nodeId, on),
+        }}
+        banner={<ApprovalBanner id={d.id} state={state} level={d.level} />}
         live={{
           url: (since) => diagramsApi.liveUrl(d.id, since),
           changes: async (since) => (await diagramsApi.changes(d.id, since)).data,
@@ -245,6 +275,27 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
                 toast.success("Copy made");
                 refreshList();
                 router.push(CUSTOMER_ROUTES.DIAGRAM(res.data.id));
+              } catch (err) {
+                toast.error(errorMessage(err));
+              }
+            },
+          },
+          {
+            label: "Approve and lock",
+            icon: BadgeCheck,
+            hidden: !manage || state.locked,
+            onClick: async () => {
+              const ok = await confirm({
+                title: "Approve and lock this diagram?",
+                message:
+                  "A copy is kept as the approved version, and nobody can change it until you unlock it. People who can edit can ask you to unlock it.",
+                confirmLabel: "Approve",
+                variant: "primary",
+              });
+              if (!ok) return;
+              try {
+                await diagramsApi.approve(d.id);
+                toast.success("Approved and locked");
               } catch (err) {
                 toast.error(errorMessage(err));
               }

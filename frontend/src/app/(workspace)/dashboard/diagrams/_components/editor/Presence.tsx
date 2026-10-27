@@ -16,27 +16,55 @@ const initials = (name: string) =>
     .map((w) => w[0]?.toUpperCase())
     .join("") || "?";
 
-/** Who has the diagram open (one bubble per person, however many tabs). */
-export function Avatars({ me, peers }: { me: Person; peers: PeerState[] }) {
-  const people = new Map<string, Person>();
-  for (const p of peers) people.set(p.person.guest ? `g:${p.person.name}` : `m:${p.person.id}`, p.person);
+/**
+ * Who has the diagram open (one bubble per person, however many tabs). Click someone to follow their view;
+ * click them again to stop.
+ */
+export function Avatars({
+  me,
+  peers,
+  following,
+  onFollow,
+}: {
+  me: Person;
+  peers: PeerState[];
+  following?: string | null;
+  onFollow?: (peerId: string) => void;
+}) {
+  // per person, the tab they used last (that's the one to follow)
+  const people = new Map<string, PeerState>();
+  for (const p of peers) {
+    const key = p.person.guest ? `g:${p.person.name}` : `m:${p.person.id}`;
+    const before = people.get(key);
+    if (!before || p.seen > before.seen) people.set(key, p);
+  }
   if (!me.guest) people.delete(`m:${me.id}`);
   const others = [...people.values()];
   const shown = others.slice(0, 4);
+  const bubble =
+    "ring-surface flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold text-white ring-2";
   return (
     <div className="flex items-center" aria-label={`${others.length + 1} people here`}>
-      {[me, ...shown].map((p, i) => (
-        <span
-          key={`${p.name}-${i}`}
-          title={i === 0 ? `${p.name} (you)` : `${p.name}${p.guest ? " (guest)" : ""}`}
+      <span title={`${me.name} (you)`} className={bubble} style={{ background: me.color }}>
+        {initials(me.name)}
+      </span>
+      {shown.map((p) => (
+        <button
+          key={p.id}
+          type="button"
+          onClick={() => onFollow?.(p.id)}
+          title={`${p.person.name}${p.person.guest ? " (guest)" : ""}: ${following === p.id ? "stop following" : "follow their view"}`}
+          aria-label={`${following === p.id ? "Stop following" : "Follow"} ${p.person.name}`}
+          aria-pressed={following === p.id}
           className={cn(
-            "ring-surface flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-semibold text-white ring-2",
-            i > 0 && "-ml-1.5"
+            bubble,
+            "-ml-1.5 transition hover:z-10 hover:scale-110",
+            following === p.id && "ring-primary z-10"
           )}
-          style={{ background: p.color }}
+          style={{ background: p.person.color }}
         >
-          {initials(p.name)}
-        </span>
+          {initials(p.person.name)}
+        </button>
       ))}
       {others.length > shown.length && (
         <span className="bg-hover text-fg-subtle ring-surface -ml-1.5 flex h-7 min-w-7 items-center justify-center rounded-full px-1 text-[11px] font-semibold ring-2">

@@ -4,7 +4,7 @@ import hmac
 import json
 import secrets
 import time
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import or_
@@ -139,6 +139,7 @@ def apply_ops(diagram_id: int, ws: Customer | None, ops: list[Op], client_id: st
     """Saves a batch of changes (the caller has checked edit access), then tells everyone. Returns the new
     sequence number and the changes as applied (including lines removed with their shapes)."""
     d = db.query(Diagram).filter(Diagram.id == diagram_id).with_for_update().one()
+    _not_locked(d)
     content = {"nodes": dict((d.content or {}).get("nodes") or {}), "edges": dict((d.content or {}).get("edges") or {})}
     applied = []
     for op in ops:
@@ -179,14 +180,14 @@ def catch_up(db: Session, diagram_id: int, since: int | None) -> dict:
     if d is None:
         return {"gone": True}
     if since is not None and since == d.seq:
-        return {"seq": d.seq, "batches": []}
+        return {"seq": d.seq, "batches": [], "state": _state(d)}
     if since is not None and 0 <= since < d.seq:
         rows = (db.query(DiagramOp).filter(DiagramOp.diagram_id == d.id, DiagramOp.seq > since)
                 .order_by(DiagramOp.seq).all())
         if rows and rows[0].seq == since + 1 and len(rows) == d.seq - since:
-            return {"seq": d.seq, "batches": [{"seq": r.seq, "client": r.client_id, "actor": r.actor, "ops": r.ops}
-                                              for r in rows]}
-    return {"seq": d.seq, "reload": True, "content": d.content or EMPTY}
+            return {"seq": d.seq, "state": _state(d),
+                    "batches": [{"seq": r.seq, "client": r.client_id, "actor": r.actor, "ops": r.ops} for r in rows]}
+    return {"seq": d.seq, "reload": True, "content": d.content or EMPTY, "state": _state(d)}
 
 
 # List & detail -----------------------------------------------------------------------------------
@@ -237,6 +238,7 @@ def serialize(db: Session, ws: Customer, d: Diagram, level: str) -> dict:
         "starred": db.query(DiagramStar.id).filter(DiagramStar.diagram_id == d.id,
                                                    DiagramStar.member_id == actor(ws).id).first() is not None,
     }
+    data.update(_state(d))
     if level == "manage":
         data["link"] = _link(d)
         data["members"] = [{"member_id": m.member_id, "role": m.role} for m in d.members]
@@ -370,6 +372,20 @@ def activity(db: Session, ws: Customer, diagram_id: int) -> dict:
                                       "detail": a.detail, "at": iso(a.at)} for a in rows]}
 
 
+# Images -----------------------------------------------------------------------------------------------
+
+IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".webp", ".gif"}  # no SVG: it could carry a script
+
+
+def upload_image(db: Session, ws: Customer, diagram_id: int, file) -> dict:
+    """A picture or logo for an image shape. Kept with the workspace's uploads; the shape stores its address."""
+    from app.shared.utils.uploads import save_upload
+
+    d, _ = get(db, ws, diagram_id, "edit")
+    saved = save_upload(file, folder=f"diagrams-{d.workspace_id}", allowed=IMAGE_TYPES)
+    return {"status": True, "message": "Image added", "data": {"url": saved["url"], "name": saved["original_name"]}}
+
+
 # Versions ---------------------------------------------------------------------------------------
 
 def list_versions(db: Session, ws: Customer, diagram_id: int) -> dict:
@@ -400,6 +416,7 @@ def save_version(db: Session, ws: Customer, diagram_id: int, name: str) -> dict:
 
 def restore_version(db: Session, ws: Customer, diagram_id: int, version_id: int) -> dict:
     d, level = get(db, ws, diagram_id, "edit", lock=True)
+    _not_locked(d)
     v = db.query(DiagramVersion).filter(DiagramVersion.id == version_id, DiagramVersion.diagram_id == d.id).first()
     if v is None:
         raise HTTPException(404, detail="Version not found")
@@ -421,7 +438,8 @@ def _comment(c: DiagramComment) -> dict:
     return {"id": c.id, "parent_id": c.parent_id, "node_id": c.node_id, "x": c.x, "y": c.y, "body": c.body,
             "author": c.author_name, "author_id": c.author_id, "guest": c.guest,
             "color": color_of(c.author_id if c.author_id else f"guest:{c.author_name}"),
-            "resolved": c.resolved_at is not None, "created_at": iso(c.created_at)}
+            "resolved": c.resolved_at is not None, "created_at": iso(c.created_at),
+            "mentions": c.mentions or []}
 
 
 def _comments(db: Session, d: Diagram) -> list[dict]:
@@ -449,7 +467,8 @@ def _add_comment(db: Session, d: Diagram, payload: CommentSchema, author_id: int
     c = DiagramComment(diagram_id=d.id, parent_id=parent.id if parent else None,
                        node_id=None if parent else payload.node_id, x=None if parent else payload.x,
                        y=None if parent else payload.y, body=payload.body, author_id=author_id,
-                       author_name=name, guest=guest, created_at=now())
+                       author_name=name, guest=guest, created_at=now(),
+                       mentions=_mentioned(db, d, payload.mentions, author_id) or None)
     db.add(c)
     if parent is not None and parent.resolved_at is not None:
         parent.resolved_at = None  # a reply opens the thread again
@@ -471,11 +490,16 @@ def _tell(db: Session, d: Diagram, c: DiagramComment, author_id: int | None) -> 
         or_(DiagramComment.id == thread, DiagramComment.parent_id == thread))}
     ids.discard(None)
     ids.discard(author_id)
-    people = db.query(Customer).filter(Customer.id.in_(ids or {0}), Customer.not_deleted(),
+    mentioned = {m["id"] for m in c.mentions or []}
+    url = f"/dashboard/diagrams/{d.id}?comment={thread}"
+    data = {"diagram_id": d.id, "comment_id": c.id}
+    who = f"{c.author_name}{' (guest)' if c.guest else ''}"
+    if mentioned:
+        people = db.query(Customer).filter(Customer.id.in_(mentioned)).all()
+        notify.notify(db, people, "diagram_comment", f"{who} mentioned you in “{d.name}”"[:200], c.body[:300], url, data)
+    people = db.query(Customer).filter(Customer.id.in_((ids - mentioned) or {0}), Customer.not_deleted(),
                                        Customer.status == Status.ACTIVE.value).all()
-    title = f"{c.author_name}{' (guest)' if c.guest else ''} commented on “{d.name}”"
-    notify.notify(db, people, "diagram_comment", title[:200], c.body[:300], f"/dashboard/diagrams/{d.id}?comment={thread}",
-                  {"diagram_id": d.id, "comment_id": c.id})
+    notify.notify(db, people, "diagram_comment", f"{who} commented on “{d.name}”"[:200], c.body[:300], url, data)
 
 
 def add_comment(db: Session, ws: Customer, diagram_id: int, payload: CommentSchema) -> dict:
@@ -557,6 +581,7 @@ def guest_view(db: Session, token: str, guest_pass: str | None) -> dict:
     return {"status": True, "data": {
         "name": d.name, "content": d.content or EMPTY, "seq": d.seq or 0, "access": d.link_access,
         "updated_at": iso(d.updated_at), "comments": _comments(db, d) if d.link_access == "comment" else [],
+        **_state(d),
     }}
 
 
@@ -574,3 +599,175 @@ def guest_comment(db: Session, token: str, guest_pass: str | None, payload: Gues
     d = shared(db, token, guest_pass, "comment")
     c = _add_comment(db, d, payload, None, payload.name, True)
     return {"status": True, "message": "Comment added", "data": _comment(c)}
+
+
+def _mentioned(db: Session, d: Diagram, ids: list[int], author_id: int | None) -> list[dict]:
+    """The @mentioned team members who can open the diagram (others aren't told about it)."""
+    if not ids:
+        return []
+    people = (db.query(Customer).filter(Customer.id.in_(set(ids)),
+                                        or_(Customer.id == d.workspace_id, Customer.workspace_id == d.workspace_id),
+                                        Customer.not_deleted(), Customer.status == Status.ACTIVE.value).all())
+    members = {i for (i,) in db.query(DiagramMember.member_id).filter(DiagramMember.diagram_id == d.id)}
+    out = []
+    for p in people:
+        can_open = (p.workspace_id is None or p.role in ("owner", "admin") or p.id == d.created_by_id
+                    or p.id in members or d.team_access != "private")
+        if can_open and p.id != author_id:
+            out.append({"id": p.id, "name": p.name or p.email})
+    return out
+
+
+# Workshops: a shared timer and dot voting ---------------------------------------------------------------
+
+def _session(d: Diagram) -> dict:
+    s = dict(d.session or {})
+    timer = s.get("timer")
+    if timer and timer.get("ends_at") and timer["ends_at"] < iso(now() - timedelta(minutes=10)):
+        timer = None  # long over
+    if timer and timer.get("ends_at"):
+        # seconds left right now: each device counts down from when it hears this (no clock to compare)
+        ends = datetime.fromisoformat(timer["ends_at"].replace("Z", "+00:00")).replace(tzinfo=None)
+        timer = {**timer, "left": round((ends - now()).total_seconds(), 1)}
+    voting = s.get("voting") or {}
+    return {"timer": timer, "voting": {"open": bool(voting.get("open")), "per_person": voting.get("per_person", 3),
+                                       "votes": voting.get("votes") or {}}}
+
+
+def _state(d: Diagram) -> dict:
+    """Live state that isn't drawing: the workshop session, and whether it's approved and locked."""
+    return {"session": _session(d), "now": iso(now()), "locked": bool(d.locked),
+            "approval": {"approved_at": iso(d.approved_at), "approved_by": d.approved_by,
+                         "version_id": d.approved_version_id} if d.approved_at else None}
+
+
+def _announce_state(d: Diagram) -> None:
+    live.publish(d.id, {"k": "state", **_state(d)})
+
+
+def set_timer(db: Session, ws: Customer, diagram_id: int, minutes: int) -> dict:
+    d, _ = get(db, ws, diagram_id, "comment", lock=True)
+    session = _session(d)
+    session["timer"] = ({"minutes": minutes, "ends_at": iso(now() + timedelta(minutes=minutes)), "by": _name(ws)}
+                        if minutes else None)
+    d.session = session
+    db.commit()
+    _announce_state(d)
+    return {"status": True, "message": f"{minutes}-minute timer started" if minutes else "Timer stopped",
+            "data": _state(d)}
+
+
+def set_voting(db: Session, ws: Customer, diagram_id: int, open_: bool, per_person: int, reset: bool) -> dict:
+    d, _ = get(db, ws, diagram_id, "edit", lock=True)
+    session = _session(d)
+    votes = {} if reset else session["voting"]["votes"]
+    session["voting"] = {"open": open_, "per_person": per_person, "votes": votes}
+    d.session = session
+    db.commit()
+    _announce_state(d)
+    return {"status": True, "message": "Voting is open" if open_ else "Voting closed", "data": _state(d)}
+
+
+def vote(db: Session, ws: Customer, diagram_id: int, node_id: str, on: bool) -> dict:
+    d, _ = get(db, ws, diagram_id, "comment", lock=True)
+    session = _session(d)
+    voting = session["voting"]
+    if not voting["open"]:
+        raise HTTPException(422, detail="Voting isn't open")
+    if node_id not in (d.content or {}).get("nodes", {}):
+        raise HTTPException(404, detail="That shape was deleted")
+    key = f"m:{actor(ws).id}"
+    votes = {k: list(v) for k, v in voting["votes"].items()}
+    mine = [k for k, v in votes.items() if key in v]
+    if on:
+        if node_id in mine:
+            return {"status": True, "data": _state(d)}
+        if len(mine) >= voting["per_person"]:
+            raise HTTPException(422, detail=f"You've used all {voting['per_person']} of your votes")
+        votes.setdefault(node_id, []).append(key)
+    elif key in votes.get(node_id, []):
+        votes[node_id].remove(key)
+        if not votes[node_id]:
+            votes.pop(node_id)
+    voting["votes"] = votes
+    d.session = session
+    db.commit()
+    _announce_state(d)
+    return {"status": True, "data": _state(d)}
+
+
+# Approval ------------------------------------------------------------------------------------------------------
+
+def _not_locked(d: Diagram) -> None:
+    if d.locked:
+        raise HTTPException(423, detail="This diagram is approved and locked. Ask its owner to unlock it for changes.")
+
+
+def approve(db: Session, ws: Customer, diagram_id: int) -> dict:
+    d, level = get(db, ws, diagram_id, "manage", lock=True)
+    version = DiagramVersion(diagram_id=d.id, name=f"Approved by {_name(ws)}"[:120],
+                             content=copy.deepcopy(d.content or EMPTY), seq=d.seq, created_by=_name(ws),
+                             created_at=now())
+    db.add(version)
+    db.flush()
+    d.locked, d.approved_at, d.approved_by, d.approved_version_id = True, now(), _name(ws), version.id
+    _activity(db, d, "approved", _name(ws))
+    db.commit()
+    _announce_state(d)
+    return {"status": True, "message": "Approved and locked", "data": serialize(db, ws, d, level)}
+
+
+def unlock_changes(db: Session, ws: Customer, diagram_id: int) -> dict:
+    d, level = get(db, ws, diagram_id, "manage", lock=True)
+    d.locked = False
+    _activity(db, d, "unlocked", _name(ws))
+    db.commit()
+    _announce_state(d)
+    return {"status": True, "message": "Unlocked: changes can be made again", "data": serialize(db, ws, d, level)}
+
+
+def request_change(db: Session, ws: Customer, diagram_id: int, note: str | None) -> dict:
+    """Someone who can edit asks the people who manage it to unlock it."""
+    from app.modules.customer.account import notify
+
+    d, _ = get(db, ws, diagram_id, "edit")
+    if not d.locked:
+        raise HTTPException(422, detail="This diagram isn't locked")
+    main_id = d.workspace_id
+    managers = (db.query(Customer).filter(or_(Customer.id == main_id, Customer.workspace_id == main_id),
+                                          Customer.not_deleted(), Customer.status == Status.ACTIVE.value).all())
+    people = [p for p in managers
+              if p.workspace_id is None or p.role in ("owner", "admin") or p.id == d.created_by_id]
+    _activity(db, d, "change_requested", _name(ws), detail=(note or "")[:255] or None)
+    notify.notify(db, people, "diagram_approval", f"{_name(ws)} asks to change “{d.name}”"[:200],
+                  note or "It's approved and locked. Unlock it if the change is OK.",
+                  f"/dashboard/diagrams/{d.id}", {"diagram_id": d.id}, skip=actor(ws).id)
+    db.commit()
+    return {"status": True, "message": "Asked. You'll be able to edit once it's unlocked.", "data": None}
+
+
+def _label(item: dict) -> str:
+    data = item.get("data") or {}
+    text = str(data.get("label") or "").strip().replace("\n", " ")
+    return text[:60] or {"bubble-out": "message", "bubble-in": "message", "table": "table",
+                         "image": "picture", "icon": "icon"}.get(data.get("shape"), "shape")
+
+
+def since_approval(db: Session, ws: Customer, diagram_id: int) -> dict:
+    """What changed since it was last approved: shapes added, removed or changed, and lines."""
+    d, _ = get(db, ws, diagram_id)
+    version = db.get(DiagramVersion, d.approved_version_id) if d.approved_version_id else None
+    if version is None:
+        return {"status": True, "data": None}
+    before, after = version.content or EMPTY, d.content or EMPTY
+    old_nodes, new_nodes = before.get("nodes", {}), after.get("nodes", {})
+    old_edges, new_edges = before.get("edges", {}), after.get("edges", {})
+    return {"status": True, "data": {
+        "approved_at": iso(d.approved_at), "approved_by": d.approved_by,
+        "added": [_label(new_nodes[i]) for i in new_nodes if i not in old_nodes],
+        "removed": [_label(old_nodes[i]) for i in old_nodes if i not in new_nodes],
+        "changed": [_label(new_nodes[i]) for i in new_nodes if i in old_nodes and new_nodes[i] != old_nodes[i]],
+        "lines_added": len([i for i in new_edges if i not in old_edges]),
+        "lines_removed": len([i for i in old_edges if i not in new_edges]),
+        "lines_changed": len([i for i in new_edges if i in old_edges and new_edges[i] != old_edges[i]]),
+    }}

@@ -14,4 +14,6 @@ if __name__ == "__main__":
         reload_dirs=["app"],
         # Longer than the Next.js proxy's keep-alive, so it never reuses a socket uvicorn just closed (ECONNRESET)
         timeout_keep_alive=75,
+        # open live connections (diagrams) would otherwise hold a reload forever; tabs reconnect on their own
+        timeout_graceful_shutdown=3,
     )

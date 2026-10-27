@@ -31,6 +31,13 @@ class Diagram(Base, TimestampMixin):
     created_by = Column(String(150), nullable=True)
     updated_by = Column(String(150), nullable=True)
     last_version_at = Column(DateTime, nullable=True)  # the last automatic snapshot
+    # a shared timer and dot voting for workshops: {"timer": {...} | None, "voting": {...}}
+    session = Column(JSON, nullable=True)
+    # approved: nobody changes it until someone who manages it unlocks it
+    locked = Column(Boolean, nullable=False, default=False)
+    approved_at = Column(DateTime, nullable=True)
+    approved_by = Column(String(150), nullable=True)
+    approved_version_id = Column(Integer, nullable=True)  # the copy kept when it was approved
 
     members = relationship("DiagramMember", cascade="all, delete-orphan", passive_deletes=True)
 
@@ -91,6 +98,7 @@ class DiagramComment(Base):
     author_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     author_name = Column(String(150), nullable=False)
     guest = Column(Boolean, nullable=False, default=False)  # someone who came through the share link
+    mentions = Column(JSON, nullable=True)  # team members @mentioned: [{"id", "name"}]
     resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False)
 

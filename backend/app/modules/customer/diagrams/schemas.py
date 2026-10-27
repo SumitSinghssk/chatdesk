@@ -73,6 +73,7 @@ class CommentSchema(BaseModel):
     x: Optional[float] = None
     y: Optional[float] = None
     parent_id: Optional[int] = None
+    mentions: list[int] = Field(default_factory=list, max_length=20)  # team members to notify
 
     _clean = field_validator("body", mode="before")(_strip)
 
@@ -95,3 +96,22 @@ class VersionSchema(BaseModel):
 
 class UnlockSchema(BaseModel):
     password: str = Field(..., min_length=1, max_length=100)
+
+
+class TimerSchema(BaseModel):
+    minutes: int = Field(..., ge=0, le=60)  # 0 stops it
+
+
+class VotingSchema(BaseModel):
+    open: bool
+    per_person: int = Field(3, ge=1, le=10)
+    reset: bool = False  # clear the votes from last time
+
+
+class VoteSchema(BaseModel):
+    node_id: str = Field(..., min_length=1, max_length=64)
+    on: bool = True
+
+
+class ChangeRequestSchema(BaseModel):
+    note: Optional[str] = Field(None, max_length=500)

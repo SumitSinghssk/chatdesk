@@ -229,7 +229,7 @@ async def _send_loop(websocket: WebSocket, peer: Peer, check, level_box: dict) -
             if message.get("from") == peer.id:
                 continue
             await websocket.send_json({"type": kind, "from": message["from"], "peer": message.get("peer"),
-                                       **{k: message[k] for k in ("cursor", "selection", "drag") if k in message}})
+                                       **{k: message[k] for k in ("cursor", "selection", "drag", "view") if k in message}})
             if kind == "join":  # let the newcomer see who's already here
                 await run_in_threadpool(publish, peer.diagram_id, {"k": "presence", "from": peer.id,
                                                                    "peer": peer.info, **peer.state})
@@ -245,7 +245,7 @@ async def _send_loop(websocket: WebSocket, peer: Peer, check, level_box: dict) -
             if level != level_box["level"]:
                 level_box["level"] = level
                 await websocket.send_json({"type": "level", "level": level})
-        elif kind in ("comments", "meta"):
+        elif kind in ("comments", "meta", "state"):
             await websocket.send_json({"type": kind, **{k: v for k, v in message.items() if k != "k"}})
 
 
@@ -274,7 +274,7 @@ async def _receive_loop(websocket: WebSocket, peer: Peer, level_box: dict, save_
             if gap < PRESENCE_GAP:
                 continue
             last_presence = time.monotonic()
-            state = {k: message.get(k) for k in ("cursor", "selection", "drag")}
+            state = {k: message.get(k) for k in ("cursor", "selection", "drag", "view")}
             peer.state = {k: v for k, v in state.items() if k != "drag"}
             await run_in_threadpool(publish, peer.diagram_id, {"k": "presence", "from": peer.id, "peer": peer.info,
                                                                **state})

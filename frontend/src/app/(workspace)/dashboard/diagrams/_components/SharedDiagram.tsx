@@ -157,6 +157,7 @@ function Viewer({
               : null
           }
           onLevel={(level) => setAccess(level === "comment" ? "comment" : "view")}
+          state={{ session: data.session, now: data.now, locked: data.locked, approval: data.approval }}
           title={({ name: diagramName }) => (
             <>
               <a

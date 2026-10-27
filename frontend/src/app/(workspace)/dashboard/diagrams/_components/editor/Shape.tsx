@@ -2,11 +2,12 @@
 
 import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Handle, NodeResizer, Position, useReactFlow, type NodeProps } from "@xyflow/react";
-import { Lock } from "lucide-react";
+import { Lock, ThumbsUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 import type { ShapeData, ShapeNode } from "./model";
+import { SPECIAL, SpecialBody, TITLED, titlePlace } from "./Special";
 
 export interface EditorState {
   editable: boolean;
@@ -17,6 +18,14 @@ export interface EditorState {
   peerSelection: Map<string, string[]>;
   /** open comment threads per shape */
   commentCount: Map<string, number>;
+  /** dot voting: votes per shape, this person's own, and whether they can vote now */
+  votes?: {
+    open: boolean;
+    canVote: boolean;
+    counts: Map<string, number>;
+    mine: Set<string>;
+    onVote: (id: string) => void;
+  };
 }
 
 export const EditorContext = createContext<EditorState>({
@@ -172,23 +181,32 @@ function Label({
   const style: CSSProperties = {
     color: data.text ?? (data.shape === "frame" ? "#475569" : "#0f172a"),
     fontSize: data.fontSize ?? 14,
-    fontWeight: data.bold || data.shape === "frame" ? 600 : 400,
+    fontWeight:
+      data.bold ||
+      data.shape === "frame" ||
+      data.shape === "phone" ||
+      data.shape === "entity" ||
+      data.shape === "uml"
+        ? 600
+        : 400,
     fontStyle: data.italic ? "italic" : undefined,
     textAlign: data.align ?? (data.shape === "frame" ? "left" : "center"),
   };
   const place = cn(
     "absolute flex overflow-hidden leading-snug",
-    data.shape === "frame"
-      ? "inset-x-3 top-2 items-start"
-      : data.shape === "person"
-        ? "inset-x-0 bottom-0 h-[26%] items-center justify-center"
-        : data.shape === "decision" || data.shape === "circle"
-          ? "inset-[18%] items-center justify-center"
-          : data.shape === "io" || data.shape === "hexagon"
-            ? "inset-y-1 inset-x-[14%] items-center justify-center"
-            : data.shape === "database"
-              ? "inset-x-2 top-[22%] bottom-2 items-center justify-center"
-              : "inset-x-2 inset-y-1 items-center justify-center"
+    SPECIAL.has(data.shape)
+      ? titlePlace(data.shape)
+      : data.shape === "frame"
+        ? "inset-x-3 top-2 items-start"
+        : data.shape === "person"
+          ? "inset-x-0 bottom-0 h-[26%] items-center justify-center"
+          : data.shape === "decision" || data.shape === "circle"
+            ? "inset-[18%] items-center justify-center"
+            : data.shape === "io" || data.shape === "hexagon"
+              ? "inset-y-1 inset-x-[14%] items-center justify-center"
+              : data.shape === "database"
+                ? "inset-x-2 top-[22%] bottom-2 items-center justify-center"
+                : "inset-x-2 inset-y-1 items-center justify-center"
   );
   const save = () => {
     setEditingId(null);
@@ -235,13 +253,18 @@ function ShapeView({ id, data, selected, width, height }: NodeProps<ShapeNode>) 
   const h = height ?? 64;
   const peers = peerSelection.get(id);
   const comments = commentCount.get(id);
+  const { votes } = useContext(EditorContext);
+  const voteCount = votes?.counts.get(id) ?? 0;
+  const votable = !!votes?.open && votes.canVote && data.shape !== "frame" && data.shape !== "phone";
   return (
     <div
       className={cn(
         "diagram-shape group relative h-full w-full",
         data.shape === "text" && selected && "outline-1 outline-sky-400 outline-dashed"
       )}
-      onDoubleClick={() => editable && !data.locked && setEditingId(id)}
+      onDoubleClick={() =>
+        editable && !data.locked && (!SPECIAL.has(data.shape) || TITLED.has(data.shape)) && setEditingId(id)
+      }
     >
       {editable && !data.locked && (
         <NodeResizer
@@ -253,8 +276,14 @@ function ShapeView({ id, data, selected, width, height }: NodeProps<ShapeNode>) 
           lineClassName="!border-sky-400"
         />
       )}
-      <Outline data={data} w={w} h={h} />
-      <Label id={id} data={data} editing={editingId === id} editable={editable && !data.locked} />
+      {SPECIAL.has(data.shape) ? (
+        <SpecialBody id={id} data={data} w={w} h={h} editable={editable && !data.locked} />
+      ) : (
+        <Outline data={data} w={w} h={h} />
+      )}
+      {(!SPECIAL.has(data.shape) || TITLED.has(data.shape)) && (
+        <Label id={id} data={data} editing={editingId === id} editable={editable && !data.locked} />
+      )}
       {peers && (
         <span
           className="pointer-events-none absolute -inset-1.5 rounded-lg border-2"
@@ -265,12 +294,34 @@ function ShapeView({ id, data, selected, width, height }: NodeProps<ShapeNode>) 
       {data.locked && selected && (
         <Lock className="text-fg-faint absolute -top-5 right-0 h-3.5 w-3.5" aria-label="Locked" />
       )}
+      {(voteCount > 0 || votable) && (
+        <button
+          type="button"
+          disabled={!votable}
+          aria-label={votes?.mine.has(id) ? "Take back your vote" : "Vote for this"}
+          aria-pressed={votes?.mine.has(id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            votes?.onVote(id);
+          }}
+          className={cn(
+            "nodrag absolute -right-2 -bottom-2 z-10 flex h-6 min-w-6 items-center justify-center gap-0.5 rounded-full border-2 border-white px-1.5 text-[11px] font-bold shadow transition",
+            votes?.mine.has(id) ? "bg-primary text-white" : "bg-white text-slate-700",
+            votable && "hover:scale-110",
+            votable && !voteCount && !votes?.mine.has(id) && "opacity-0 group-hover:opacity-100"
+          )}
+        >
+          <ThumbsUp className="h-3 w-3" />
+          {voteCount > 0 && voteCount}
+        </button>
+      )}
       {!!comments && (
         <span className="absolute -top-2 -right-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-400 px-1 text-[10px] font-bold text-amber-950 shadow">
           {comments}
         </span>
       )}
       {data.shape !== "frame" &&
+        data.shape !== "phone" &&
         SIDES.map((side) => (
           <Handle
             key={side.id}
