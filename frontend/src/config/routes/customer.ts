@@ -11,6 +11,7 @@ export const CUSTOMER_ROUTES = {
   DIAGRAM: (id: number) => `/dashboard/diagrams/${id}`,
   /** a diagram shared by link, for people outside the workspace */
   SHARED_DIAGRAM: (token: string) => `/d/${token}`,
+  EMBEDDED_DIAGRAM: (token: string) => `/embed/diagram/${token}`,
   CAMPAIGNS: route("/dashboard/campaigns"),
   CAMPAIGN_NEW: route("/dashboard/campaigns/new"),
   CAMPAIGN: (id: number) => `/dashboard/campaigns/${id}`,

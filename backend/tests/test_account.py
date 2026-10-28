@@ -131,7 +131,7 @@ def test_preferences_and_notification_settings(business):
     settings = business.get(f"{A}/notification-settings").json()["data"]
     assert set(settings["events"]) == {"chat_assigned", "customer_waiting", "ai_handover", "campaign_finished",
                                        "whatsapp_problem", "new_order", "payment_received", "diagram_comment",
-                                       "diagram_approval"}
+                                       "diagram_approval", "diagram_task"}
     events = {k: {c: v[c] for c in ("in_app", "email", "browser")} for k, v in settings["events"].items()}
     events["campaign_finished"] = {"in_app": False, "email": False, "browser": False}
     saved = business.put(f"{A}/notification-settings", headers=WEB, json={"events": events, "waiting_minutes": 5})

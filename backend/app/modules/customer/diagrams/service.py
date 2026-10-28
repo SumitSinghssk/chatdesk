@@ -14,11 +14,11 @@ from app.core.config import settings
 from app.core.security import hash_password, verify_password
 from app.modules.customer.account.models import Customer
 from app.modules.customer.auth.service import field_error
-from app.modules.customer.diagrams import live
+from app.modules.customer.diagrams import ai, live, records
 from app.modules.customer.diagrams.models import (Diagram, DiagramActivity, DiagramComment, DiagramMember, DiagramOp,
                                                   DiagramStar, DiagramVersion)
 from app.modules.customer.diagrams.schemas import (AccessSchema, CommentSchema, DiagramSchema, DiagramUpdateSchema,
-                                                   GuestCommentSchema, LinkSchema, Op)
+                                                   GuestCommentSchema, LinkSchema, Op, TaskSchema)
 from app.modules.customer.team.access import actor, role_of, root_id
 from app.shared.enums import Status
 from app.shared.utils.datetime import iso, now
@@ -122,15 +122,18 @@ def _check_size(content: dict) -> None:
 
 
 def _preview(content: dict) -> dict:
-    """A small outline of the diagram for the list's thumbnails."""
+    """A small outline of the diagram (its first page) for the list's thumbnails."""
     nodes = []
-    for n in list((content or {}).get("nodes", {}).values())[:150]:
+    first = [n for n in (content or {}).get("nodes", {}).values() if (n.get("data") or {}).get("page") in (None, "p1")]
+    for n in first[:150]:
         pos = n.get("position") or {}
         data = n.get("data") or {}
         nodes.append({"id": n.get("id"), "x": pos.get("x", 0), "y": pos.get("y", 0), "w": n.get("width") or 160,
                       "h": n.get("height") or 60, "shape": data.get("shape") or n.get("type"),
                       "fill": data.get("fill"), "parent": n.get("parentId")})
-    edges = [[e.get("source"), e.get("target")] for e in list((content or {}).get("edges", {}).values())[:250]]
+    ids = {n["id"] for n in nodes}
+    edges = [[e.get("source"), e.get("target")] for e in (content or {}).get("edges", {}).values()
+             if e.get("source") in ids and e.get("target") in ids][:250]
     return {"nodes": nodes, "edges": edges}
 
 
@@ -241,6 +244,7 @@ def serialize(db: Session, ws: Customer, d: Diagram, level: str) -> dict:
     data.update(_state(d))
     if level == "manage":
         data["link"] = _link(d)
+        data["embed"] = {"enabled": bool(d.embed_enabled), "token": d.embed_token}
         data["members"] = [{"member_id": m.member_id, "role": m.role} for m in d.members]
     return data
 
@@ -271,8 +275,13 @@ def update_diagram(db: Session, ws: Customer, diagram_id: int, payload: DiagramU
         d.name = fields["name"]
     if "folder" in fields:
         d.folder = fields["folder"] or None
+    if fields.get("pages"):
+        _not_locked(d)
+        d.pages = [{"id": p["id"], "name": p["name"]} for p in fields["pages"]]
     db.commit()
     live.publish(d.id, {"k": "meta", "name": d.name, "folder": d.folder})
+    if "pages" in fields:
+        _announce_state(d)
     return {"status": True, "message": "Saved", "data": serialize(db, ws, d, level)}
 
 
@@ -435,11 +444,15 @@ def restore_version(db: Session, ws: Customer, diagram_id: int, version_id: int)
 # Comments ---------------------------------------------------------------------------------------
 
 def _comment(c: DiagramComment) -> dict:
-    return {"id": c.id, "parent_id": c.parent_id, "node_id": c.node_id, "x": c.x, "y": c.y, "body": c.body,
+    return {"id": c.id, "parent_id": c.parent_id, "node_id": c.node_id, "page": c.page, "x": c.x, "y": c.y,
+            "body": c.body,
             "author": c.author_name, "author_id": c.author_id, "guest": c.guest,
             "color": color_of(c.author_id if c.author_id else f"guest:{c.author_name}"),
             "resolved": c.resolved_at is not None, "created_at": iso(c.created_at),
-            "mentions": c.mentions or []}
+            "mentions": c.mentions or [],
+            "task": ({"assignee_id": c.assignee_id, "assignee": c.assignee_name,
+                      "due_on": c.due_on.isoformat() if c.due_on else None, "by": c.assigned_by}
+                     if c.assignee_name else None)}
 
 
 def _comments(db: Session, d: Diagram) -> list[dict]:
@@ -466,6 +479,7 @@ def _add_comment(db: Session, d: Diagram, payload: CommentSchema, author_id: int
         raise field_error(422, "body", "Pin the comment somewhere on the diagram")
     c = DiagramComment(diagram_id=d.id, parent_id=parent.id if parent else None,
                        node_id=None if parent else payload.node_id, x=None if parent else payload.x,
+                       page=None if parent or payload.node_id else payload.page,
                        y=None if parent else payload.y, body=payload.body, author_id=author_id,
                        author_name=name, guest=guest, created_at=now(),
                        mentions=_mentioned(db, d, payload.mentions, author_id) or None)
@@ -531,6 +545,155 @@ def delete_comment(db: Session, ws: Customer, diagram_id: int, comment_id: int) 
     db.commit()
     live.publish(d.id, {"k": "comments"})
     return {"status": True, "message": "Comment deleted", "data": None}
+
+
+# Tasks: a comment someone has to act on --------------------------------------------------------------
+
+def set_task(db: Session, ws: Customer, diagram_id: int, comment_id: int, payload: TaskSchema) -> dict:
+    d, _ = get(db, ws, diagram_id, "comment")
+    c = db.query(DiagramComment).filter(DiagramComment.id == comment_id, DiagramComment.diagram_id == d.id,
+                                        DiagramComment.parent_id.is_(None)).first()
+    if c is None:
+        raise HTTPException(404, detail="Comment not found")
+    who = _name(ws)
+    if payload.assignee_id is None:
+        c.assignee_id = c.assignee_name = c.due_on = c.assigned_by = None
+        message = "It's a comment again"
+    else:
+        found = _mentioned(db, d, [payload.assignee_id], None)
+        if not found:
+            raise field_error(422, "assignee_id", "They can't open this diagram")
+        person = found[0]
+        new_person = c.assignee_id != person["id"]
+        c.assignee_id, c.assignee_name, c.due_on, c.assigned_by = person["id"], person["name"], payload.due_on, who
+        c.resolved_at = None  # a task given out (again) is open
+        message = f"Task given to {person['name']}"
+        if new_person and person["id"] != actor(ws).id:
+            from app.modules.customer.account import notify
+
+            due = f" · due {payload.due_on.strftime('%d %b')}" if payload.due_on else ""
+            people = db.query(Customer).filter(Customer.id == person["id"]).all()
+            notify.notify(db, people, "diagram_task", f"{who} gave you a task in “{d.name}”{due}"[:200],
+                          c.body[:300], f"/dashboard/diagrams/{d.id}?comment={c.id}",
+                          {"diagram_id": d.id, "comment_id": c.id})
+    db.commit()
+    live.publish(d.id, {"k": "comments"})
+    return {"status": True, "message": message, "data": _comment(c)}
+
+
+def my_tasks(db: Session, ws: Customer, done: bool = False) -> dict:
+    """Tasks given to this person, across the diagrams they can still open."""
+    q = (db.query(DiagramComment, Diagram).join(Diagram, Diagram.id == DiagramComment.diagram_id)
+         .filter(DiagramComment.assignee_id == actor(ws).id, DiagramComment.parent_id.is_(None),
+                 Diagram.id.in_(_visible(db, ws).with_entities(Diagram.id))))
+    q = q.filter(DiagramComment.resolved_at.isnot(None) if done else DiagramComment.resolved_at.is_(None))
+    rows = (q.order_by(DiagramComment.due_on.is_(None), DiagramComment.due_on, DiagramComment.id.desc())
+            .limit(300).all())
+    today = now().date()
+    return {"status": True, "data": [
+        {**_comment(c), "diagram": {"id": d.id, "name": d.name},
+         "overdue": bool(c.due_on and c.due_on < today and c.resolved_at is None)} for c, d in rows]}
+
+
+def task_reminders(db: Session) -> int:
+    """Tells people about their open tasks on the day they're due, and once more if missed (once per task and date)."""
+    from app.modules.customer.account import notify
+
+    today = now().date()
+    rows = (db.query(DiagramComment, Diagram).join(Diagram, Diagram.id == DiagramComment.diagram_id)
+            .filter(DiagramComment.assignee_id.isnot(None), DiagramComment.resolved_at.is_(None),
+                    DiagramComment.due_on.isnot(None), DiagramComment.due_on <= today,
+                    DiagramComment.due_on >= today - timedelta(days=7))
+            .limit(500).all())
+    sent = 0
+    for c, d in rows:
+        people = db.query(Customer).filter(Customer.id == c.assignee_id, Customer.not_deleted(),
+                                           Customer.status == Status.ACTIVE.value).all()
+        title = (f"A task in “{d.name}” is overdue" if c.due_on < today else f"A task in “{d.name}” is due today")
+        sent += notify.notify(db, people, "diagram_task", title[:200], c.body[:300],
+                              f"/dashboard/diagrams/{d.id}?comment={c.id}",
+                              {"diagram_id": d.id, "comment_id": c.id},
+                              once_key=f"task:{c.id}:{c.due_on.isoformat()}")
+    db.commit()
+    return sent
+
+
+# AI: draw from a description, explain, suggest what's missing ----------------------------------------------
+
+def ai_options(db: Session, ws: Customer) -> dict:
+    return {"status": True, "data": ai.connections(db, ws)}
+
+
+def ai_draw(db: Session, ws: Customer, prompt: str, kind: str, connection_id: int | None, model: str | None) -> dict:
+    return {"status": True, "data": ai.draw(db, ws, prompt, kind, connection_id, model)}
+
+
+def ai_summary(db: Session, ws: Customer, diagram_id: int) -> dict:
+    d, _ = get(db, ws, diagram_id, "comment")
+    return {"status": True, "data": {"text": ai.summary(db, ws, d.content)}}
+
+
+def ai_suggest(db: Session, ws: Customer, diagram_id: int) -> dict:
+    d, _ = get(db, ws, diagram_id, "edit")
+    return {"status": True, "data": ai.suggest(db, ws, d.content)}
+
+
+# ChatDesk records on cards ----------------------------------------------------------------------------
+
+def _allowed(ws: Customer) -> list[int]:
+    return [n.id for n in (getattr(ws, "numbers", None) or [ws])]
+
+
+def record_cards(db: Session, ws: Customer, diagram_id: int) -> dict:
+    d, _ = get(db, ws, diagram_id)
+    return {"status": True, "data": records.cards(db, d, records.refs_in(d.content), _allowed(ws))}
+
+
+def find_records(db: Session, ws: Customer, kind: str, q: str | None) -> dict:
+    return {"status": True, "data": records.search(db, _allowed(ws), kind, q, root_id(ws))}
+
+
+def guest_records(db: Session, token: str, guest_pass: str | None) -> dict:
+    d = shared(db, token, guest_pass)
+    return {"status": True, "data": records.cards(db, d, records.refs_in(d.content), None)}
+
+
+def embed_records(db: Session, token: str) -> dict:
+    d = _embedded(db, token)
+    return {"status": True, "data": records.cards(db, d, records.refs_in(d.content), None)}
+
+
+# Embedding on another website ----------------------------------------------------------------------
+
+def set_embed(db: Session, ws: Customer, diagram_id: int, enabled: bool, new_code: bool) -> dict:
+    d, level = get(db, ws, diagram_id, "manage")
+    if enabled and (d.embed_token is None or new_code):
+        d.embed_token = secrets.token_urlsafe(24)
+    d.embed_enabled = enabled
+    _activity(db, d, "shared", _name(ws),
+              detail="Can be shown on a website" if enabled else "Stopped showing it on websites")
+    db.commit()
+    message = "New code made" if new_code else "It can be shown on a website now" if enabled else "Embedding off"
+    return {"status": True, "message": message, "data": serialize(db, ws, d, level)}
+
+
+def _embedded(db: Session, token: str) -> Diagram:
+    d = db.query(Diagram).filter(Diagram.embed_token == token, Diagram.embed_enabled.is_(True)).first()
+    if d is None:
+        raise HTTPException(404, detail="This diagram isn't shown here any more")
+    return d
+
+
+def embed_view(db: Session, token: str) -> dict:
+    d = _embedded(db, token)
+    return {"status": True, "data": {"name": d.name, "content": d.content or EMPTY, "seq": d.seq or 0,
+                                     "pages": d.pages or [], "updated_at": iso(d.updated_at)}}
+
+
+def embed_changes(db: Session, token: str, since: int) -> dict:
+    d = _embedded(db, token)
+    state = catch_up(db, d.id, since)
+    return {"status": True, "data": {**{k: v for k, v in state.items() if k != "state"}, "pages": d.pages or []}}
 
 
 # Guests (the share link) ----------------------------------------------------------------------------
@@ -636,7 +799,7 @@ def _session(d: Diagram) -> dict:
 
 def _state(d: Diagram) -> dict:
     """Live state that isn't drawing: the workshop session, and whether it's approved and locked."""
-    return {"session": _session(d), "now": iso(now()), "locked": bool(d.locked),
+    return {"session": _session(d), "now": iso(now()), "locked": bool(d.locked), "pages": d.pages or [],
             "approval": {"approved_at": iso(d.approved_at), "approved_by": d.approved_by,
                          "version_id": d.approved_version_id} if d.approved_at else None}
 

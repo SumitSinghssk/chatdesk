@@ -2,7 +2,19 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Check, Copy, Globe, KeyRound, Link2, Lock, RefreshCw, Trash2, UsersRound } from "lucide-react";
+import {
+  Check,
+  Code2,
+  Copy,
+  ExternalLink,
+  Globe,
+  KeyRound,
+  Link2,
+  Lock,
+  RefreshCw,
+  Trash2,
+  UsersRound,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { useConfirm } from "@/app/admin/_components/ConfirmProvider";
@@ -12,6 +24,7 @@ import { CUSTOMER_ROUTES } from "@/config/routes";
 import { formatDateTime } from "@/lib/utils";
 
 import { DIAGRAMS_QK, diagramsApi, type Diagram, type TeamAccess } from "../../../_lib/diagramsApi";
+import { pagesOrDefault } from "./Pages";
 
 type Role = "edit" | "comment" | "view";
 const ROLE_LABEL: Record<Role, string> = { edit: "Can edit", comment: "Can comment", view: "Can view" };
@@ -296,7 +309,157 @@ export function ShareDialog({
             </>
           )}
         </section>
+
+        <EmbedSection diagram={diagram} onSaved={onSaved} />
       </div>
     </Modal>
+  );
+}
+
+const HEIGHTS = ["400", "500", "600", "800"];
+
+/** The code to show the diagram on a website: view only, live, and it can be switched off. */
+function EmbedSection({ diagram, onSaved }: { diagram: Diagram; onSaved: (d: Diagram) => void }) {
+  const confirm = useConfirm();
+  const embed = diagram.embed ?? { enabled: false, token: null };
+  const pages = pagesOrDefault(diagram.pages);
+  const [page, setPage] = useState(pages[0].id);
+  const [height, setHeight] = useState("500");
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const save = async (enabled: boolean, newCode = false) => {
+    setBusy(true);
+    try {
+      const res = await diagramsApi.setEmbed(diagram.id, { enabled, new_code: newCode });
+      toast.success(res.message ?? "Saved");
+      onSaved(res.data);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const query = new URLSearchParams();
+  if (page !== pages[0].id) query.set("page", page);
+  if (theme === "dark") query.set("theme", "dark");
+  const src = embed.token
+    ? `${typeof window === "undefined" ? "" : window.location.origin}${CUSTOMER_ROUTES.EMBEDDED_DIAGRAM(embed.token)}${query.size ? `?${query}` : ""}`
+    : "";
+  const title = diagram.name.replace(/[<>"&]/g, "");
+  const code = `<iframe src="${src}" title="${title}" width="100%" height="${height}" style="border:1px solid #e2e8f0;border-radius:12px" loading="lazy"></iframe>`;
+  return (
+    <section className="border-line space-y-3 border-t pt-5">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-fg flex items-center gap-2 text-sm font-semibold">
+            <Code2 className="text-fg-subtle h-4 w-4" /> Show on a website
+          </h3>
+          <p className="text-fg-subtle mt-0.5 text-xs">
+            Paste the code into your website. Visitors see the diagram as it is now, view only, and it updates
+            by itself.
+          </p>
+        </div>
+        <Switch
+          checked={embed.enabled}
+          aria-label="Show on a website"
+          disabled={busy}
+          onChange={async (on) => {
+            if (!on) {
+              const ok = await confirm({
+                title: "Stop showing it on websites?",
+                message: "Websites with the code show “This diagram isn't shown here any more” instead.",
+                confirmLabel: "Stop showing",
+                variant: "danger",
+              });
+              if (!ok) return;
+            }
+            await save(on);
+          }}
+        />
+      </div>
+      {embed.enabled && embed.token && (
+        <>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {pages.length > 1 && (
+              <Select
+                id="embed-page"
+                label="Page"
+                value={page}
+                onChange={setPage}
+                options={pages.map((p) => ({ value: p.id, label: p.name }))}
+              />
+            )}
+            <Select
+              id="embed-height"
+              label="Height"
+              value={height}
+              onChange={setHeight}
+              options={HEIGHTS.map((h) => ({ value: h, label: `${h} px` }))}
+            />
+            <Select
+              id="embed-theme"
+              label="Look"
+              value={theme}
+              onChange={(v) => setTheme(v as "light" | "dark")}
+              options={[
+                { value: "light", label: "Light" },
+                { value: "dark", label: "Dark" },
+              ]}
+            />
+          </div>
+          <div className="relative">
+            <textarea
+              readOnly
+              value={code}
+              rows={3}
+              aria-label="Code for your website"
+              data-testid="embed-code"
+              onFocus={(e) => e.target.select()}
+              className="border-line bg-page text-fg-muted w-full resize-none rounded-lg border p-2.5 pr-24 font-mono text-[11.5px] leading-relaxed outline-none"
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              leftIcon={copied ? Check : Copy}
+              className="absolute top-2 right-2"
+              onClick={async () => {
+                await navigator.clipboard.writeText(code).catch(() => null);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              }}
+            >
+              {copied ? "Copied" : "Copy"}
+            </Button>
+          </div>
+          <div className="flex flex-wrap justify-between gap-2">
+            <Button
+              variant="ghost"
+              leftIcon={RefreshCw}
+              disabled={busy}
+              onClick={async () => {
+                const ok = await confirm({
+                  title: "Make a new code?",
+                  message: "Websites with the old code stop showing the diagram until you paste the new one.",
+                  confirmLabel: "New code",
+                  variant: "primary",
+                });
+                if (ok) await save(true, true);
+              }}
+            >
+              New code
+            </Button>
+            <a
+              href={src}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary flex items-center gap-1 text-sm font-medium hover:underline"
+            >
+              <ExternalLink className="h-4 w-4" /> Preview
+            </a>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

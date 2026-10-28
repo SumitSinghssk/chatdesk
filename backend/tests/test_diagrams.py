@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from tests.test_inbox import BASE, WEB, business  # noqa: F401
+from tests.test_ai_agent import fake_ai, shop  # noqa: F401
 from tests.test_team import _join
 
 D = f"{BASE}/diagrams"
@@ -281,3 +282,161 @@ def test_approval_locks_until_unlocked_and_shows_what_changed(business):
         assert since["lines_removed"] == 1 and since["approved_by"] == "Inbox Owner"
     finally:
         agent.__exit__(None, None, None)
+
+
+def test_comments_become_tasks_with_due_dates_and_reminders(business):
+    from app.core.database import SessionLocal
+    from app.modules.customer.diagrams.service import task_reminders
+    from app.shared.utils.datetime import now
+
+    d = _create(business, name="Launch plan")
+    c = business.post(f"{D}/{d['id']}/comments", headers=WEB, json={"body": "Write the welcome message",
+                                                                    "x": 0, "y": 0}).json()["data"]
+    assert c["task"] is None
+    agent = _join(business)
+    try:
+        url = f"{D}/{d['id']}/comments/{c['id']}/task"
+        assert business.put(url, headers=WEB, json={"assignee_id": 999999}).status_code == 422  # not in the team
+        today = now().date()
+        given = business.put(url, headers=WEB, json={"assignee_id": agent.member_id, "due_on": today.isoformat()})
+        assert given.status_code == 200, given.text
+        assert given.json()["data"]["task"] == {"assignee_id": agent.member_id, "assignee": "Ravi Agent",
+                                                "due_on": today.isoformat(), "by": "Inbox Owner"}
+        notes = agent.get(f"{BASE}/account/notifications").json()["data"]["items"]
+        assert any(n["title"].startswith("Inbox Owner gave you a task in “Launch plan”") for n in notes)
+
+        # it shows in their list (and nobody else's)
+        mine = agent.get(f"{D}/tasks").json()["data"]
+        assert [t["id"] for t in mine] == [c["id"]] and mine[0]["diagram"]["name"] == "Launch plan"
+        assert business.get(f"{D}/tasks").json()["data"] == []
+
+        # on the day it's due they're told, once
+        db = SessionLocal()
+        try:
+            assert task_reminders(db) >= 1
+            assert task_reminders(db) == 0
+        finally:
+            db.close()
+        notes = agent.get(f"{BASE}/account/notifications").json()["data"]["items"]
+        assert any(n["title"] == "A task in “Launch plan” is due today" for n in notes)
+
+        # overdue, then done (resolving the thread)
+        late = (today - timedelta(days=2)).isoformat()
+        business.put(url, headers=WEB, json={"assignee_id": agent.member_id, "due_on": late})
+        assert agent.get(f"{D}/tasks").json()["data"][0]["overdue"] is True
+        agent.put(f"{D}/{d['id']}/comments/{c['id']}", headers=WEB, json={"resolved": True})
+        assert agent.get(f"{D}/tasks").json()["data"] == []
+        assert [t["id"] for t in agent.get(f"{D}/tasks?done=true").json()["data"]] == [c["id"]]
+
+        # no one to do it: a plain comment again
+        plain = business.put(url, headers=WEB, json={"assignee_id": None}).json()["data"]
+        assert plain["task"] is None
+    finally:
+        agent.__exit__(None, None, None)
+
+
+def test_pages_and_embedding_on_a_website(business):
+    d = _create(business)
+    pages = [{"id": "p1", "name": "Overview"}, {"id": "p2", "name": "Details"}]
+    saved = business.put(f"{D}/{d['id']}", headers=WEB, json={"pages": pages})
+    assert saved.status_code == 200 and saved.json()["data"]["pages"] == pages
+    assert business.put(f"{D}/{d['id']}", headers=WEB, json={"pages": [pages[0], pages[0]]}).status_code == 422
+    assert business.put(f"{D}/{d['id']}", headers=WEB, json={"pages": []}).status_code == 422
+
+    # off until it's turned on; then view only, through its own address
+    assert saved.json()["data"]["embed"] == {"enabled": False, "token": None}
+    on = business.put(f"{D}/{d['id']}/embed", headers=WEB, json={"enabled": True}).json()["data"]["embed"]
+    token = on["token"]
+    assert on["enabled"] and token
+    with TestClient(app) as anyone:
+        view = anyone.get(f"{S}/embed/{token}").json()["data"]
+        assert view["name"] == "Enquiry flow" and view["pages"] == pages and "a" in view["content"]["nodes"]
+        assert "comments" not in view
+        business.post(f"{D}/{d['id']}/ops", headers=WEB, json={"ops": [
+            {"k": "n", "id": "c", "v": {**_node("c", "Order", 0, 240), "data": {"shape": "process", "label": "Order",
+                                                                              "page": "p2"}}}]})
+        later = anyone.get(f"{S}/embed/{token}/ops?since={view['seq']}").json()["data"]
+        assert later["batches"][0]["ops"][0]["id"] == "c" and later["pages"] == pages
+        # the share link's address doesn't work as an embed, and the embed can't be commented on
+        assert anyone.get(f"{S}/{token}").status_code == 404
+        # a new code: the old one stops; off: nothing shows
+        new = business.put(f"{D}/{d['id']}/embed", headers=WEB, json={"enabled": True, "new_code": True})
+        assert anyone.get(f"{S}/embed/{token}").status_code == 404
+        token = new.json()["data"]["embed"]["token"]
+        assert anyone.get(f"{S}/embed/{token}").status_code == 200
+        business.put(f"{D}/{d['id']}/embed", headers=WEB, json={"enabled": False})
+        assert anyone.get(f"{S}/embed/{token}").status_code == 404
+
+
+def test_cards_show_live_chatdesk_records(business):
+    contact = business.post(f"{BASE}/contacts", headers=WEB, json={
+        "phone": "9800011122", "name": "Asha Verma", "tags": ["vip"]}).json()["data"]
+    bot = business.post(f"{BASE}/chatbots", headers=WEB, json={"name": "Order bot", "keywords": ["order"]})
+    assert bot.status_code == 200, bot.text
+    bot = bot.json()["data"]
+
+    # picking: search by name or number
+    found = business.get(f"{D}/records/search?type=contact&q=Asha").json()["data"]
+    assert [c["id"] for c in found] == [contact["id"]] and found[0]["subtitle"].endswith("122")
+    assert "0011122" not in found[0]["subtitle"]  # the number is masked
+    assert business.get(f"{D}/records/search?type=chatbot&q=order").json()["data"][0]["id"] == bot["id"]
+    assert business.get(f"{D}/records/search?type=nope").status_code == 422
+
+    card = lambda nid, kind, rid: {**_node(nid, ""), "data": {"shape": "record", "label": "",  # noqa: E731
+                                                              "record": {"type": kind, "id": rid}}}
+    d = _create(business, content={"nodes": {"c": card("c", "contact", contact["id"]),
+                                             "b": card("b", "chatbot", bot["id"]),
+                                             "x": card("x", "order", 999999)}, "edges": {}})
+    cards = business.get(f"{D}/{d['id']}/records").json()["data"]
+    assert cards[f"contact:{contact['id']}"]["title"] == "Asha Verma"
+    assert cards[f"contact:{contact['id']}"]["tags"] == ["vip"] and "phone" in cards[f"contact:{contact['id']}"]
+    assert cards[f"chatbot:{bot['id']}"]["status"] == "off" and cards[f"chatbot:{bot['id']}"]["chats_week"] == 0
+    assert cards["order:999999"] == {"type": "order", "id": 999999, "missing": True}
+
+    # through the share link: no private details
+    link = business.put(f"{D}/{d['id']}/link", headers=WEB, json={"enabled": True, "access": "view"}).json()
+    token = link["data"]["link"]["token"]
+    with TestClient(app) as anyone:
+        guest = anyone.get(f"{S}/{token}/records").json()["data"][f"contact:{contact['id']}"]
+        assert guest["title"] == "Asha" and "phone" not in guest and "path" not in guest and guest["tags"] == []
+
+
+def test_ai_draws_explains_and_suggests(shop):  # noqa: F811
+    import json as _json
+
+    from tests import ai_fake
+    from tests.test_ai_agent import connect
+
+    assert shop.post(f"{D}/ai/draw", headers=WEB, json={"prompt": "order flow"}).status_code == 409  # no AI yet
+    connect(shop)
+    options = shop.get(f"{D}/ai").json()["data"]
+    assert len(options) == 1 and options[0]["model"]
+
+    ai_fake.Fake.reply = "Here it is:\n```json\n" + _json.dumps({
+        "title": "Order flow", "kind": "flowchart",
+        "nodes": [{"id": "n1", "label": "Start", "shape": "terminal"},
+                  {"id": "n2", "label": "Customer asks for price", "shape": "io"},
+                  {"id": "n3", "label": "In stock?", "shape": "decision"},
+                  {"id": "n4", "label": "Send payment link", "shape": "hexagon"},  # not a shape it may use
+                  {"id": "n4", "label": "duplicate id"},
+                  {"id": "n5", "label": "End", "shape": "terminal"}],
+        "edges": [{"from": "n1", "to": "n2"}, {"from": "n2", "to": "n3"}, {"from": "n3", "to": "n4", "label": "Yes"},
+                  {"from": "n3", "to": "nX"}, {"from": "n4", "to": "n5"}],
+    }) + "\n```"
+    drawn = shop.post(f"{D}/ai/draw", headers=WEB, json={"prompt": "order flow from enquiry to payment"})
+    assert drawn.status_code == 200, drawn.text
+    g = drawn.json()["data"]
+    assert g["title"] == "Order flow" and [n["id"] for n in g["nodes"]] == ["n1", "n2", "n3", "n4", "n5"]
+    assert g["nodes"][3]["shape"] == "process" and len(g["edges"]) == 4  # the line to nowhere is dropped
+
+    ai_fake.Fake.reply = "not json at all"
+    assert shop.post(f"{D}/ai/draw", headers=WEB, json={"prompt": "something"}).status_code == 502
+
+    d = _create(shop)
+    ai_fake.Fake.reply = "It shows how an enquiry gets a reply."
+    said = shop.post(f"{D}/{d['id']}/ai/summary", headers=WEB).json()["data"]
+    assert said["text"] == "It shows how an enquiry gets a reply."
+    ai_fake.Fake.reply = _json.dumps({"suggestions": [{"label": "Follow up after a day", "after": "b", "why": "No reply"},
+                                                      {"label": "Ghost step", "after": "zzz"}]})
+    ideas = shop.post(f"{D}/{d['id']}/ai/suggest", headers=WEB).json()["data"]
+    assert ideas[0] == {"label": "Follow up after a day", "after": "b", "why": "No reply"} and ideas[1]["after"] is None

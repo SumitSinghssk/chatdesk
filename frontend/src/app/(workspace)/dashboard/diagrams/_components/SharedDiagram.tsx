@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ReactFlowProvider } from "@xyflow/react";
 import { useQuery } from "@tanstack/react-query";
 import { Eye, KeyRound, MessageSquare, Moon, Sun, Workflow } from "lucide-react";
@@ -104,6 +104,10 @@ function Viewer({
   theme: { dark: boolean; toggle: () => void };
 }) {
   const [access, setAccess] = useState(data.access);
+  const records = useMemo(
+    () => ({ load: async () => (await sharedApi.records(token, pass)).data, canOpen: false }),
+    [token, pass]
+  );
   const [name, setName] = useState<string | null>(() => read(NAME_KEY));
   const [asking, setAsking] = useState(false);
   const waiting = useRef<((name: string | null) => void) | null>(null);
@@ -137,6 +141,8 @@ function Viewer({
           seq={data.seq}
           level={access}
           me={{ id: null, name: name ?? "You", color: "#64748b", guest: true }}
+          startPage={new URLSearchParams(window.location.search).get("page")}
+          records={records}
           live={{
             url: (since) => sharedApi.liveUrl(token, since, pass, name),
             changes: async (since) => (await sharedApi.changes(token, pass, since)).data,

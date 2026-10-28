@@ -20,7 +20,7 @@ export interface PeerState {
   selection: string[];
   drag: Record<string, { x: number; y: number }> | null;
   /** the middle of what they're looking at, and their zoom (follow mode) */
-  view: { x: number; y: number; zoom: number } | null;
+  view: { x: number; y: number; zoom: number; page?: string } | null;
   seen: number;
 }
 

@@ -54,7 +54,7 @@ export type Arrange =
   | "col-remove";
 
 /** Shapes that keep their own look (no colour / border choices). */
-const OWN_LOOK = new Set(["bubble-out", "bubble-in", "phone", "icon", "image"]);
+const OWN_LOOK = new Set(["bubble-out", "bubble-in", "phone", "icon", "image", "record"]);
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (

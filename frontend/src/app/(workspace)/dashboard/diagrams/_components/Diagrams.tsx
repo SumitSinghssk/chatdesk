@@ -8,10 +8,12 @@ import {
   Copy,
   Folder,
   Globe,
+  ListTodo,
   Lock,
   MoreHorizontal,
   Plus,
   Search,
+  Sparkles,
   Star,
   Trash2,
   Workflow,
@@ -27,6 +29,7 @@ import {
   ErrorBanner,
   Input,
   Modal,
+  Select,
   Skeleton,
 } from "@/app/admin/_components/ui/index";
 import { useDebouncedValue } from "@/app/admin/_hooks/useDebouncedValue";
@@ -36,10 +39,14 @@ import { cn, timeAgo } from "@/lib/utils";
 
 import { DIAGRAMS_QK, diagramsApi, type DiagramSummary } from "../../_lib/diagramsApi";
 import { FolderDialog } from "./FolderDialog";
+import { MyTasks } from "./MyTasks";
+import { AI_KINDS, type AiKind } from "./editor/AiPanel";
+import { graphShapes } from "./editor/aiGraph";
+import { toContent } from "./editor/model";
 import { TEMPLATES } from "./templates";
 import { previewOf, Thumbnail } from "./Thumbnail";
 
-type Filter = { kind: "all" } | { kind: "starred" } | { kind: "folder"; name: string };
+type Filter = { kind: "all" } | { kind: "starred" } | { kind: "tasks" } | { kind: "folder"; name: string };
 
 export function Diagrams() {
   const router = useRouter();
@@ -62,6 +69,8 @@ export function Diagrams() {
   });
   const all = useQuery({ queryKey: DIAGRAMS_QK.LIST({}), queryFn: () => diagramsApi.list({}) });
   const folders = all.data?.folders ?? [];
+  const openTasks = useQuery({ queryKey: DIAGRAMS_QK.TASKS(false), queryFn: () => diagramsApi.tasks(false) });
+  const taskCount = openTasks.data?.data.length ?? 0;
   const refresh = () => void queryClient.invalidateQueries({ queryKey: DIAGRAMS_QK.ALL });
 
   const act = async (fn: () => Promise<unknown>, done?: string) => {
@@ -85,7 +94,14 @@ export function Diagrams() {
   };
 
   const items = list.data?.data ?? [];
-  const chips: { key: string; label: string; on: boolean; pick: () => void; icon?: typeof Star }[] = [
+  const chips: {
+    key: string;
+    label: string;
+    on: boolean;
+    pick: () => void;
+    icon?: typeof Star;
+    count?: number;
+  }[] = [
     { key: "all", label: "All", on: filter.kind === "all", pick: () => setFilter({ kind: "all" }) },
     {
       key: "starred",
@@ -93,6 +109,14 @@ export function Diagrams() {
       icon: Star,
       on: filter.kind === "starred",
       pick: () => setFilter({ kind: "starred" }),
+    },
+    {
+      key: "tasks",
+      label: "My tasks",
+      icon: ListTodo,
+      on: filter.kind === "tasks",
+      pick: () => setFilter({ kind: "tasks" }),
+      count: taskCount,
     },
     ...folders.map((name) => ({
       key: `f:${name}`,
@@ -140,13 +164,21 @@ export function Diagrams() {
             >
               {c.icon && <c.icon className="h-3.5 w-3.5" />}
               {c.label}
+              {!!c.count && (
+                <span className="bg-primary text-primary-fg rounded-full px-1.5 text-[10px] font-bold">
+                  {c.count}
+                </span>
+              )}
             </button>
           ))}
         </div>
       </div>
 
-      {list.error && <ErrorBanner message={errorMessage(list.error)} />}
-      {list.isLoading ? (
+      {filter.kind === "tasks" ? (
+        <MyTasks />
+      ) : list.error ? (
+        <ErrorBanner message={errorMessage(list.error)} />
+      ) : list.isLoading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
           {[0, 1, 2].map((i) => (
             <Skeleton key={i} className="h-56 rounded-xl" />
@@ -302,25 +334,37 @@ function NewDiagram({
   onCreated: (id: number) => void;
 }) {
   const [pick, setPick] = useState(TEMPLATES[0].key);
+  const [prompt, setPrompt] = useState("");
+  const [kind, setKind] = useState<AiKind>("any");
+  const byAi = pick === "ai";
   const [name, setName] = useState("");
   const [folder, setFolder] = useState(startFolder ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | undefined>();
-  const template = TEMPLATES.find((t) => t.key === pick)!;
+  const template = TEMPLATES.find((t) => t.key === pick) ?? TEMPLATES[0];
 
   const create = async () => {
-    const finalName = name.trim() || (template.key === "blank" ? "Untitled diagram" : template.name);
     setBusy(true);
+    setError(undefined);
     try {
+      let content = template.content;
+      let finalName = name.trim() || (template.key === "blank" ? "Untitled diagram" : template.name);
+      if (byAi) {
+        const graph = (await diagramsApi.aiDraw({ prompt: prompt.trim(), kind })).data;
+        const drawn = graphShapes(graph);
+        content = toContent(drawn.nodes, drawn.edges);
+        finalName = name.trim() || graph.title;
+      }
       const res = await diagramsApi.create({
         name: finalName,
         folder: folder.trim() || null,
-        content: template.content,
+        content,
       });
       toast.success("Diagram created");
       onCreated(res.data.id);
     } catch (err) {
-      setError(errorMessage(err));
+      if (byAi) toast.error(errorMessage(err));
+      else setError(errorMessage(err));
       setBusy(false);
     }
   };
@@ -337,8 +381,13 @@ function NewDiagram({
           <Button variant="secondary" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void create()} loading={busy}>
-            Create and open
+          <Button
+            onClick={() => void create()}
+            loading={busy}
+            disabled={byAi && prompt.trim().length < 3}
+            leftIcon={byAi ? Sparkles : undefined}
+          >
+            {byAi ? (busy ? "Drawing…" : "Draw and open") : "Create and open"}
           </Button>
         </div>
       }
@@ -368,7 +417,52 @@ function NewDiagram({
               </span>
             </button>
           ))}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={byAi}
+            onClick={() => setPick("ai")}
+            className={cn(
+              "overflow-hidden rounded-xl border text-left transition",
+              byAi ? "border-primary ring-primary/20 ring-2" : "border-line hover:border-line-strong"
+            )}
+          >
+            <span className="flex h-20 items-center justify-center bg-gradient-to-br from-violet-50 to-sky-50 dark:from-violet-950/40 dark:to-sky-950/40">
+              <Sparkles className="h-7 w-7 text-violet-500" />
+            </span>
+            <span className="block px-2 py-1.5">
+              <span className="text-fg block truncate text-[13px] font-semibold">Describe it (AI)</span>
+              <span className="text-fg-subtle block truncate text-[11px]">
+                Say what it is, it&apos;s drawn
+              </span>
+            </span>
+          </button>
         </div>
+        {byAi && (
+          <div className="space-y-2">
+            <textarea
+              autoFocus
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              rows={4}
+              maxLength={4000}
+              aria-label="Describe the diagram"
+              placeholder="e.g. Our order process from a WhatsApp enquiry to delivery, with payment by link or cash on delivery"
+              className="border-line bg-page text-fg focus:border-primary w-full resize-y rounded-lg border p-2.5 text-sm outline-none"
+            />
+            <Select
+              id="new-ai-kind"
+              label="Draw it as"
+              value={kind}
+              onChange={(v) => setKind(v as AiKind)}
+              options={AI_KINDS}
+              wrapperClassName="sm:w-60"
+            />
+            <p className="text-fg-faint text-xs">
+              Uses the AI your business connected for the AI agent. Leave the name empty to use the AI&apos;s.
+            </p>
+          </div>
+        )}
         <div className="grid gap-3 sm:grid-cols-2">
           <Input
             name="diagram_name"

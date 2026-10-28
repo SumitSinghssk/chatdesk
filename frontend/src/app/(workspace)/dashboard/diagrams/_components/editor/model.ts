@@ -27,7 +27,8 @@ export type ShapeKind =
   | "uml"
   | "mind"
   | "icon"
-  | "image";
+  | "image"
+  | "record";
 
 export interface ShapeData extends Record<string, unknown> {
   shape: ShapeKind;
@@ -55,6 +56,12 @@ export interface ShapeData extends Record<string, unknown> {
   methods?: string;
   /** message bubbles: the time shown (and ticks on sent ones) */
   time?: string;
+  /** mind map ideas: the branch is folded away */
+  collapsed?: boolean;
+  /** a live ChatDesk card: which contact, order, campaign or chatbot it shows */
+  record?: { type: "contact" | "order" | "campaign" | "chatbot"; id: number };
+  /** the page it's on (none: the first page) */
+  page?: string;
 }
 
 /** Shapes that sit behind everything else (others are dropped on top of them). */
@@ -85,8 +92,8 @@ export interface PaletteItem {
   hint: string;
   /** what the new shape starts with (on top of the kind's defaults) */
   data?: Partial<ShapeData>;
-  /** picks something first: an icon from the library, or an image file */
-  action?: "icon" | "image";
+  /** picks something first: an icon from the library, an image file, or a ChatDesk record */
+  action?: "icon" | "image" | "record";
 }
 
 const item = (
@@ -144,6 +151,26 @@ export const SHAPES: PaletteItem[] = [
   item("image", "Image or logo…", 220, 150, "Images & icons", "Upload a picture or logo", {
     key: "image:upload",
     action: "image",
+  }),
+  item("record", "Contact", 250, 112, "ChatDesk (live)", "A customer, kept up to date", {
+    key: "record:contact",
+    action: "record",
+    data: { record: { type: "contact", id: 0 } },
+  }),
+  item("record", "Order", 240, 112, "ChatDesk (live)", "An order with its status and total", {
+    key: "record:order",
+    action: "record",
+    data: { record: { type: "order", id: 0 } },
+  }),
+  item("record", "Campaign", 260, 124, "ChatDesk (live)", "A campaign with how it's doing", {
+    key: "record:campaign",
+    action: "record",
+    data: { record: { type: "campaign", id: 0 } },
+  }),
+  item("record", "Chatbot", 240, 104, "ChatDesk (live)", "A chatbot: live or off, and its chats", {
+    key: "record:chatbot",
+    action: "record",
+    data: { record: { type: "chatbot", id: 0 } },
   }),
   item("note", "Sticky note", 170, 120, "Notes", "A note or idea"),
   item("text", "Text", 180, 40, "Notes", "Free text"),
@@ -226,6 +253,7 @@ const EXTRA: Partial<Record<ShapeKind, Partial<ShapeData>>> = {
   mind: { label: "Idea", fill: "#ede9fe", stroke: "#8b5cf6", text: "#4c1d95", bold: true },
   icon: { label: "", icon: "star", text: "#334155", fontSize: 12 },
   image: { label: "", fit: "contain" },
+  record: { label: "" },
 };
 
 export function defaultData(kind: ShapeKind, label?: string): ShapeData {

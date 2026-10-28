@@ -51,16 +51,23 @@ const nextConfig: NextConfig = {
         ],
       },
       {
-        // the website chat (/ai-chat) is the one page other websites may show in a frame
-        source: "/((?!ai-chat/).*)",
+        // the website chat (/ai-chat) and embedded diagrams (/embed) are the pages other websites may show in a frame
+        source: "/((?!ai-chat/|embed/).*)",
         headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }],
       },
       {
-        source: "/((?!admin(?:/|$)|_next/|storage/|api/|ai-chat/).*)",
+        source: "/((?!admin(?:/|$)|_next/|storage/|api/|ai-chat/|embed/).*)",
         headers: [{ key: "Content-Security-Policy", value: WEBSITE_CSP }],
       },
       {
         source: "/ai-chat/:path*",
+        headers: [
+          { key: "Content-Security-Policy", value: "frame-ancestors *; object-src 'none'; base-uri 'self'" },
+          { key: "X-Robots-Tag", value: "noindex, nofollow" },
+        ],
+      },
+      {
+        source: "/embed/:path*",
         headers: [
           { key: "Content-Security-Policy", value: "frame-ancestors *; object-src 'none'; base-uri 'self'" },
           { key: "X-Robots-Tag", value: "noindex, nofollow" },

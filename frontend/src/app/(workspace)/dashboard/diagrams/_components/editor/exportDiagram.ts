@@ -19,6 +19,8 @@ import { dynamicIconImports } from "lucide-react/dynamic";
 
 import { BEHIND, LINE_COLORS, type LineData, type ShapeData } from "./model";
 import { Outline } from "./Shape";
+import type { RecordCard } from "../../../_lib/diagramsApi";
+import { cardText, RECORD_TYPES } from "./Records";
 import { isIcon, SPECIAL } from "./Special";
 
 const FONT = "Inter, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
@@ -334,6 +336,23 @@ ${textBox(d.label, { x: 60, y: sx + 26, w: w - 130, h: 30 }, { size, color: d.te
       } catch {
         return `<rect width="${n(w)}" height="${n(h)}" fill="#f1f5f9"/>`;
       }
+    }
+    case "record": {
+      // `card`: what the card showed when the download was made (added by the canvas)
+      const kind = RECORD_TYPES.find((t) => t.type === d.record?.type) ?? RECORD_TYPES[0];
+      const text = cardText(d.card as RecordCard | undefined, kind.type);
+      let out = `<rect x="0.5" y="0.5" width="${n(w - 1)}" height="${n(h - 1)}" rx="12" fill="#ffffff" stroke="#e2e8f0"/>`;
+      out += `<path d="M0 12 Q0 0 12 0 L${n(w - 12)} 0 Q${n(w)} 0 ${n(w)} 12 L${n(w)} 3 L0 3 Z" fill="${kind.color}"/>`;
+      out += `<circle cx="26" cy="26" r="14" fill="${kind.color}"/>${icon(kind.icon, 14, "#ffffff", 19, 19)}`;
+      const badgeW = text.badge ? measure(text.badge, 10, 600) + 12 : 0;
+      out += `<text x="48" y="25" font-family="${esc(FONT)}" font-size="13" font-weight="600" fill="${SLATE}">${esc(fit(text.title, w - 60 - badgeW, 13, 600))}</text>`;
+      out += `<text x="48" y="38" font-family="${esc(FONT)}" font-size="10.5" fill="#94a3b8">${esc(kind.label)}</text>`;
+      if (text.badge)
+        out += `<rect x="${n(w - 10 - badgeW)}" y="14" width="${n(badgeW)}" height="17" rx="8.5" fill="#f1f5f9"/><text x="${n(w - 10 - badgeW / 2)}" y="26" font-family="${esc(FONT)}" font-size="10" font-weight="600" fill="#475569" text-anchor="middle">${esc(text.badge)}</text>`;
+      text.lines.slice(0, Math.max(0, Math.floor((h - 52) / 16))).forEach((l, i) => {
+        out += `<text x="12" y="${n(62 + i * 16)}" font-family="${esc(FONT)}" font-size="11.5" fill="#475569">${esc(fit(l, w - 24, 11.5))}</text>`;
+      });
+      return out;
     }
     default:
       return "";

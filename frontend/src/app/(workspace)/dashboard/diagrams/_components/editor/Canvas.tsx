@@ -29,12 +29,14 @@ import {
   MoreHorizontal,
   MousePointer2,
   Presentation,
+  Bot,
   ChevronLeft,
   ChevronRight,
   Timer as TimerIcon,
   Palette as PaletteIcon,
   Plus,
   Redo2,
+  Sparkles,
   Undo2,
   Wifi,
   WifiOff,
@@ -54,9 +56,20 @@ import type {
   DiagramContent,
   LiveState,
   Op,
+  Page,
   Person,
+  RecordCard,
+  RecordHit,
+  RecordType,
+  AiGraph,
+  AiSuggestion,
 } from "../../../_lib/diagramsApi";
-import { CommentPins, CommentsPanel, pinAt, threads } from "./Comments";
+import { AiPanel, type DiagramAi } from "./AiPanel";
+import { graphShapes } from "./aiGraph";
+import { ChatbotDialog } from "./ChatbotDialog";
+import { fromChatbot, toChatbot, type ChatbotDraft } from "./chatbotFlow";
+import type { BotGraph } from "../../../_lib/chatbotsApi";
+import { CommentPins, CommentsPanel, pinAt, threads, type TaskInput } from "./Comments";
 import { downloadPdf, downloadPng, downloadSvg } from "./exportDiagram";
 import { Inspector, type Arrange } from "./Inspector";
 import { Line } from "./Line";
@@ -81,6 +94,9 @@ import {
   type Snapshot,
 } from "./model";
 import { IconPicker } from "./IconPicker";
+import { FIRST_PAGE, PageTabs, pagesOrDefault, type PageAction } from "./Pages";
+import { RecordPicker, recordKey } from "./Records";
+import { addIdea, branchOf, hiddenIdeas, mindLayout, mindTree, rootOf } from "./mindmap";
 import { mentionsIn, MentionInput, type Mentionable } from "./MentionInput";
 import { TimerPill, WorkshopPanel } from "./Workshop";
 import { DRAG_TYPE, Palette } from "./Palette";
@@ -92,6 +108,15 @@ import { useLive, type Batch, type LiveStatus } from "./useLive";
 const NODE_TYPES = { shape: Shape };
 const EDGE_TYPES = { line: Line };
 const keyOf = (op: { k: string; id: string }) => `${op.k}:${op.id}`;
+type MindAction = "save" | "child" | "sibling" | "fold";
+const pageOf = (n: ShapeNode) => n.data.page ?? FIRST_PAGE;
+/** The shape's data, on `page` (the first page is left unsaid, as in diagrams from before pages). */
+const onPage = (data: ShapeData, page: string): ShapeData => {
+  const next = { ...data };
+  if (page === FIRST_PAGE) delete next.page;
+  else next.page = page;
+  return next;
+};
 
 function useDarkMode() {
   const [dark, setDark] = useState(false);
@@ -121,6 +146,8 @@ export interface CommentsApi {
   remove?: (id: number) => Promise<void>;
   canDelete: (c: Comment) => boolean;
   refresh: () => void;
+  /** team members can give a comment to someone as a task */
+  setTask?: (id: number, task: TaskInput) => Promise<void>;
 }
 
 export interface CanvasProps {
@@ -167,9 +194,28 @@ export interface CanvasProps {
   banner?: ReactNode;
   /** someone starts writing a comment (the page refreshes who can be @mentioned) */
   onCommenting?: () => void;
+  /** saves the list of pages (people who can edit) */
+  savePages?: (pages: Page[]) => Promise<void>;
+  /** asks before a page and what's on it is deleted */
+  confirmDeletePage?: (name: string) => Promise<boolean>;
+  /** the page to open on (from the address) */
+  startPage?: string | null;
+  /** chatbots: make one from the flow on this page, or draw one's flow here (team members) */
+  chatbot?: {
+    make: (name: string, graph: BotGraph) => Promise<void>;
+    load: (id: number) => Promise<{ name: string; graph: BotGraph }>;
+  };
+  /** the business's AI: draw from a description, explain, suggest missing steps (team members) */
+  ai?: DiagramAi;
+  /** live ChatDesk cards: what they show (for this person), finding records to add, and opening them */
+  records?: {
+    load: () => Promise<Record<string, RecordCard>>;
+    search?: (type: RecordType, q: string) => Promise<RecordHit[]>;
+    canOpen: boolean;
+  };
 }
 
-type Panel = "comments" | "extra" | "workshop" | null;
+type Panel = "comments" | "extra" | "workshop" | "ai" | null;
 
 export function Canvas(props: CanvasProps) {
   const { live: liveApi, comments } = props;
@@ -213,12 +259,18 @@ export function Canvas(props: CanvasProps) {
   const [liveState, setLiveState] = useState<LiveState | null>(props.state ?? null);
   // when the shared timer ends, on this device's clock: counted from the moment the server's word arrived
   const [timerEnds, setTimerEnds] = useState<number | null>(null);
+  // pages: the list as last saved (or as just changed here, until the server's word comes back)
+  const [pagesDraft, setPagesDraft] = useState<Page[] | null>(null);
   const hearState = useCallback((next: LiveState) => {
     const t = next.session.timer;
     setLiveState(next);
+    setPagesDraft(null);
     setTimerEnds(t && typeof t.left === "number" ? Date.now() + t.left * 1000 : null);
   }, []);
   const locked = !!liveState?.locked;
+  const pages = pagesOrDefault(pagesDraft ?? liveState?.pages);
+  const [pageId, setPageId] = useState<string>(props.startPage || FIRST_PAGE);
+  const page = pages.some((p) => p.id === pageId) ? pageId : pages[0].id;
   const [presenting, setPresenting] = useState<number | null>(null); // the slide on screen, when presenting
   const canEdit =
     (level === "edit" || level === "manage") && !previewing && !closed && !locked && presenting === null;
@@ -478,6 +530,10 @@ export function Canvas(props: CanvasProps) {
       setIconFor({ mode: "add", at });
       return;
     }
+    if (item.action === "record" && !extra) {
+      if (props.records?.search) setRecordFor({ type: item.data?.record?.type ?? "contact", at });
+      return;
+    }
     if (item.action === "image" && !extra) {
       imageAt.current = { mode: "add", at };
       fileInput.current?.click();
@@ -516,7 +572,10 @@ export function Canvas(props: CanvasProps) {
       width: size.w,
       height: size.h,
       zIndex: BEHIND.includes(kind) ? -1 : 0,
-      data: { ...defaultData(kind, plain ? item.label : undefined), ...(item.data ?? {}), ...(extra ?? {}) },
+      data: onPage(
+        { ...defaultData(kind, plain ? item.label : undefined), ...(item.data ?? {}), ...(extra ?? {}) },
+        page
+      ),
       selected: true,
     };
     replace(
@@ -527,6 +586,35 @@ export function Canvas(props: CanvasProps) {
     if (plain || kind === "text" || kind === "bubble-out" || kind === "bubble-in" || kind === "mind")
       setTimeout(() => setEditingId(id), 30);
   };
+
+  // live ChatDesk cards: what they show, kept fresh (every 30 seconds, and when cards are added) -------------
+  const [recordFor, setRecordFor] = useState<{ type: RecordType; at?: { x: number; y: number } } | null>(
+    null
+  );
+  const [cards, setCards] = useState<Map<string, RecordCard>>(new Map());
+  const recordKeys = useMemo(
+    () =>
+      [...new Set(nodes.filter((n) => n.data.record?.id).map((n) => recordKey(n.data.record!)))]
+        .sort()
+        .join(","),
+    [nodes]
+  );
+  const loadRecords = props.records?.load;
+  useEffect(() => {
+    if (!recordKeys || !loadRecords) return;
+    let stale = false;
+    const fetchCards = () =>
+      loadRecords()
+        .then((res) => !stale && setCards(new Map(Object.entries(res))))
+        .catch(() => null);
+    const first = setTimeout(fetchCards, 150);
+    const every = setInterval(() => !document.hidden && fetchCards(), 30_000);
+    return () => {
+      stale = true;
+      clearTimeout(first);
+      clearInterval(every);
+    };
+  }, [recordKeys, loadRecords]);
 
   // pictures: upload, then add (or swap into the selected picture) ---------------------------------------------
   const fileInput = useRef<HTMLInputElement>(null);
@@ -598,6 +686,7 @@ export function Canvas(props: CanvasProps) {
       ...n,
       id: map.get(n.id)!,
       position: { x: n.position.x + offset, y: n.position.y + offset },
+      data: onPage(n.data, page),
       selected: true,
     }));
     const edgesNew = clip.edges.map((e) => ({
@@ -656,7 +745,9 @@ export function Canvas(props: CanvasProps) {
     );
   const tidy = (direction: "TB" | "LR", only?: Set<string>) => {
     if (!canEdit) return;
-    replace(layout(current.current.nodes, current.current.edges, direction, only));
+    const here = new Set(current.current.nodes.filter((n) => pageOf(n) === page).map((n) => n.id));
+    const pick = only ? new Set([...only].filter((id) => here.has(id))) : here;
+    replace(layout(current.current.nodes, current.current.edges, direction, pick));
     setTimeout(() => flow.fitView({ padding: 0.2, duration: 300, maxZoom: 1 }), 50);
   };
   const arrange = (action: Arrange) => {
@@ -760,6 +851,296 @@ export function Canvas(props: CanvasProps) {
     }
   };
 
+  // mind maps ------------------------------------------------------------------------------------------------------
+  // folding is saved for people who can edit; anyone else folds and unfolds just on their own screen
+  const [ownFolds, setOwnFolds] = useState<Map<string, boolean>>(new Map());
+  const mind = useMemo(() => mindTree(nodes, edges), [nodes, edges]);
+  const folded = useCallback(
+    (id: string) => ownFolds.get(id) ?? !!nodes.find((n) => n.id === id)?.data.collapsed,
+    [ownFolds, nodes]
+  );
+  const hidden = useMemo(
+    () => hiddenIdeas(mind, (id) => ownFolds.get(id) ?? !!nodes.find((n) => n.id === id)?.data.collapsed),
+    [mind, ownFolds, nodes]
+  );
+  const shownNodes = useMemo(
+    () =>
+      nodes.map((n) =>
+        hidden.has(n.id) || pageOf(n) !== page ? (n.hidden ? n : { ...n, hidden: true }) : n
+      ),
+    [nodes, hidden, page]
+  );
+  /** Brings a shape into view if it's off the screen. */
+  const reveal = (id: string) =>
+    setTimeout(() => {
+      const n = current.current.nodes.find((x) => x.id === id);
+      const box = wrapper.current?.getBoundingClientRect();
+      if (!n || !box) return;
+      const a = flow.flowToScreenPosition(n.position);
+      const b = flow.flowToScreenPosition({
+        x: n.position.x + (n.width ?? 150),
+        y: n.position.y + (n.height ?? 52),
+      });
+      if (a.x < box.left + 20 || a.y < box.top + 20 || b.x > box.right - 20 || b.y > box.bottom - 20)
+        void flow.setCenter(
+          (n.position.x * 2 + (n.width ?? 150)) / 2,
+          (n.position.y * 2 + (n.height ?? 52)) / 2,
+          {
+            zoom: flow.getZoom(),
+            duration: 250,
+          }
+        );
+    }, 40);
+  const mindAct = (id: string, action: MindAction, label?: string) => {
+    if (action === "fold" && !canEdit) {
+      setOwnFolds((prev) => new Map(prev).set(id, !folded(id)));
+      return;
+    }
+    if (!canEdit) return;
+    let ns = current.current.nodes;
+    let es = current.current.edges;
+    if (label !== undefined) ns = ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, label } } : n));
+    if (action === "fold") {
+      ns = ns.map((n) => (n.id === id ? { ...n, data: { ...n.data, collapsed: !folded(id) } } : n));
+      setOwnFolds((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+    const isFolded = (k: string) =>
+      k === id && action === "fold"
+        ? !folded(id)
+        : (ownFolds.get(k) ?? !!ns.find((n) => n.id === k)?.data.collapsed);
+    const tree = mindTree(ns, es);
+    let focus = id;
+    if (action === "child" || action === "sibling") {
+      const parent = action === "sibling" ? tree.parent.get(id) : id;
+      const added = addIdea(ns, es, parent ?? id, isFolded, action === "sibling" && parent ? id : undefined);
+      ns = added.nodes.map((n) => (n.id === added.id ? { ...n, data: onPage(n.data, page) } : n));
+      es = added.edges;
+      focus = added.id;
+    } else {
+      const laid = mindLayout(ns, es, rootOf(tree, id), isFolded);
+      ns = laid.nodes;
+      es = laid.edges;
+    }
+    const adding = action === "child" || action === "sibling";
+    replace(
+      ns.map((n) => (n.selected === (n.id === focus) ? n : { ...n, selected: n.id === focus })),
+      es.map((e) => (e.selected ? { ...e, selected: false } : e))
+    );
+    if (adding) {
+      setEditingId(focus);
+      reveal(focus);
+    }
+  };
+  /** Deleting an idea takes the ideas under it too. */
+  const onBeforeDelete = async ({
+    nodes: gone,
+    edges: goneEdges,
+  }: {
+    nodes: ShapeNode[];
+    edges: LineEdge[];
+  }) => {
+    const ids = new Set(gone.map((n) => n.id));
+    for (const n of gone) if (n.data.shape === "mind") branchOf(mind, n.id).forEach((k) => ids.add(k));
+    if (ids.size === gone.length) return true;
+    const lines = new Set(goneEdges.map((e) => e.id));
+    return {
+      nodes: current.current.nodes.filter((n) => ids.has(n.id)),
+      edges: current.current.edges.filter((e) => lines.has(e.id) || ids.has(e.source) || ids.has(e.target)),
+    };
+  };
+  const soloIdea =
+    selectedNodes.length === 1 && selectedNodes[0].data.shape === "mind" ? selectedNodes[0] : null;
+
+  // AI: what it drew goes to the right of what's on this page; a suggested step goes after its shape -----------
+  const addDrawing = (graph: AiGraph) => {
+    if (!canEdit) return;
+    const here = current.current.nodes.filter((n) => pageOf(n) === page);
+    const at = here.length
+      ? {
+          x: Math.round(Math.max(...here.map((n) => n.position.x + (n.width ?? 160))) + 120),
+          y: Math.round(Math.min(...here.map((n) => n.position.y))),
+        }
+      : { x: 0, y: 0 };
+    const drawn = graphShapes(graph, at, page === FIRST_PAGE ? undefined : page);
+    replace(
+      [...current.current.nodes.map((n) => ({ ...n, selected: false })), ...drawn.nodes],
+      [...current.current.edges.map((e) => ({ ...e, selected: false })), ...drawn.edges]
+    );
+    toast.success(`Drawn: ${drawn.nodes.length} shapes`);
+    setTimeout(() => void flow.fitView({ nodes: drawn.nodes, padding: 0.15, duration: 400, maxZoom: 1 }), 80);
+  };
+  const addStep = (s: AiSuggestion) => {
+    if (!canEdit) return;
+    const after = s.after ? current.current.nodes.find((n) => n.id === s.after) : null;
+    const item = SHAPES.find((x) => x.key === "process")!;
+    if (!after) {
+      addShape(item, undefined, { label: s.label });
+      return;
+    }
+    const w = item.w;
+    const spot = {
+      x: after.position.x + (after.width ?? 160) / 2 - w / 2,
+      y: after.position.y + (after.height ?? 64) + 70,
+    };
+    // step aside while something is already there
+    const taken = (x: number, y: number) =>
+      current.current.nodes.some(
+        (n) =>
+          pageOf(n) === page &&
+          x < n.position.x + (n.width ?? 160) &&
+          x + w > n.position.x &&
+          y < n.position.y + (n.height ?? 64) &&
+          y + item.h > n.position.y
+      );
+    for (let i = 0; i < 20 && taken(spot.x, spot.y); i++) spot.x += w + 40;
+    const id = newId("n");
+    const node: ShapeNode = {
+      id,
+      type: "shape",
+      position: spot,
+      width: w,
+      height: item.h,
+      zIndex: 0,
+      data: onPage(
+        { ...defaultData("process", s.label), fill: "#fef9c3", stroke: "#eab308", text: "#713f12" },
+        page
+      ),
+      selected: true,
+    };
+    const edge = toEdge({
+      id: newId("e"),
+      source: after.id,
+      target: id,
+      sourceHandle: "b",
+      targetHandle: "t",
+      type: "line",
+      data: { dashed: true },
+    });
+    replace(
+      [...current.current.nodes.map((n) => ({ ...n, selected: false })), node],
+      [...current.current.edges, edge]
+    );
+    setTimeout(
+      () => void flow.fitView({ nodes: [after, node], padding: 0.6, duration: 300, maxZoom: 1.1 }),
+      60
+    );
+  };
+
+  // chatbots: this page's flow becomes a draft chatbot; a chatbot's flow is drawn here ----------------------------
+  const [botDialog, setBotDialog] = useState<{ draft: ChatbotDraft | null; error: string | null } | null>(
+    null
+  );
+  const [botPicker, setBotPicker] = useState(false);
+  const openBotDialog = () => {
+    try {
+      const here = current.current.nodes.filter((n) => pageOf(n) === page && !hidden.has(n.id));
+      setBotDialog({ draft: toChatbot(here, current.current.edges), error: null });
+    } catch (err) {
+      setBotDialog({ draft: null, error: (err as Error).message });
+    }
+  };
+
+  // pages --------------------------------------------------------------------------------------------------------
+  const goToPage = (id: string) => {
+    setPageId(id);
+    setEditingId(null);
+    setDraftPin(null);
+    setFollowing(null);
+    select(new Set());
+    try {
+      const url = new URL(window.location.href);
+      if (id === pages[0].id) url.searchParams.delete("page");
+      else url.searchParams.set("page", id);
+      window.history.replaceState(window.history.state, "", url);
+    } catch {
+      /* the address just doesn't follow */
+    }
+    setTimeout(() => void flow.fitView({ padding: 0.2, maxZoom: 1, duration: 200 }), 60);
+  };
+  const savePages = (next: Page[]) => {
+    if (!props.savePages || !canEdit) return;
+    setPagesDraft(next);
+    props.savePages(next).catch((err: Error) => {
+      setPagesDraft(null);
+      toast.error(errorMessage(err));
+    });
+  };
+  const addPage = () => {
+    const used = new Set(pages.map((p) => p.name));
+    let n = pages.length + 1;
+    while (used.has(`Page ${n}`)) n++;
+    const id = newId("p").slice(0, 20);
+    savePages([...pages, { id, name: `Page ${n}` }]);
+    goToPage(id);
+  };
+  const pageAction = async (id: string, action: PageAction) => {
+    const at = pages.findIndex((p) => p.id === id);
+    const it = pages[at];
+    if (!it) return;
+    if (action === "link") {
+      const url = new URL(window.location.href);
+      url.search = "";
+      if (at > 0) url.searchParams.set("page", id);
+      try {
+        await navigator.clipboard.writeText(url.toString());
+        toast.success("Link to this page copied");
+      } catch {
+        toast.error("Couldn't copy the link");
+      }
+      return;
+    }
+    if (!canEdit) return;
+    if (action === "left" || action === "right") {
+      const to = action === "left" ? at - 1 : at + 1;
+      const next = [...pages];
+      [next[at], next[to]] = [next[to], next[at]];
+      savePages(next);
+      return;
+    }
+    const onIt = current.current.nodes.filter((n) => pageOf(n) === id);
+    const ids = new Set(onIt.map((n) => n.id));
+    if (action === "duplicate") {
+      const copyId = newId("p").slice(0, 20);
+      const map = new Map(onIt.map((n) => [n.id, newId("n")]));
+      const copies = onIt.map((n) => ({
+        ...n,
+        id: map.get(n.id)!,
+        selected: false,
+        data: onPage(n.data, copyId),
+      }));
+      const lines = current.current.edges
+        .filter((e) => ids.has(e.source) && ids.has(e.target))
+        .map((e) => ({
+          ...e,
+          id: newId("e"),
+          source: map.get(e.source)!,
+          target: map.get(e.target)!,
+          selected: false,
+        }));
+      replace([...current.current.nodes, ...copies], [...current.current.edges, ...lines]);
+      const next = [...pages];
+      next.splice(at + 1, 0, { id: copyId, name: `${it.name} (copy)`.slice(0, 60) });
+      savePages(next);
+      goToPage(copyId);
+      return;
+    }
+    if (action === "delete") {
+      if (pages.length < 2) return;
+      if (props.confirmDeletePage && !(await props.confirmDeletePage(it.name))) return;
+      replace(
+        current.current.nodes.filter((n) => !ids.has(n.id)),
+        current.current.edges.filter((e) => !ids.has(e.source) && !ids.has(e.target))
+      );
+      const next = pages.filter((p) => p.id !== id);
+      savePages(next);
+      if (page === id) goToPage(next[Math.max(0, at - 1)].id);
+    }
+  };
+
   // keyboard ---------------------------------------------------------------------------------------------------------
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -792,8 +1173,14 @@ export function Canvas(props: CanvasProps) {
         arrange("duplicate");
       } else if (mod && key === "a") {
         e.preventDefault();
-        select(new Set(current.current.nodes.map((n) => n.id)));
-      } else if (key === "enter" && current.current.nodes.filter((n) => n.selected).length === 1) {
+        select(new Set(current.current.nodes.filter((n) => pageOf(n) === page).map((n) => n.id)));
+      } else if ((key === "tab" || key === "enter") && soloIdea && !mod && !e.shiftKey) {
+        e.preventDefault();
+        mindAct(soloIdea.id, key === "tab" ? "child" : "sibling");
+      } else if (
+        (key === "enter" || key === "f2") &&
+        current.current.nodes.filter((n) => n.selected).length === 1
+      ) {
         e.preventDefault();
         arrange("edit-text");
       } else if (key.startsWith("arrow")) {
@@ -826,19 +1213,20 @@ export function Canvas(props: CanvasProps) {
   useEffect(() => {
     if (!following) return;
     if (!live.peers.has(following)) {
-      setFollowing(null); // eslint-disable-line react-hooks/set-state-in-effect -- they left the diagram
+      setFollowing(null);
       return;
     }
+    if (followView?.page && followView.page !== page) setPageId(followView.page); // eslint-disable-line react-hooks/set-state-in-effect -- they went to another page
     if (followView) void flow.setCenter(followView.x, followView.y, { zoom: followView.zoom, duration: 250 });
-  }, [following, followView, live.peers, flow]);
+  }, [following, followView, live.peers, flow, page]);
 
   // presentation: frames are the slides (top to bottom, left to right); no frames = the whole diagram -------
   const root = useRef<HTMLDivElement>(null);
   const slides = useMemo(() => {
-    const frames = nodes.filter((n) => n.data.shape === "frame");
+    const frames = nodes.filter((n) => n.data.shape === "frame" && pageOf(n) === page);
     const rowOf = (n: ShapeNode) => Math.round(n.position.y / 200);
     return frames.sort((a, b) => rowOf(a) - rowOf(b) || a.position.x - b.position.x);
-  }, [nodes]);
+  }, [nodes, page]);
   const slideCount = Math.max(1, slides.length);
   const present = (index: number) => {
     const i = Math.max(0, Math.min(slideCount - 1, index));
@@ -910,12 +1298,22 @@ export function Canvas(props: CanvasProps) {
         map.set(t.root.node_id, (map.get(t.root.node_id) ?? 0) + 1 + t.replies.length);
     return map;
   }, [list]);
+  const threadPage = (root: Comment) => {
+    const n = root.node_id ? nodes.find((x) => x.id === root.node_id) : null;
+    return n ? pageOf(n) : (root.page ?? FIRST_PAGE);
+  };
+  const pageThreads = list.filter((t) => threadPage(t.root) === page);
   const openThread = (id: number) => {
     setActiveThread(id);
     setPanel("comments");
     const t = list.find((x) => x.root.id === id);
+    if (t && threadPage(t.root) !== page) setPageId(threadPage(t.root));
     const at = t && pinAt(t.root, new Map(current.current.nodes.map((n) => [n.id, n])));
-    if (at) flow.setCenter(at.x, at.y, { zoom: Math.max(flow.getZoom(), 0.8), duration: 300 });
+    if (at)
+      setTimeout(
+        () => flow.setCenter(at.x, at.y, { zoom: Math.max(flow.getZoom(), 0.8), duration: 300 }),
+        30
+      );
   };
   const opened = useRef(false);
   useEffect(() => {
@@ -945,9 +1343,46 @@ export function Canvas(props: CanvasProps) {
       },
     };
   }, [liveState, myVoteKey, props.workshop?.vote, props.me.guest, previewing]);
+  // shapes ask for mind map changes through events, so the context (and every shape) stays the same between renders
+  const [mindEvents] = useState(() => new EventTarget());
+  useEffect(() => {
+    const on = (e: Event) => {
+      const { id, action, label } = (e as CustomEvent<{ id: string; action: MindAction; label?: string }>)
+        .detail;
+      mindAct(id, action, label);
+    };
+    mindEvents.addEventListener("act", on);
+    return () => mindEvents.removeEventListener("act", on);
+  });
   const ctx = useMemo(
-    () => ({ editable: canEdit, editingId, setEditingId, peerSelection, commentCount, votes }),
-    [canEdit, editingId, peerSelection, commentCount, votes]
+    () => ({
+      editable: canEdit,
+      editingId,
+      setEditingId,
+      peerSelection,
+      commentCount,
+      votes,
+      records: { cards, canOpen: !!props.records?.canOpen },
+      mind: {
+        kids: new Map([...mind.kids].map(([id, k]) => [id, k.length])),
+        side: mind.side,
+        folded,
+        act: (id: string, action: MindAction, label?: string) =>
+          void mindEvents.dispatchEvent(new CustomEvent("act", { detail: { id, action, label } })),
+      },
+    }),
+    [
+      canEdit,
+      editingId,
+      peerSelection,
+      commentCount,
+      votes,
+      mind,
+      folded,
+      cards,
+      props.records?.canOpen,
+      mindEvents,
+    ]
   );
 
   const shown = useMemo(() => (props.preview ? fromContent(props.preview.content) : null), [props.preview]);
@@ -959,11 +1394,25 @@ export function Canvas(props: CanvasProps) {
   const [exporting, setExporting] = useState(false);
   const exportAs = async (format: "png" | "svg" | "pdf") => {
     // what's on screen (or the version being looked at), without selection or anyone's cursor
-    const source = shown ?? { nodes, edges };
+    const picked = shown
+      ? { nodes: shown.nodes.filter((n) => pageOf(n) === page), edges: shown.edges }
+      : { nodes: nodes.filter((n) => !hidden.has(n.id) && pageOf(n) === page), edges };
+    // live cards are drawn as they are right now
+    const source = {
+      ...picked,
+      nodes: picked.nodes.map((n) =>
+        n.data.record ? { ...n, data: { ...n.data, card: cards.get(recordKey(n.data.record)) } } : n
+      ),
+    };
     setExporting(true);
     try {
       const save = format === "pdf" ? downloadPdf : format === "svg" ? downloadSvg : downloadPng;
-      await save(source.nodes, source.edges, props.preview ? `${name} (${props.preview.label})` : name);
+      const here = pages.length > 1 ? ` - ${pages.find((p) => p.id === page)?.name ?? ""}` : "";
+      await save(
+        source.nodes,
+        source.edges,
+        props.preview ? `${name}${here} (${props.preview.label})` : `${name}${here}`
+      );
     } catch (err) {
       toast.error(errorMessage(err));
     } finally {
@@ -1065,6 +1514,17 @@ export function Canvas(props: CanvasProps) {
               title="Present (frames are slides)"
               onClick={() => present(0)}
             />
+            {props.ai && !previewing && (
+              <Button
+                size="sm"
+                variant={panel === "ai" ? "secondary" : "ghost"}
+                iconOnly
+                leftIcon={Sparkles}
+                aria-label="AI"
+                title="AI: draw from a description, explain, find missing steps"
+                onClick={() => setPanel(panel === "ai" ? null : "ai")}
+              />
+            )}
             {props.workshop && (
               <Button
                 size="sm"
@@ -1126,7 +1586,7 @@ export function Canvas(props: CanvasProps) {
               ]}
             />
             {props.actions}
-            {(props.menu?.length || canEdit) && (
+            {(props.menu?.length || canEdit || props.chatbot) && (
               <Dropdown
                 align="right"
                 width="w-56"
@@ -1145,6 +1605,18 @@ export function Canvas(props: CanvasProps) {
                     icon: Workflow,
                     hidden: !canEdit,
                     onClick: () => tidy("LR"),
+                  },
+                  {
+                    label: "Turn into a chatbot…",
+                    icon: Bot,
+                    hidden: !props.chatbot || previewing,
+                    onClick: openBotDialog,
+                  },
+                  {
+                    label: "Draw a chatbot's flow…",
+                    icon: Bot,
+                    hidden: !props.chatbot || !canEdit || !props.records?.search,
+                    onClick: () => setBotPicker(true),
                   },
                   ...(props.menu ?? []),
                 ]}
@@ -1233,13 +1705,14 @@ export function Canvas(props: CanvasProps) {
             }}
           >
             <ReactFlow<ShapeNode, LineEdge>
-              nodes={shown ? shown.nodes : nodes}
+              nodes={shown ? shown.nodes : shownNodes}
               edges={shown ? shown.edges : edges}
               nodeTypes={NODE_TYPES}
               edgeTypes={EDGE_TYPES}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
               onConnect={onConnect}
+              onBeforeDelete={onBeforeDelete}
               onReconnect={canEdit ? onReconnect : undefined}
               edgesReconnectable={canEdit}
               connectionMode={ConnectionMode.Loose}
@@ -1292,6 +1765,7 @@ export function Canvas(props: CanvasProps) {
                     x: (box.width / 2 - vp.x) / vp.zoom,
                     y: (box.height / 2 - vp.y) / vp.zoom,
                     zoom: vp.zoom,
+                    page,
                   },
                 });
               }}
@@ -1320,10 +1794,10 @@ export function Canvas(props: CanvasProps) {
                 nodeStrokeColor={(n) => ((n.data as ShapeData).stroke as string) ?? "#64748b"}
                 maskColor={dark ? "rgba(15,23,42,0.6)" : "rgba(241,245,249,0.6)"}
               />
-              <Cursors peers={peers} nodes={nodes} />
+              <Cursors peers={peers.filter((p) => (p.view?.page ?? FIRST_PAGE) === page)} nodes={nodes} />
               {comments && !shown && (
                 <CommentPins
-                  list={list}
+                  list={pageThreads}
                   nodes={nodes}
                   active={activeThread}
                   onOpen={openThread}
@@ -1331,7 +1805,13 @@ export function Canvas(props: CanvasProps) {
                   onDraftCancel={() => setDraftPin(null)}
                   people={props.people}
                   onDraftSave={async (body, mentions) => {
-                    await comments.add({ body, x: draftPin!.x, y: draftPin!.y, mentions });
+                    await comments.add({
+                      body,
+                      x: draftPin!.x,
+                      y: draftPin!.y,
+                      mentions,
+                      page: page === FIRST_PAGE ? null : page,
+                    });
                     setDraftPin(null);
                     setCommentMode(false);
                     setPanel("comments");
@@ -1424,6 +1904,33 @@ export function Canvas(props: CanvasProps) {
               </div>
             </div>
             {liveState && <TimerPill timer={liveState.session.timer} endsAt={timerEnds} />}
+            {canEdit && soloIdea && presenting === null && (
+              <p
+                role="note"
+                className="border-line bg-surface/95 text-fg-subtle pointer-events-none absolute bottom-4 left-1/2 z-10 hidden -translate-x-1/2 items-center gap-3 rounded-full border px-3.5 py-1.5 text-xs shadow-sm sm:flex"
+              >
+                {(editingId === soloIdea.id
+                  ? [
+                      ["Tab", "idea under it"],
+                      ["Enter", "idea next to it"],
+                      ["Esc", "done"],
+                    ]
+                  : [
+                      ["Tab", "idea under it"],
+                      ["Enter", "idea next to it"],
+                      ["F2", "rename"],
+                      ["Del", "remove branch"],
+                    ]
+                ).map(([k, what]) => (
+                  <span key={k} className="flex items-center gap-1 whitespace-nowrap">
+                    <kbd className="border-line bg-page text-fg rounded border px-1.5 py-px font-sans text-[11px] font-semibold">
+                      {k}
+                    </kbd>
+                    {what}
+                  </span>
+                ))}
+              </p>
+            )}
             {presenting !== null && (
               <div className="bg-fg/90 text-page absolute bottom-5 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full px-2 py-1.5 shadow-lg">
                 <button
@@ -1516,6 +2023,7 @@ export function Canvas(props: CanvasProps) {
                   onReply={comments.add}
                   onResolve={comments.resolve}
                   onDelete={comments.remove}
+                  onTask={comments.setTask}
                   onClose={() => setPanel(null)}
                   people={props.people}
                   hint={
@@ -1543,12 +2051,42 @@ export function Canvas(props: CanvasProps) {
                   onVoting={props.workshop.voting}
                   onClose={() => setPanel(null)}
                 />
+              ) : panel === "ai" && props.ai ? (
+                <AiPanel
+                  ai={props.ai}
+                  canEdit={canEdit}
+                  labelOf={(id) => {
+                    const n = nodes.find((x) => x.id === id);
+                    return n ? n.data.label || "" : null;
+                  }}
+                  onFocus={(id) => {
+                    const n = nodes.find((x) => x.id === id);
+                    if (n) flow.fitView({ nodes: [n], padding: 1.2, duration: 300, maxZoom: 1.2 });
+                  }}
+                  onDrawn={addDrawing}
+                  onAddStep={addStep}
+                  onClose={() => setPanel(null)}
+                />
               ) : panel === "extra" && props.sidePanel ? (
                 props.sidePanel.render(() => setPanel(null))
               ) : null}
             </aside>
           )}
         </div>
+
+        {presenting === null && !shown && (canEdit ? !!props.savePages : pages.length > 1) && (
+          <PageTabs
+            pages={pages}
+            current={page}
+            canEdit={canEdit && !!props.savePages}
+            onPick={goToPage}
+            onAdd={addPage}
+            onRename={(id, nextName) =>
+              savePages(pages.map((p) => (p.id === id ? { ...p, name: nextName } : p)))
+            }
+            onAction={(id, action) => void pageAction(id, action)}
+          />
+        )}
 
         <input
           ref={fileInput}
@@ -1574,6 +2112,48 @@ export function Canvas(props: CanvasProps) {
           <p className="bg-fg text-page absolute bottom-4 left-1/2 z-30 -translate-x-1/2 rounded-full px-3 py-1 text-xs font-medium shadow">
             Uploading picture…
           </p>
+        )}
+        {botDialog && props.chatbot && (
+          <ChatbotDialog
+            draft={botDialog.draft}
+            error={botDialog.error}
+            name={pages.length > 1 ? `${name} - ${pages.find((p) => p.id === page)?.name ?? ""}` : name}
+            onClose={() => setBotDialog(null)}
+            onMake={async (botName, draft) => {
+              await props.chatbot!.make(botName, draft.graph);
+              setBotDialog(null);
+            }}
+          />
+        )}
+        {botPicker && props.chatbot && props.records?.search && (
+          <RecordPicker
+            type="chatbot"
+            only={["chatbot"]}
+            title="Draw a chatbot's flow"
+            search={props.records.search}
+            onClose={() => setBotPicker(false)}
+            onPick={async (_, hit) => {
+              setBotPicker(false);
+              try {
+                const bot = await props.chatbot!.load(hit.id);
+                addDrawing(fromChatbot(bot.name, bot.graph));
+              } catch (err) {
+                toast.error(errorMessage(err));
+              }
+            }}
+          />
+        )}
+        {recordFor && props.records?.search && (
+          <RecordPicker
+            type={recordFor.type}
+            search={props.records.search}
+            onClose={() => setRecordFor(null)}
+            onPick={(type, hit) => {
+              const item = SHAPES.find((x) => x.key === `record:${type}`)!;
+              addShape(item, recordFor.at, { record: { type, id: hit.id } });
+              setRecordFor(null);
+            }}
+          />
         )}
         {iconFor && (
           <IconPicker

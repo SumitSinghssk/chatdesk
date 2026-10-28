@@ -215,6 +215,13 @@ def _tick() -> None:
         except Exception:  # noqa: BLE001
             db.rollback()
             logger.exception("Waiting alerts failed")
+        try:
+            from app.modules.customer.diagrams.service import task_reminders
+
+            task_reminders(db)
+        except Exception:  # noqa: BLE001
+            db.rollback()
+            logger.exception("Diagram task reminders failed")
         finally:
             db.close()
 

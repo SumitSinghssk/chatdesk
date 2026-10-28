@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useStore } from "@xyflow/react";
-import { Check, MessageSquare, RotateCcw, SendHorizontal, Trash2, X } from "lucide-react";
+import { Check, ListTodo, MessageSquare, RotateCcw, SendHorizontal, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button } from "@/app/admin/_components/ui/index";
+import { Button, DatePicker, Select } from "@/app/admin/_components/ui/index";
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -33,6 +33,32 @@ export function pinAt(root: Comment, nodes: Map<string, ShapeNode>) {
 }
 
 const initials = (name: string) => name.trim().slice(0, 1).toUpperCase() || "?";
+
+/** "Today", "Tomorrow", "30 Oct": when a task is due. */
+export function dueText(day: string) {
+  const [y, m, d] = day.split("-").map(Number);
+  const due = new Date(y, m - 1, d);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((due.getTime() - today.getTime()) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days === -1) return "yesterday";
+  return due.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    ...(due.getFullYear() !== today.getFullYear() ? { year: "numeric" } : {}),
+  });
+}
+
+export function isLate(day: string | null | undefined) {
+  if (!day) return false;
+  const today = new Date();
+  const local = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  return day < local;
+}
+
+export type TaskInput = { assignee_id: number | null; due_on?: string | null };
 
 /** Comment pins on the canvas, and the box to write a new one where you clicked. */
 export function CommentPins({
@@ -160,6 +186,7 @@ export function CommentsPanel({
   onClose,
   hint,
   people,
+  onTask,
 }: {
   list: Thread[];
   active: number | null;
@@ -172,9 +199,16 @@ export function CommentsPanel({
   onClose: () => void;
   hint: string;
   people?: Mentionable[];
+  /** turns a comment into a task (team members only) */
+  onTask?: (id: number, task: TaskInput) => Promise<void>;
 }) {
-  const [show, setShow] = useState<"open" | "resolved">("open");
-  const shown = list.filter((t) => (show === "open" ? !t.root.resolved : t.root.resolved)).reverse();
+  const [show, setShow] = useState<"open" | "tasks" | "resolved">("open");
+  const matches = (t: Thread, k: typeof show) =>
+    k === "open" ? !t.root.resolved : k === "tasks" ? !t.root.resolved && !!t.root.task : t.root.resolved;
+  const shown = list.filter((t) => matches(t, show)).reverse();
+  // tasks: the soonest due first
+  if (show === "tasks")
+    shown.sort((a, b) => (a.root.task?.due_on ?? "9999").localeCompare(b.root.task?.due_on ?? "9999"));
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="border-line flex items-center justify-between border-b px-3 py-2.5">
@@ -189,7 +223,10 @@ export function CommentsPanel({
         </button>
       </div>
       <div className="flex gap-1 px-3 pt-2.5">
-        {(["open", "resolved"] as const).map((k) => (
+        {(onTask || list.some((t) => t.root.task)
+          ? (["open", "tasks", "resolved"] as const)
+          : (["open", "resolved"] as const)
+        ).map((k) => (
           <button
             key={k}
             type="button"
@@ -200,8 +237,8 @@ export function CommentsPanel({
               show === k ? "bg-primary-soft text-primary" : "text-fg-subtle hover:bg-hover"
             )}
           >
-            {k === "open" ? "Open" : "Resolved"} (
-            {list.filter((t) => (k === "open") !== t.root.resolved).length})
+            {k === "open" ? "Open" : k === "tasks" ? "Tasks" : "Resolved"} (
+            {list.filter((t) => matches(t, k)).length})
           </button>
         ))}
       </div>
@@ -209,7 +246,11 @@ export function CommentsPanel({
         {shown.length === 0 && (
           <div className="text-fg-subtle py-10 text-center text-sm">
             <MessageSquare className="text-fg-faint mx-auto mb-2 h-6 w-6" />
-            {show === "open" ? hint : "Nothing resolved yet."}
+            {show === "open"
+              ? hint
+              : show === "tasks"
+                ? "No open tasks. Open a comment and choose “Make it a task”."
+                : "Nothing resolved yet."}
           </div>
         )}
         {shown.map((t) => (
@@ -224,6 +265,7 @@ export function CommentsPanel({
             people={people}
             onResolve={onResolve}
             onDelete={onDelete}
+            onTask={onTask}
           />
         ))}
       </div>
@@ -241,6 +283,7 @@ function ThreadCard({
   onResolve,
   onDelete,
   people,
+  onTask,
 }: {
   thread: Thread;
   active: boolean;
@@ -251,7 +294,10 @@ function ThreadCard({
   onResolve?: (id: number, resolved: boolean) => Promise<void>;
   onDelete?: (id: number) => Promise<void>;
   people?: Mentionable[];
+  onTask?: (id: number, task: TaskInput) => Promise<void>;
 }) {
+  const task = thread.root.task;
+  const [editingTask, setEditingTask] = useState(false);
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const formId = `reply-${thread.root.id}`;
@@ -312,6 +358,55 @@ function ThreadCard({
           </div>
         ))}
       </button>
+      {task && !editingTask && (
+        <div
+          className={cn(
+            "mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-2 py-1.5 text-xs",
+            thread.root.resolved
+              ? "bg-emerald-50 text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : isLate(task.due_on)
+                ? "bg-danger-soft text-danger"
+                : "bg-sky-50 text-sky-900 dark:bg-sky-950/40 dark:text-sky-200"
+          )}
+        >
+          <ListTodo className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 flex-1">
+            {thread.root.resolved ? "Done · " : "Task for "}
+            <b>{task.assignee}</b>
+            {task.due_on && (
+              <>
+                {" "}
+                · {isLate(task.due_on) && !thread.root.resolved ? "was due" : "due"} {dueText(task.due_on)}
+              </>
+            )}
+          </span>
+          {onTask && canComment && (
+            <button type="button" className="font-semibold underline" onClick={() => setEditingTask(true)}>
+              Change
+            </button>
+          )}
+        </div>
+      )}
+      {editingTask && onTask && (
+        <TaskForm
+          people={people ?? []}
+          task={task ?? null}
+          onCancel={() => setEditingTask(false)}
+          onSave={async (next) => {
+            await onTask(thread.root.id, next);
+            setEditingTask(false);
+          }}
+        />
+      )}
+      {!task && !editingTask && onTask && canComment && !thread.root.resolved && (
+        <button
+          type="button"
+          onClick={() => setEditingTask(true)}
+          className="text-fg-subtle hover:text-primary mt-1.5 flex items-center gap-1 text-xs font-medium"
+        >
+          <ListTodo className="h-3.5 w-3.5" /> Make it a task
+        </button>
+      )}
       {canComment && (
         <form
           id={formId}
@@ -352,12 +447,85 @@ function ThreadCard({
               variant="secondary"
               iconOnly
               leftIcon={thread.root.resolved ? RotateCcw : Check}
-              aria-label={thread.root.resolved ? "Open again" : "Resolve"}
+              aria-label={thread.root.resolved ? "Open again" : task ? "Mark done" : "Resolve"}
+              title={thread.root.resolved ? "Open again" : task ? "Mark done" : "Resolve"}
               onClick={() => void run(() => onResolve(thread.root.id, !thread.root.resolved))}
             />
           )}
         </form>
       )}
+    </div>
+  );
+}
+
+/** Who does it, and by when. */
+function TaskForm({
+  people,
+  task,
+  onSave,
+  onCancel,
+}: {
+  people: Mentionable[];
+  task: Comment["task"] | null;
+  onSave: (task: TaskInput) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const [who, setWho] = useState(task?.assignee_id ? String(task.assignee_id) : "");
+  const [due, setDue] = useState(task?.due_on ?? "");
+  const [busy, setBusy] = useState<"save" | "clear" | null>(null);
+  const run = async (kind: "save" | "clear", input: TaskInput) => {
+    setBusy(kind);
+    try {
+      await onSave(input);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="border-line bg-page mt-2 space-y-2 rounded-lg border p-2">
+      <Select
+        id={`task-who-${task?.assignee_id ?? "new"}`}
+        label="Who does it"
+        size="sm"
+        value={who}
+        onChange={setWho}
+        placeholder="Choose someone"
+        options={people.map((p) => ({ value: String(p.id), label: p.name }))}
+      />
+      <DatePicker
+        id={`task-due-${task?.assignee_id ?? "new"}`}
+        label="Due (optional)"
+        size="sm"
+        value={due}
+        onChange={setDue}
+        placeholder="No due date"
+      />
+      <div className="flex flex-wrap justify-end gap-1">
+        {task && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="mr-auto"
+            loading={busy === "clear"}
+            onClick={() => void run("clear", { assignee_id: null })}
+          >
+            Not a task
+          </Button>
+        )}
+        <Button size="sm" variant="ghost" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          disabled={!who}
+          loading={busy === "save"}
+          onClick={() => void run("save", { assignee_id: Number(who), due_on: due || null })}
+        >
+          {task ? "Save" : "Give task"}
+        </Button>
+      </div>
     </div>
   );
 }

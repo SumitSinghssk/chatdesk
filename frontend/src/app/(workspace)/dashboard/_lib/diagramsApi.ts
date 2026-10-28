@@ -69,7 +69,76 @@ export interface DiagramSummary {
 }
 
 /** The live part that isn't drawing: a workshop timer, dot voting, and approval. */
+export type RecordType = "contact" | "order" | "campaign" | "chatbot";
+
+/** What a live card shows (people outside the team get fewer details, and no `path`). */
+export interface RecordCard {
+  type: RecordType;
+  id: number;
+  missing?: boolean;
+  title?: string;
+  status?: string | null;
+  /** where it opens in ChatDesk (team members) */
+  path?: string;
+  /** the WhatsApp number it's on, when the workspace has several */
+  number?: string;
+  phone?: string;
+  tags?: string[];
+  preview?: string | null;
+  last_message_at?: string | null;
+  total?: string;
+  payment_status?: string;
+  items?: number;
+  customer?: string | null;
+  report?: {
+    recipients: number;
+    sent: number;
+    delivered: number;
+    read: number;
+    replied: number;
+    failed: number;
+  };
+  chats_week?: number;
+  keywords?: string[];
+}
+
+/** What the AI drew: shapes with labels, and the lines between them (the browser lays it out). */
+export interface AiGraph {
+  title: string;
+  kind: "flowchart" | "mindmap";
+  nodes: { id: string; label: string; shape: string }[];
+  edges: { from: string; to: string; label: string }[];
+}
+
+export interface AiSuggestion {
+  label: string;
+  /** the shape it follows */
+  after: string | null;
+  why: string;
+}
+
+export interface AiOption {
+  id: number;
+  label: string;
+  provider: string;
+  model: string;
+  models: string[];
+}
+
+export interface RecordHit {
+  id: number;
+  title: string;
+  subtitle: string;
+}
+
+export interface Page {
+  id: string;
+  name: string;
+}
+
 export interface LiveState {
+  /** in order; none yet means one page */
+  pages?: Page[];
   session: {
     /** `left`: seconds to go when this was sent (devices count down from when they get it) */
     timer: { minutes: number; ends_at: string; by: string; left?: number } | null;
@@ -116,6 +185,8 @@ export interface Diagram extends LiveState {
   me: Person;
   /** only for people who manage it */
   link?: ShareLink;
+  /** shown on another website in a frame (view only) */
+  embed?: { enabled: boolean; token: string | null };
   members?: { member_id: number; role: "edit" | "comment" | "view" }[];
 }
 
@@ -145,6 +216,8 @@ export interface Comment {
   id: number;
   parent_id: number | null;
   node_id: string | null;
+  /** the page a pin on the canvas is on (none: the first) */
+  page?: string | null;
   x: number | null;
   y: number | null;
   body: string;
@@ -155,6 +228,13 @@ export interface Comment {
   resolved: boolean;
   created_at: string;
   mentions: { id: number; name: string }[];
+  /** a comment someone has to act on (resolving the thread marks it done) */
+  task?: { assignee_id: number | null; assignee: string; due_on: string | null; by: string | null } | null;
+}
+
+export interface Task extends Comment {
+  diagram: { id: number; name: string };
+  overdue: boolean;
 }
 
 export interface Version {
@@ -186,6 +266,7 @@ export interface Activity {
 export interface CommentInput {
   body: string;
   node_id?: string | null;
+  page?: string | null;
   x?: number | null;
   y?: number | null;
   parent_id?: number | null;
@@ -204,7 +285,7 @@ export const diagramsApi = {
   create: (body: { name: string; folder?: string | null; content?: DiagramContent }) =>
     request<Diagram>("POST", D.LIST, body),
   get: (id: number) => request<Diagram>("GET", D.ONE(id)),
-  update: (id: number, body: { name?: string; folder?: string | null }) =>
+  update: (id: number, body: { name?: string; folder?: string | null; pages?: Page[] }) =>
     request<Diagram>("PUT", D.ONE(id), body),
   remove: (id: number) => request<null>("DELETE", D.ONE(id)),
   duplicate: (id: number) => request<Diagram>("POST", D.DUPLICATE(id)),
@@ -225,6 +306,16 @@ export const diagramsApi = {
       new_link?: boolean;
     }
   ) => request<Diagram>("PUT", D.LINK(id), body),
+  records: (id: number) => request<Record<string, RecordCard>>("GET", D.RECORDS(id)),
+  aiOptions: () => request<AiOption[]>("GET", D.AI),
+  aiDraw: (body: { prompt: string; kind: "any" | "flowchart" | "mindmap" }) =>
+    request<AiGraph>("POST", D.AI_DRAW, body),
+  aiSummary: (id: number) => request<{ text: string }>("POST", D.AI_SUMMARY(id)),
+  aiSuggest: (id: number) => request<AiSuggestion[]>("POST", D.AI_SUGGEST(id)),
+  findRecords: (type: RecordType, q: string) =>
+    request<RecordHit[]>("GET", withQuery(D.FIND_RECORDS, { type, q: q || undefined })),
+  setEmbed: (id: number, body: { enabled: boolean; new_code?: boolean }) =>
+    request<Diagram>("PUT", D.EMBED(id), body),
   activity: (id: number) => request<Activity[]>("GET", D.ACTIVITY(id)),
   versions: (id: number) => request<Version[]>("GET", D.VERSIONS(id)),
   version: (id: number, versionId: number) =>
@@ -270,6 +361,9 @@ export const diagramsApi = {
   resolve: (id: number, commentId: number, resolved: boolean) =>
     request<Comment>("PUT", D.COMMENT(id, commentId), { resolved }),
   removeComment: (id: number, commentId: number) => request<null>("DELETE", D.COMMENT(id, commentId)),
+  setTask: (id: number, commentId: number, body: { assignee_id: number | null; due_on?: string | null }) =>
+    request<Comment>("PUT", D.TASK(id, commentId), body),
+  tasks: (done = false) => request<Task[]>("GET", `${D.TASKS}${done ? "?done=true" : ""}`),
   /** the live connection's address (the API sits behind this site, so it's the same host) */
   liveUrl: (id: number, since: number | null) =>
     socketUrl(withQuery(D.LIVE(id), { since: since ?? undefined })),
@@ -331,6 +425,8 @@ export const sharedApi = {
   changes: (token: string, pass: string | null, since: number) =>
     guest<CatchUp>("GET", withQuery(S.OPS(token), { since }), pass),
   comments: (token: string, pass: string | null) => guest<Comment[]>("GET", S.COMMENTS(token), pass),
+  records: (token: string, pass: string | null) =>
+    guest<Record<string, RecordCard>>("GET", S.RECORDS(token), pass),
   comment: (token: string, pass: string | null, body: CommentInput & { name: string }) =>
     guest<Comment>("POST", S.COMMENTS(token), pass, body),
   liveUrl: (token: string, since: number | null, pass: string | null, name: string | null) =>
@@ -339,11 +435,29 @@ export const sharedApi = {
     ),
 };
 
+// Shown on another website (view only) ------------------------------------------------------------
+
+export interface EmbeddedDiagram {
+  name: string;
+  content: DiagramContent;
+  seq: number;
+  pages: Page[];
+  updated_at: string;
+}
+
+export const embedApi = {
+  get: (token: string) => guest<EmbeddedDiagram>("GET", S.EMBED(token), null),
+  records: (token: string) => guest<Record<string, RecordCard>>("GET", S.EMBED_RECORDS(token), null),
+  changes: (token: string, since: number) =>
+    guest<CatchUp & { pages: Page[] }>("GET", withQuery(S.EMBED_OPS(token), { since }), null),
+};
+
 export const DIAGRAMS_QK = {
   ALL: ["diagrams"] as const,
   LIST: (params: Record<string, unknown>) => ["diagrams", "list", params] as const,
   ONE: (id: number) => ["diagrams", "one", id] as const,
   TEAM: ["diagrams", "team"] as const,
+  TASKS: (done: boolean) => ["diagrams", "tasks", done] as const,
   COMMENTS: (id: number) => ["diagrams", "comments", id] as const,
   VERSIONS: (id: number) => ["diagrams", "versions", id] as const,
   ACTIVITY: (id: number) => ["diagrams", "activity", id] as const,

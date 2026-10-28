@@ -1,3 +1,4 @@
+from typing import Literal
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, Query, UploadFile, WebSocket
@@ -10,8 +11,9 @@ from app.core.rate_limiter import RateLimit
 from app.modules.customer.account.models import Customer
 from app.modules.customer.diagrams import live, service
 from app.modules.customer.diagrams.schemas import (AccessSchema, ChangeRequestSchema, CommentSchema, DiagramSchema,
+                                                   DrawSchema, EmbedSchema,
                                                    DiagramUpdateSchema, GuestCommentSchema, LinkSchema, Op, OpsSchema,
-                                                   ResolveSchema, TimerSchema, UnlockSchema, VersionSchema, VoteSchema,
+                                                   ResolveSchema, TaskSchema, TimerSchema, UnlockSchema, VersionSchema, VoteSchema,
                                                    VotingSchema)
 from app.modules.customer.team.access import require_workspace
 
@@ -36,6 +38,37 @@ def create(payload: DiagramSchema, ws: Customer = Depends(require_workspace), db
 @router.get("/team")
 def team(ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
     return {"status": True, "data": service.team(db, ws)}
+
+
+@router.get("/tasks")
+def tasks(done: bool = False, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.my_tasks(db, ws, done)
+
+
+@router.get("/ai")
+def ai_options(ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.ai_options(db, ws)
+
+
+@router.post("/ai/draw", dependencies=[Depends(RateLimit(10, 60)), _csrf])
+def ai_draw(payload: DrawSchema, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.ai_draw(db, ws, payload.prompt, payload.kind, payload.connection_id, payload.model)
+
+
+@router.post("/{diagram_id}/ai/summary", dependencies=[Depends(RateLimit(10, 60)), _csrf])
+def ai_summary(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.ai_summary(db, ws, diagram_id)
+
+
+@router.post("/{diagram_id}/ai/suggest", dependencies=[Depends(RateLimit(10, 60)), _csrf])
+def ai_suggest(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.ai_suggest(db, ws, diagram_id)
+
+
+@router.get("/records/search")
+def find_records(type: Literal["contact", "order", "campaign", "chatbot"], q: str | None = Query(None, max_length=80),
+                 ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.find_records(db, ws, type, q)
 
 
 @router.get("/{diagram_id}")
@@ -134,6 +167,17 @@ def link(diagram_id: int, payload: LinkSchema, ws: Customer = Depends(require_wo
     return service.set_link(db, ws, diagram_id, payload)
 
 
+@router.put("/{diagram_id}/embed", dependencies=[_csrf])
+def embed(diagram_id: int, payload: EmbedSchema, ws: Customer = Depends(require_workspace),
+          db: Session = Depends(get_db)):
+    return service.set_embed(db, ws, diagram_id, payload.enabled, payload.new_code)
+
+
+@router.get("/{diagram_id}/records")
+def record_cards(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.record_cards(db, ws, diagram_id)
+
+
 @router.get("/{diagram_id}/activity")
 def activity(diagram_id: int, ws: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
     return service.activity(db, ws, diagram_id)
@@ -177,6 +221,12 @@ def comment(diagram_id: int, payload: CommentSchema, ws: Customer = Depends(requ
 def resolve(diagram_id: int, comment_id: int, payload: ResolveSchema, ws: Customer = Depends(require_workspace),
             db: Session = Depends(get_db)):
     return service.resolve_comment(db, ws, diagram_id, comment_id, payload.resolved)
+
+
+@router.put("/{diagram_id}/comments/{comment_id}/task", dependencies=[Depends(RateLimit(60, 60)), _csrf])
+def task(diagram_id: int, comment_id: int, payload: TaskSchema, ws: Customer = Depends(require_workspace),
+         db: Session = Depends(get_db)):
+    return service.set_task(db, ws, diagram_id, comment_id, payload)
 
 
 @router.delete("/{diagram_id}/comments/{comment_id}", dependencies=[_csrf])
@@ -273,6 +323,26 @@ async def live_guest(websocket: WebSocket, token: str, since: int | None = None,
 
 
 # Guests -----------------------------------------------------------------------------------------------
+
+@public_router.get("/embed/{token}", dependencies=[Depends(RateLimit(300, 60))])
+def embed_view(token: str, db: Session = Depends(get_db)):
+    return service.embed_view(db, token)
+
+
+@public_router.get("/embed/{token}/records", dependencies=[Depends(RateLimit(120, 60))])
+def embed_records(token: str, db: Session = Depends(get_db)):
+    return service.embed_records(db, token)
+
+
+@public_router.get("/{token}/records", dependencies=[Depends(RateLimit(120, 60))])
+def guest_records(token: str, key: str | None = Header(None, alias=PASS), db: Session = Depends(get_db)):
+    return service.guest_records(db, token, key)
+
+
+@public_router.get("/embed/{token}/ops", dependencies=[Depends(RateLimit(300, 60))])
+def embed_changes(token: str, since: int = Query(..., ge=0), db: Session = Depends(get_db)):
+    return service.embed_changes(db, token, since)
+
 
 @public_router.post("/{token}/unlock", dependencies=[Depends(RateLimit(10, 60)), _csrf])
 def unlock(token: str, payload: UnlockSchema, db: Session = Depends(get_db)):

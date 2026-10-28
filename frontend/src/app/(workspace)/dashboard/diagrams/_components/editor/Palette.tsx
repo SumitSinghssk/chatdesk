@@ -15,6 +15,8 @@ import {
 } from "lucide-react";
 import { DynamicIcon } from "lucide-react/dynamic";
 
+import { RECORD_TYPES } from "./Records";
+
 import { cn } from "@/lib/utils";
 
 import { defaultData, SHAPES, type PaletteItem, type ShapeKind } from "./model";
@@ -41,6 +43,10 @@ function Preview({ item }: { item: PaletteItem }) {
   if (kind === "text") return <span className="text-fg-muted text-[15px] leading-none font-semibold">T</span>;
   if (item.key === "mind:main") return <Brain className="h-5 w-5 text-violet-600" />;
   if (item.key === "icon:pick") return <Search className="text-fg-muted h-5 w-5" />;
+  if (kind === "record") {
+    const t = RECORD_TYPES.find((r) => r.type === item.data?.record?.type) ?? RECORD_TYPES[0];
+    return <t.icon className="h-5 w-5" style={{ color: t.color }} strokeWidth={1.75} />;
+  }
   if (kind === "icon" && isIcon(item.data?.icon)) {
     return <DynamicIcon name={item.data.icon} size={20} className="text-fg-muted" strokeWidth={1.75} />;
   }
