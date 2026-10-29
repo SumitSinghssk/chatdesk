@@ -8,6 +8,7 @@ import { DynamicIcon, iconNames, type IconName } from "lucide-react/dynamic";
 import { cn } from "@/lib/utils";
 
 import type { ShapeData, ShapeKind } from "./model";
+import { RecordCardView } from "./Records";
 
 /** Shapes drawn with HTML rather than an outline: chat bubbles, phones, tables, icons, pictures… */
 export const SPECIAL = new Set<ShapeKind>([
@@ -20,6 +21,7 @@ export const SPECIAL = new Set<ShapeKind>([
   "mind",
   "icon",
   "image",
+  "record",
 ]);
 
 /** Shapes whose title is typed straight on the canvas (tables and pictures have no title). */
@@ -326,6 +328,8 @@ export function SpecialBody({
       return <Icon data={data} w={w} h={h} />;
     case "image":
       return <Picture data={data} />;
+    case "record":
+      return <RecordCardView data={data} />;
     default:
       return null;
   }

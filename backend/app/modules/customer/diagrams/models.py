@@ -1,4 +1,4 @@
-from sqlalchemy import (JSON, BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Index, Integer, String, Text,
+from sqlalchemy import (JSON, BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import relationship
 
@@ -38,6 +38,11 @@ class Diagram(Base, TimestampMixin):
     approved_at = Column(DateTime, nullable=True)
     approved_by = Column(String(150), nullable=True)
     approved_version_id = Column(Integer, nullable=True)  # the copy kept when it was approved
+    # pages, in order: [{"id", "name"}]; each shape says which page it's on (none = the first)
+    pages = Column(JSON, nullable=True)
+    # shown on another website in a frame: view only, its own address (separate from the share link)
+    embed_token = Column(String(64), nullable=True, unique=True)
+    embed_enabled = Column(Boolean, nullable=False, default=False)
 
     members = relationship("DiagramMember", cascade="all, delete-orphan", passive_deletes=True)
 
@@ -92,6 +97,7 @@ class DiagramComment(Base):
     diagram_id = Column(Integer, ForeignKey("diagrams.id", ondelete="CASCADE"), nullable=False, index=True)
     parent_id = Column(Integer, ForeignKey("diagram_comments.id", ondelete="CASCADE"), nullable=True, index=True)
     node_id = Column(String(64), nullable=True)
+    page = Column(String(24), nullable=True)  # the page a pin dropped on the canvas is on (none = the first)
     x = Column(Float, nullable=True)
     y = Column(Float, nullable=True)
     body = Column(Text, nullable=False)
@@ -99,6 +105,11 @@ class DiagramComment(Base):
     author_name = Column(String(150), nullable=False)
     guest = Column(Boolean, nullable=False, default=False)  # someone who came through the share link
     mentions = Column(JSON, nullable=True)  # team members @mentioned: [{"id", "name"}]
+    # a comment can be a task: someone to do it, and when by (resolving the thread marks it done)
+    assignee_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    assignee_name = Column(String(150), nullable=True)
+    due_on = Column(Date, nullable=True)
+    assigned_by = Column(String(150), nullable=True)
     resolved_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, nullable=False)
 

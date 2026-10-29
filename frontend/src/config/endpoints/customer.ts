@@ -53,6 +53,13 @@ export const CUSTOMER_ENDPOINTS = {
   DIAGRAMS: {
     LIST: "/customer/diagrams",
     TEAM: "/customer/diagrams/team",
+    TASKS: "/customer/diagrams/tasks",
+    FIND_RECORDS: "/customer/diagrams/records/search",
+    AI: "/customer/diagrams/ai",
+    AI_DRAW: "/customer/diagrams/ai/draw",
+    AI_SUMMARY: (id: number) => `/customer/diagrams/${id}/ai/summary`,
+    AI_SUGGEST: (id: number) => `/customer/diagrams/${id}/ai/suggest`,
+    RECORDS: (id: number) => `/customer/diagrams/${id}/records`,
     ONE: (id: number) => `/customer/diagrams/${id}`,
     DUPLICATE: (id: number) => `/customer/diagrams/${id}/duplicate`,
     STAR: (id: number) => `/customer/diagrams/${id}/star`,
@@ -74,6 +81,8 @@ export const CUSTOMER_ENDPOINTS = {
     RESTORE: (id: number, v: number) => `/customer/diagrams/${id}/versions/${v}/restore`,
     COMMENTS: (id: number) => `/customer/diagrams/${id}/comments`,
     COMMENT: (id: number, c: number) => `/customer/diagrams/${id}/comments/${c}`,
+    TASK: (id: number, c: number) => `/customer/diagrams/${id}/comments/${c}/task`,
+    EMBED: (id: number) => `/customer/diagrams/${id}/embed`,
   },
   SHARED_DIAGRAMS: {
     ONE: (token: string) => `/customer/shared-diagrams/${token}`,
@@ -81,6 +90,10 @@ export const CUSTOMER_ENDPOINTS = {
     OPS: (token: string) => `/customer/shared-diagrams/${token}/ops`,
     LIVE: (token: string) => `/customer/shared-diagrams/${token}/live`,
     COMMENTS: (token: string) => `/customer/shared-diagrams/${token}/comments`,
+    RECORDS: (token: string) => `/customer/shared-diagrams/${token}/records`,
+    EMBED: (token: string) => `/customer/shared-diagrams/embed/${token}`,
+    EMBED_RECORDS: (token: string) => `/customer/shared-diagrams/embed/${token}/records`,
+    EMBED_OPS: (token: string) => `/customer/shared-diagrams/embed/${token}/ops`,
   },
   NUMBERS: {
     LIST: "/customer/numbers",

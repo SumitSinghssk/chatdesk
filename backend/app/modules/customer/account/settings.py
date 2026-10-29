@@ -25,6 +25,8 @@ EVENTS: dict[str, dict] = {
                          "default": {"in_app": True, "email": False, "browser": True}},
     "diagram_comment": {"label": "Someone comments on your diagram, replies to you or @mentions you",
                         "managers": False, "default": {"in_app": True, "email": False, "browser": True}},
+    "diagram_task": {"label": "You're given a task in a diagram, and when it's due", "managers": False,
+                     "default": {"in_app": True, "email": True, "browser": True}},
     "diagram_approval": {"label": "Someone asks to change an approved diagram", "managers": False,
                          "default": {"in_app": True, "email": True, "browser": True}},
 }

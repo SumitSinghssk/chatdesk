@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -20,7 +20,9 @@ import {
   type Diagram,
   type DiagramContent,
   type LiveState,
+  type RecordType,
 } from "../../_lib/diagramsApi";
+import { chatbotsApi, type BotGraph, type BotMeta } from "../../_lib/chatbotsApi";
 import { Canvas } from "./editor/Canvas";
 import { ApprovalBanner } from "./editor/Approval";
 import { History } from "./editor/History";
@@ -52,14 +54,26 @@ export function DiagramEditor({ id }: { id: number }) {
         </div>
       ) : (
         <ReactFlowProvider>
-          <Editor initial={query.data} focusComment={Number(params.get("comment")) || null} />
+          <Editor
+            initial={query.data}
+            focusComment={Number(params.get("comment")) || null}
+            startPage={params.get("page")}
+          />
         </ReactFlowProvider>
       )}
     </div>
   );
 }
 
-function Editor({ initial, focusComment }: { initial: Diagram; focusComment: number | null }) {
+function Editor({
+  initial,
+  focusComment,
+  startPage,
+}: {
+  initial: Diagram;
+  focusComment: number | null;
+  startPage: string | null;
+}) {
   const router = useRouter();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -80,12 +94,57 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
     now: initial.now,
     locked: initial.locked,
     approval: initial.approval,
+    pages: initial.pages,
   });
   const team = useQuery({ queryKey: DIAGRAMS_QK.TEAM, queryFn: async () => (await diagramsApi.team()).data });
   const people = (team.data ?? [])
     .filter((p) => p.id !== d.me.id)
     .map((p) => ({ id: p.id, name: p.name, color: p.color }));
   const canEditLevel = d.level === "edit" || manage;
+  const records = useMemo(
+    () => ({
+      load: async () => (await diagramsApi.records(d.id)).data,
+      search: async (type: RecordType, q: string) => (await diagramsApi.findRecords(type, q)).data,
+      canOpen: true,
+    }),
+    [d.id]
+  );
+  const chatbot = useMemo(
+    () => ({
+      make: async (name: string, graph: BotGraph) => {
+        const res = await chatbotsApi.importBot({
+          name,
+          // a draft, off, started by hand until they choose what starts it (the server fills in the settings)
+          bot: {
+            name,
+            description: `Made from the diagram “${d.name}”`.slice(0, 300),
+            trigger: "manual",
+            match: "exact",
+            keywords: [],
+            restart_minutes: 0,
+          } as unknown as BotMeta,
+          graph,
+        });
+        toast.success("Chatbot made. Check it, then publish it.");
+        router.push(CUSTOMER_ROUTES.CHATBOT(res.data.id));
+      },
+      load: async (id: number) => {
+        const res = await chatbotsApi.get(id);
+        return { name: res.data.name, graph: res.data.graph };
+      },
+    }),
+    [d.name, router]
+  );
+  const ai = useMemo(
+    () => ({
+      options: async () => (await diagramsApi.aiOptions()).data,
+      draw: async (prompt: string, kind: "any" | "flowchart" | "mindmap") =>
+        (await diagramsApi.aiDraw({ prompt, kind })).data,
+      summary: async () => (await diagramsApi.aiSummary(d.id)).data.text,
+      suggest: async () => (await diagramsApi.aiSuggest(d.id)).data,
+    }),
+    [d.id]
+  );
 
   const rename = async (name: string) => {
     setRenaming(null);
@@ -126,6 +185,21 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
         level={d.level}
         me={d.me}
         focusComment={focusComment}
+        startPage={startPage}
+        records={records}
+        ai={canComment ? ai : undefined}
+        chatbot={chatbot}
+        savePages={async (pages) => {
+          await diagramsApi.update(d.id, { pages });
+        }}
+        confirmDeletePage={(pageName) =>
+          confirm({
+            title: `Delete the page “${pageName}”?`,
+            message: "Everything on it is deleted too. You can get it back from the version history.",
+            confirmLabel: "Delete page",
+            variant: "danger",
+          })
+        }
         uploadImage={(file) => diagramsApi.uploadImage(d.id, file)}
         state={state}
         onState={setState}
@@ -163,6 +237,10 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
             await comments.refetch();
           },
           canDelete: (c) => manage || c.author_id === d.me.id,
+          setTask: async (commentId, task) => {
+            await diagramsApi.setTask(d.id, commentId, task);
+            await comments.refetch();
+          },
           refresh: () => void comments.refetch(),
         }}
         onMeta={(meta) =>
@@ -306,11 +384,17 @@ function Editor({ initial, focusComment }: { initial: Diagram; focusComment: num
       />
       {manage && shareOpen && (
         <ShareDialog
-          diagram={d}
+          diagram={{ ...d, pages: state.pages }}
           open={shareOpen}
           onClose={() => setShareOpen(false)}
           onSaved={(next) => {
-            setD((x) => ({ ...x, team_access: next.team_access, link: next.link, members: next.members }));
+            setD((x) => ({
+              ...x,
+              team_access: next.team_access,
+              link: next.link,
+              members: next.members,
+              embed: next.embed,
+            }));
             refreshList();
           }}
         />

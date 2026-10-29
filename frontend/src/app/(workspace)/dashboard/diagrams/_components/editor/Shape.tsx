@@ -2,10 +2,11 @@
 
 import { createContext, memo, useContext, useEffect, useRef, useState, type CSSProperties } from "react";
 import { Handle, NodeResizer, Position, useReactFlow, type NodeProps } from "@xyflow/react";
-import { Lock, ThumbsUp } from "lucide-react";
+import { Lock, Minus, Plus, ThumbsUp } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+import type { RecordCard } from "../../../_lib/diagramsApi";
 import type { ShapeData, ShapeNode } from "./model";
 import { SPECIAL, SpecialBody, TITLED, titlePlace } from "./Special";
 
@@ -25,6 +26,15 @@ export interface EditorState {
     counts: Map<string, number>;
     mine: Set<string>;
     onVote: (id: string) => void;
+  };
+  /** live ChatDesk cards: what each shows (by "type:id"), and whether they open in ChatDesk */
+  records?: { cards: Map<string, RecordCard>; canOpen: boolean };
+  /** mind maps: how many ideas sit under each one, which side they grow on, and what keys do */
+  mind?: {
+    kids: Map<string, number>;
+    side: Map<string, "l" | "r">;
+    folded: (id: string) => boolean;
+    act: (id: string, action: "save" | "child" | "sibling" | "fold", label?: string) => void;
   };
 }
 
@@ -168,11 +178,14 @@ function Label({
   editable: boolean;
 }) {
   const flow = useReactFlow();
-  const { setEditingId } = useContext(EditorContext);
+  const { setEditingId, mind } = useContext(EditorContext);
   const [draft, setDraft] = useState(data.label);
   const area = useRef<HTMLTextAreaElement>(null);
+  const done = useRef(false); // the text was already handled (a key moved on to another idea)
+  const idea = data.shape === "mind" && !!mind;
   useEffect(() => {
     if (editing) {
+      done.current = false;
       setDraft(data.label); // eslint-disable-line react-hooks/set-state-in-effect -- start from the saved text
       requestAnimationFrame(() => area.current?.select());
     }
@@ -209,8 +222,12 @@ function Label({
                 : "inset-x-2 inset-y-1 items-center justify-center"
   );
   const save = () => {
+    if (done.current) return;
+    done.current = true;
     setEditingId(null);
-    if (draft !== data.label) flow.updateNodeData(id, { label: draft });
+    // an idea's box grows with its words, so the map is laid out again
+    if (idea) mind!.act(id, "save", draft);
+    else if (draft !== data.label) flow.updateNodeData(id, { label: draft });
   };
   if (editing && editable) {
     return (
@@ -224,8 +241,18 @@ function Label({
           onKeyDown={(e) => {
             e.stopPropagation();
             if (e.key === "Escape") {
+              // an idea keeps what was typed (Esc is "done", as in mind map apps); other shapes undo it
+              if (idea) return save();
+              done.current = true;
               setDraft(data.label);
               setEditingId(null);
+            }
+            if (idea && (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey))) {
+              // like a mind map app: Tab adds an idea under this one, Enter one next to it
+              e.preventDefault();
+              done.current = true;
+              mind!.act(id, e.key === "Tab" ? "child" : "sibling", draft);
+              return;
             }
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -253,7 +280,10 @@ function ShapeView({ id, data, selected, width, height }: NodeProps<ShapeNode>) 
   const h = height ?? 64;
   const peers = peerSelection.get(id);
   const comments = commentCount.get(id);
-  const { votes } = useContext(EditorContext);
+  const { votes, mind } = useContext(EditorContext);
+  const kids = data.shape === "mind" ? (mind?.kids.get(id) ?? 0) : 0;
+  const folded = kids > 0 && !!mind?.folded(id);
+  const outward = mind?.side.get(id) === "l" ? "-left" : "-right";
   const voteCount = votes?.counts.get(id) ?? 0;
   const votable = !!votes?.open && votes.canVote && data.shape !== "frame" && data.shape !== "phone";
   return (
@@ -313,6 +343,42 @@ function ShapeView({ id, data, selected, width, height }: NodeProps<ShapeNode>) 
         >
           <ThumbsUp className="h-3 w-3" />
           {voteCount > 0 && voteCount}
+        </button>
+      )}
+      {kids > 0 && (
+        <button
+          type="button"
+          aria-label={folded ? `Show ${kids} hidden idea${kids === 1 ? "" : "s"}` : "Fold this branch"}
+          aria-expanded={!folded}
+          onClick={(e) => {
+            e.stopPropagation();
+            mind?.act(id, "fold");
+          }}
+          className={cn(
+            "nodrag absolute top-1/2 z-10 flex h-5 min-w-5 -translate-y-1/2 items-center justify-center rounded-full border-2 bg-white px-1 text-[10px] font-bold shadow-sm transition",
+            outward === "-left" ? "-left-2.5" : "-right-2.5",
+            !folded && !selected && "opacity-0 group-hover:opacity-100"
+          )}
+          style={{ borderColor: data.stroke, color: data.text }}
+        >
+          {folded ? kids : <Minus className="h-3 w-3" />}
+        </button>
+      )}
+      {data.shape === "mind" && mind && editable && selected && editingId !== id && (
+        <button
+          type="button"
+          aria-label="Add an idea under this one"
+          title="Add an idea under this one (Tab)"
+          onClick={(e) => {
+            e.stopPropagation();
+            mind.act(id, "child");
+          }}
+          className={cn(
+            "nodrag absolute top-1/2 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-sky-500 text-white shadow transition hover:scale-110",
+            outward === "-left" ? (kids ? "-left-10" : "-left-8") : kids ? "-right-10" : "-right-8"
+          )}
+        >
+          <Plus className="h-3.5 w-3.5" />
         </button>
       )}
       {!!comments && (
