@@ -70,7 +70,7 @@ export function WebhooksTab() {
           Webhooks tell your own system the moment something happens, such as a new message, a message read or
           a new order. Perfect for CRMs, Zapier, Make and your own backend.{" "}
           <a
-            href={`${CUSTOMER_ROUTES.DOCS()}/webhooks`}
+            href={CUSTOMER_ROUTES.DOCS_PAGE("webhooks")}
             target="_blank"
             rel="noreferrer"
             className="text-primary hover:underline"

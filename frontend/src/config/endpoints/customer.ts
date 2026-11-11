@@ -38,6 +38,12 @@ export const CUSTOMER_ENDPOINTS = {
     REFRESH: "/customer/whatsapp/connection/refresh",
     TEST_MESSAGE: "/customer/whatsapp/connection/test-message",
   },
+  CALLS: {
+    LIST: "/customer/calls",
+    SETTINGS: "/customer/calls/settings",
+    CONNECTION: "/customer/calls/settings/connection",
+    RECORDING: (id: number) => `/customer/calls/${id}/recording`,
+  },
   INTEGRATIONS: {
     KEYS: "/customer/integrations/keys",
     KEY: (id: number) => `/customer/integrations/keys/${id}`,

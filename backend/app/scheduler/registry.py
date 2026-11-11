@@ -4,6 +4,7 @@ from app.scheduler.base import Job
 from app.scheduler.cron import CronSchedule
 from app.scheduler.jobs import (
     ai_replies,
+    calls,
     backup,
     campaigns,
     carts,
@@ -39,6 +40,7 @@ JOBS: list[Job] = [
     _build(security),
     _build(customers),
     _build(webhooks),
+    _build(calls),
 ]
 
 

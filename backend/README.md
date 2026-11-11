@@ -119,6 +119,30 @@ send_sms(db, phone, "Your order has shipped")
 - **Add a gateway:** subclass `SmsGateway` in `services/sms/gateways/<name>.py` (declare `fields`, implement `send`) and register it in `gateways/__init__.py`. The admin form is built from `fields`.
 - **Development:** with no gateway enabled, messages (including OTP codes) are written to the log instead of sent. Production refuses.
 
+## Calls
+
+`app/services/voice` talks to calling providers; `modules/customer/calls` is the Calls page (`/dashboard/calls`).
+Each business connects **its own** Exotel account (they sign up and finish KYC with Exotel, who bills them), so
+the platform admin has nothing to set up.
+
+- **Settings (managers):** Exotel credentials and ExoPhone, then what to send on WhatsApp after an **answered** and
+  after a **missed** call: each can be off, a message (used while the 24-hour chat window is open, with `{name}`,
+  `{business}`, `{time}`, `{duration}`) and/or an approved template (used when the window is closed; its variables get
+  the same four values). Also: record calls, keep a copy of recordings, minimum seconds to count as answered, and
+  the default phone for click-to-call.
+- **Callbacks:** `/api/v1/website/calls/webhook/{webhook_key}` (GET or POST). Exotel doesn't sign callbacks, so a
+  callback only says "look at call X": the call is read back with the business's credentials
+  (`Calls/{sid}.json?details=true`) before anything happens. Outgoing calls set it as `StatusCallback`; for calls to
+  the ExoPhone the business adds a Passthru applet after the Connect applet in its Flow.
+- **Answered vs missed:** the customer's leg must be `completed` with talk time of at least the minimum. A
+  click-to-call the business itself didn't pick up is "not connected" and sends nothing, since the customer never rang.
+- **Recordings** are downloaded (with the business's credentials, only from Exotel hosts) into
+  `storage/call-recordings/` and served only to the workspace via `/api/v1/customer/calls/{id}/recording`. They are
+  not in `storage/uploads` and not in backups.
+- **Add a provider:** subclass `VoiceGateway` in `services/voice/<name>.py` (`fields`, `check`, `start_call`,
+  `call_sid`, `fetch`, `download`) and register it in `services/voice/__init__.py`.
+- `APP_URL` must be the public address of this API: Exotel can't reach `127.0.0.1`.
+
 ## Payments
 
 `app/services/payments` holds everything payment-related. Razorpay is built in. Set it up in Settings → Payment gateways, which has a test-connection button, a real test payment and the webhook URL to copy.
@@ -165,6 +189,7 @@ python -m app.scheduler list         # the same commands, straight from the pack
 | `campaigns` | sends scheduled campaigns, resumes stalled ones | every minute |
 | `chatbots` | chatbot delays and timeouts | every minute |
 | `ai_replies` | WhatsApp messages still waiting for the AI agent | every minute |
+| `calls` | re-checks calls whose callback never came, sends their WhatsApp follow-up, saves late recordings | every minute |
 | `backup` | the automatic backup from Backups -> Automatic backups, then keeps only the newest *keep* | every minute, works only when a slot is due |
 | `trash` | permanently deletes trashed items older than 30 days | hourly (`0 * * * *`) |
 | `not_found` | forgets 404 log entries not seen for 90 days | hourly (`15 * * * *`) |

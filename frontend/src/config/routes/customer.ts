@@ -6,6 +6,7 @@ export const CUSTOMER_ROUTES = {
   // Customer workspace (the WhatsApp app). Sidebar: app/(workspace)/dashboard/_lib/nav.ts
   DASHBOARD: route("/dashboard"),
   INBOX: route("/dashboard/inbox"),
+  CALLS: route("/dashboard/calls"),
   CONTACTS: route("/dashboard/contacts"),
   DIAGRAMS: route("/dashboard/diagrams"),
   DIAGRAM: (id: number) => `/dashboard/diagrams/${id}`,
