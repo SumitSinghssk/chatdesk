@@ -3,6 +3,7 @@
 import { Fragment, useSyncExternalStore, type ReactNode } from "react";
 import Link from "next/link";
 
+import { CUSTOMER_ROUTES } from "@/config/routes";
 import { siteConfig } from "@/config/site";
 
 import { API_PATH } from "../_content/types";
@@ -24,7 +25,14 @@ export function withBase(text: string, base: string) {
 
 const TOKEN = /(`[^`]+`|\*\*[^*]+\*\*|\*[^*\s][^*]*\*|\[[^\]]+\]\([^)\s]+\))/g;
 
-/** Markdown-lite: `code`, **bold**, *italic* and [links](/docs/x). */
+/** A link target in docs text: `doc:api/send-message#anchor` → the docs page URL; anything else as is. */
+function resolveLink(to: string) {
+  if (!to.startsWith("doc:")) return to;
+  const [slug, hash] = to.slice(4).split("#");
+  return CUSTOMER_ROUTES.DOCS_PAGE(slug, hash);
+}
+
+/** Markdown-lite: `code`, **bold**, *italic* and [links](doc:x) (docs page) or [links](https://...). */
 export function Inline({ text }: { text: string }) {
   const base = useBaseUrl();
   const parts = withBase(text, base).split(TOKEN);
@@ -51,7 +59,8 @@ export function Inline({ text }: { text: string }) {
         }
         const link = part.match(/^\[([^\]]+)\]\(([^)\s]+)\)$/);
         if (link) {
-          const [, label, to] = link;
+          const [, label, raw] = link;
+          const to = resolveLink(raw);
           const external = /^https?:/.test(to);
           return external ? (
             <a

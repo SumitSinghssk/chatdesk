@@ -18,6 +18,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { CUSTOMER_ROUTES } from "@/config/routes";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 
@@ -31,11 +32,26 @@ const OPEN_KEY = "cd_docs_open";
 
 // The tabs under the logo, and the sidebar groups each one opens.
 const TABS: { label: string; icon: LucideIcon; to: string; sections: Section[] }[] = [
-  { label: "Home", icon: Home, to: "/docs", sections: [] },
-  { label: "Getting Started", icon: BookOpen, to: "/docs/quickstart", sections: ["start"] },
-  { label: "API Reference", icon: Code2, to: "/docs/api/send-message", sections: ["api"] },
-  { label: "Webhooks", icon: Webhook, to: "/docs/webhooks", sections: ["webhooks"] },
-  { label: "Guides", icon: Compass, to: "/docs/guides/zapier", sections: ["guides", "help"] },
+  { label: "Home", icon: Home, to: CUSTOMER_ROUTES.DOCS(), sections: [] },
+  {
+    label: "Getting Started",
+    icon: BookOpen,
+    to: CUSTOMER_ROUTES.DOCS_PAGE("quickstart"),
+    sections: ["start"],
+  },
+  {
+    label: "API Reference",
+    icon: Code2,
+    to: CUSTOMER_ROUTES.DOCS_PAGE("api/send-message"),
+    sections: ["api"],
+  },
+  { label: "Webhooks", icon: Webhook, to: CUSTOMER_ROUTES.DOCS_PAGE("webhooks"), sections: ["webhooks"] },
+  {
+    label: "Guides",
+    icon: Compass,
+    to: CUSTOMER_ROUTES.DOCS_PAGE("guides/zapier"),
+    sections: ["guides", "help"],
+  },
 ];
 
 interface Group {
@@ -313,7 +329,7 @@ export function DocsShell({ children }: { children: ReactNode }) {
           >
             {menu ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
-          <Link href="/docs" className="flex shrink-0 items-center gap-2">
+          <Link href={CUSTOMER_ROUTES.DOCS()} className="flex shrink-0 items-center gap-2">
             <span className="bg-primary flex h-7 w-7 items-center justify-center rounded-lg text-[13px] font-bold text-white shadow-sm">
               {siteConfig.name.charAt(0)}
             </span>
@@ -352,7 +368,7 @@ export function DocsShell({ children }: { children: ReactNode }) {
               {dark ? <Sun className="h-[18px] w-[18px]" /> : <Moon className="h-[18px] w-[18px]" />}
             </button>
             <Link
-              href="/dashboard/integrations"
+              href={CUSTOMER_ROUTES.INTEGRATIONS()}
               className="bg-primary hover:bg-primary-hover ml-1 hidden h-8 items-center rounded-lg px-3 text-[13px] font-semibold text-white shadow-sm transition sm:inline-flex"
             >
               Dashboard

@@ -169,7 +169,7 @@ def _register_failure(db: Session, user: User, request: Request, what: str = "si
         send_template(db, "account_locked", user.email, {
             "name": user.name, "email": user.email, "failures": str(user.failed_logins),
             "unlock_info": unlock_info, **device_variables(request),
-        }, url=f"{settings.FRONTEND_URL.rstrip('/')}/admin/forgot-password")
+        }, url=f"{settings.FRONTEND_URL.rstrip('/')}{urls.FORGOT_PASSWORD}")
         return
     db.commit()
 
@@ -343,7 +343,7 @@ def forgot_password(db: Session, email: str, request: Request):
                  subject_id=user.id, subject_label=user.email, description="Requested a password reset link")
     db.commit()
 
-    link = f"{settings.FRONTEND_URL.rstrip('/')}/admin/reset-password?token={token}&email={user.email}"
+    link = f"{settings.FRONTEND_URL.rstrip('/')}{admin_url(urls.RESET_PASSWORD, token=token, email=user.email)}"
     send_template(db, "password_reset", user.email, {
         "name": user.name, "email": user.email, "minutes": str(lifetimes(db)["reset_minutes"]),
         **device_variables(request),

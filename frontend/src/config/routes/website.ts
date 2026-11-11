@@ -10,4 +10,6 @@ export const WEBSITE_ROUTES = {
   TEAM: route("/team"),
   PAGE: (slug: string, params?: QueryParams) => withQuery(`/${encodeURIComponent(slug)}`, params),
   MAINTENANCE: route("/maintenance"),
+  ROBOTS: route("/robots.txt"),
+  SITEMAP: route("/sitemap.xml"),
 } as const;

@@ -243,7 +243,7 @@ export const WEBHOOK_PAGES: DocPage[] = [
           },
           {
             title: "Copy the signing secret and send a test",
-            text: "After saving, the webhook opens. Copy the **signing secret** (it starts with `whsec_`) into your app so it can [check each call is really from us](/docs/webhooks/verify-signatures). Then click **Send test** and check your server answered `200`.",
+            text: "After saving, the webhook opens. Copy the **signing secret** (it starts with `whsec_`) into your app so it can [check each call is really from us](doc:webhooks/verify-signatures). Then click **Send test** and check your server answered `200`.",
             image: shot(
               "webhook-detail",
               "The webhook panel with signing secret, Send test and recent deliveries"
@@ -281,7 +281,7 @@ export const WEBHOOK_PAGES: DocPage[] = [
           ["`X-ChatDesk-Delivery`", "The id of this delivery (useful when you talk to support)"],
           [
             "`X-ChatDesk-Signature`",
-            "Proof the call came from ChatDesk. See [Verify signatures](/docs/webhooks/verify-signatures)",
+            "Proof the call came from ChatDesk. See [Verify signatures](doc:webhooks/verify-signatures)",
           ],
           ["`User-Agent`", "`ChatDesk-Webhooks/1.0`"],
         ],
@@ -290,7 +290,7 @@ export const WEBHOOK_PAGES: DocPage[] = [
       {
         t: "list",
         items: [
-          "Answer with any `2xx` status (like `200`) **within 10 seconds**. Anything else counts as a failure and we [try again later](/docs/webhooks/retries).",
+          "Answer with any `2xx` status (like `200`) **within 10 seconds**. Anything else counts as a failure and we [try again later](doc:webhooks/retries).",
           "Answer first, then do slow work (sending emails, updating your CRM) in the background.",
           "Redirects aren't followed: use the final URL.",
           "The same event can, rarely, arrive twice. Use the `id` (`evt_…`) to skip ones you already handled.",

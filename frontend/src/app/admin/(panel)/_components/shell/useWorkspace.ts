@@ -62,7 +62,7 @@ export function useWorkspace() {
     if (!target) return ADMIN_ROUTES.DASHBOARD();
     if (key === current) return target.firstHref;
     const last = read(urlKey(key));
-    return last && last.startsWith("/admin/") ? last : target.firstHref;
+    return last && last.startsWith(`${ADMIN_ROUTES.ROOT.path}/`) ? last : target.firstHref;
   };
 
   return { current, available, hrefFor, subtitle: workspaces[current].subtitle };

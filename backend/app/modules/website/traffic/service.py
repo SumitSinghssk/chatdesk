@@ -2,11 +2,12 @@ from sqlalchemy.orm import Session
 
 from app.modules.admin.not_found.models import NotFoundLog
 from app.modules.admin.redirects.models import Redirect
+from app.shared.constants import admin_urls
 from app.shared.enums import Status
 from app.shared.utils.datetime import now
 from app.shared.utils.slug import normalize_path
 
-IGNORED_PREFIXES = ("/admin", "/api", "/_next", "/storage")
+IGNORED_PREFIXES = (admin_urls.ROOT, "/api", "/_next", "/storage")
 IGNORED_EXTENSIONS = (
     ".js", ".css", ".map", ".png", ".jpg", ".jpeg", ".gif", ".ico", ".svg", ".webp",
     ".woff", ".woff2", ".ttf", ".txt", ".xml", ".json", ".php", ".env",

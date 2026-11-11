@@ -33,6 +33,12 @@ export const CUSTOMER_ROUTES = {
   WHATSAPP: route("/dashboard/whatsapp"),
   INTEGRATIONS: route("/dashboard/integrations"),
   DOCS: route("/docs"),
+  /** a developer docs page, e.g. DOCS_PAGE("api/send-message") or DOCS_PAGE("basics", "the-24-hour-rule") */
+  DOCS_PAGE: (slug: string, hash?: string) => `${slug ? `/docs/${slug}` : "/docs"}${hash ? `#${hash}` : ""}`,
+  /** the public AI chat page for a website chat key (also loaded in an iframe by /widget.js) */
+  AI_CHAT: (key: string) => `/ai-chat/${encodeURIComponent(key)}`,
+  /** the script websites embed to show the AI chat (app/widget.js/route.ts) */
+  AI_WIDGET_SCRIPT: route("/widget.js"),
   TEAM: route("/dashboard/team"),
   INVITE: (token: string) => `/invite/${token}`,
   ACCOUNT: route("/dashboard/account"),

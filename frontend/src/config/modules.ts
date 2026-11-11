@@ -47,6 +47,9 @@ export interface AdminModule {
   create?: { label: string; query: QueryParams; permission: string; order: number };
 }
 
+// Paths other modules point at (e.g. as `parent`) so a rename stays in one place.
+const BLOGS_PATH = "/admin/blogs";
+
 const defineModules = <T extends Record<string, AdminModule>>(modules: T) => modules;
 
 export const ADMIN_MODULES = defineModules({
@@ -130,7 +133,7 @@ export const ADMIN_MODULES = defineModules({
 
   BLOGS: {
     label: "Blogs",
-    path: "/admin/blogs",
+    path: BLOGS_PATH,
     icon: Newspaper,
     permission: PERM.BLOGS_VIEW,
     section: "content",
@@ -155,7 +158,7 @@ export const ADMIN_MODULES = defineModules({
     icon: MessagesSquare,
     permission: PERM.COMMENTS_VIEW,
     workspace: "website",
-    parent: "/admin/blogs",
+    parent: BLOGS_PATH,
   },
   PAGES: {
     label: "Pages",

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import { useRouter } from "next/navigation";
 import { ArrowRight, Clock, CornerDownLeft, FileText, Hash, Search as SearchIcon, X } from "lucide-react";
 
+import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
 import { href, searchIndex, type SearchEntry } from "../_content";
@@ -14,11 +15,11 @@ const INDEX = searchIndex();
 const METHODS: Method[] = ["GET", "POST", "PATCH", "DELETE"];
 const RECENT_KEY = "cd_docs_recent";
 const POPULAR = [
-  { label: "Quickstart", to: "/docs/quickstart" },
-  { label: "Send a template message", to: "/docs/api/send-template" },
-  { label: "The 24-hour rule", to: "/docs/basics#the-24-hour-rule" },
-  { label: "Event types", to: "/docs/webhooks/events" },
-  { label: "Verify signatures", to: "/docs/webhooks/verify-signatures" },
+  { label: "Quickstart", to: CUSTOMER_ROUTES.DOCS_PAGE("quickstart") },
+  { label: "Send a template message", to: CUSTOMER_ROUTES.DOCS_PAGE("api/send-template") },
+  { label: "The 24-hour rule", to: CUSTOMER_ROUTES.DOCS_PAGE("basics", "the-24-hour-rule") },
+  { label: "Event types", to: CUSTOMER_ROUTES.DOCS_PAGE("webhooks/events") },
+  { label: "Verify signatures", to: CUSTOMER_ROUTES.DOCS_PAGE("webhooks/verify-signatures") },
 ];
 
 interface Hit {

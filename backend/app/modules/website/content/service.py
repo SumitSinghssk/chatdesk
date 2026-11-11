@@ -9,11 +9,12 @@ from app.modules.admin.galleries.service import serialize_item
 from app.modules.admin.pages.models import Page
 from app.modules.admin.testimonials.models import Testimonial
 from app.shared.enums import GalleryItemType, PublishStatus, Status
+from app.shared.constants import website_urls
 from app.shared.pagination import list_response
 from app.shared.utils.datetime import iso, now
 from app.shared.utils.search import search_clause
 
-STATIC_PATHS = ["/", "/blog", "/gallery", "/contact", "/team"]
+STATIC_PATHS = [website_urls.HOME, website_urls.BLOG, website_urls.GALLERY, website_urls.CONTACT, website_urls.TEAM]
 
 
 def _published_blogs(db: Session):
@@ -166,11 +167,11 @@ def get_gallery(db: Session, slug: str):
 def sitemap(db: Session):
     entries = [{"path": p, "lastmod": None} for p in STATIC_PATHS]
     for slug, updated in _published_blogs(db).with_entities(Blog.slug, Blog.updated_at).all():
-        entries.append({"path": f"/blog/{slug}", "lastmod": iso(updated)})
+        entries.append({"path": website_urls.blog_post(slug), "lastmod": iso(updated)})
     pages = db.query(Page.slug, Page.updated_at).filter(*_published_pages_filter()).all()
-    entries += [{"path": f"/{slug}", "lastmod": iso(updated)} for slug, updated in pages]
+    entries += [{"path": website_urls.page(slug), "lastmod": iso(updated)} for slug, updated in pages]
     galleries = db.query(Gallery.slug, Gallery.updated_at).filter(Gallery.status == Status.ACTIVE.value).all()
-    entries += [{"path": f"/gallery/{slug}", "lastmod": iso(updated)} for slug, updated in galleries]
+    entries += [{"path": website_urls.gallery_item(slug), "lastmod": iso(updated)} for slug, updated in galleries]
     return {"status": True, "data": entries}
 
 

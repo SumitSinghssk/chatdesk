@@ -1,3 +1,5 @@
+import { CUSTOMER_ROUTES } from "@/config/routes";
+
 import { API_PAGES } from "./api";
 import { GETTING_STARTED } from "./getting-started";
 import { GUIDE_PAGES, HELP_PAGES } from "./guides";
@@ -35,7 +37,7 @@ export const API_GROUPS: { label: string; slugs: string[] }[] = [
 ];
 
 export function href(slug: string) {
-  return slug ? `/docs/${slug}` : "/docs";
+  return CUSTOMER_ROUTES.DOCS_PAGE(slug);
 }
 
 export function pageBySlug(slug: string): DocPage | undefined {
