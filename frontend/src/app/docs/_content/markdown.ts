@@ -1,3 +1,4 @@
+import { resolveDocLinks } from "./links";
 import type { Block, DocPage } from "./types";
 import { EVENT_DOCS } from "./webhooks";
 
@@ -6,8 +7,7 @@ export function toMarkdown(page: DocPage, base: string): string {
   const out = [`# ${page.title}`, "", page.description, ""];
   for (const b of page.blocks) out.push(block(b, base), "");
   return (
-    out
-      .join("\n")
+    resolveDocLinks(out.join("\n"))
       .replaceAll("{{BASE_URL}}", base)
       .replace(/\n{3,}/g, "\n\n")
       .trim() + "\n"
