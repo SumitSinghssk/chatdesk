@@ -6,6 +6,7 @@ import { Bot, ExternalLink, Info } from "lucide-react";
 import { z } from "zod";
 
 import { Textarea } from "@/app/admin/_components/ui/index";
+import { WEBSITE_ROUTES } from "@/config/routes";
 import type { RobotsSettings } from "@/app/admin/_lib/api/settingsApi";
 import { applyServerErrors } from "@/app/admin/_lib/form";
 
@@ -58,11 +59,11 @@ export function RobotsTab({ data, canEdit }: TabProps<"robots">) {
               appended automatically.
             </p>
             <p className="flex flex-wrap gap-x-4 gap-y-1">
-              <a href="/robots.txt" target="_blank" rel="noopener noreferrer" className={link}>
-                View /robots.txt <ExternalLink size={12} />
+              <a href={WEBSITE_ROUTES.ROBOTS()} target="_blank" rel="noopener noreferrer" className={link}>
+                View {WEBSITE_ROUTES.ROBOTS.path} <ExternalLink size={12} />
               </a>
-              <a href="/sitemap.xml" target="_blank" rel="noopener noreferrer" className={link}>
-                View /sitemap.xml <ExternalLink size={12} />
+              <a href={WEBSITE_ROUTES.SITEMAP()} target="_blank" rel="noopener noreferrer" className={link}>
+                View {WEBSITE_ROUTES.SITEMAP.path} <ExternalLink size={12} />
               </a>
             </p>
           </div>

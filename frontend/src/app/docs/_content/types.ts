@@ -8,7 +8,7 @@ export interface Param {
   name: string;
   type: string;
   required?: boolean;
-  /** plain sentence; `code`, **bold** and [links](/docs/x) work */
+  /** plain sentence; `code`, **bold** and [links](doc:x) work */
   desc: string;
 }
 

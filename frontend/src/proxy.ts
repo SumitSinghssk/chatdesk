@@ -100,7 +100,7 @@ function customerGate(request: NextRequest) {
     const safe =
       next.startsWith("/") &&
       !next.startsWith("//") &&
-      !next.startsWith("/admin") &&
+      !next.startsWith(ADMIN_ROUTES.ROOT.path) &&
       !CUSTOMER_GUEST_PATHS.some((p) => next === p || next.startsWith(`${p}?`));
     return NextResponse.redirect(new URL(safe ? next : CUSTOMER_ROUTES.DASHBOARD(), request.url));
   }

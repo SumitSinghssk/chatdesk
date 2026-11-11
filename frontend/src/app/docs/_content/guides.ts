@@ -71,7 +71,7 @@ export const GUIDE_PAGES: DocPage[] = [
       {
         t: "callout",
         kind: "tip",
-        text: "Use a template here: the customer probably didn't message you in the last 24 hours. See [The 24-hour rule](/docs/basics#the-24-hour-rule).",
+        text: "Use a template here: the customer probably didn't message you in the last 24 hours. See [The 24-hour rule](doc:basics#the-24-hour-rule).",
       },
     ],
   },
@@ -115,7 +115,7 @@ export const GUIDE_PAGES: DocPage[] = [
           { title: "Add your key", text: "Add a header `Authorization` with `Bearer YOUR_API_KEY`." },
           {
             title: "Write the body",
-            text: "Paste the message JSON (see [Send a template](/docs/api/send-template)) and map your fields into it.",
+            text: "Paste the message JSON (see [Send a template](doc:api/send-template)) and map your fields into it.",
           },
         ],
       },
@@ -147,7 +147,7 @@ export const GUIDE_PAGES: DocPage[] = [
         items: [
           {
             title: "Create the trigger",
-            text: "Follow [Connect with Zapier](/docs/guides/zapier) (or [Make](/docs/guides/make)) to catch a ChatDesk webhook.",
+            text: "Follow [Connect with Zapier](doc:guides/zapier) (or [Make](doc:guides/make)) to catch a ChatDesk webhook.",
           },
           {
             title: "Choose the event",
@@ -242,12 +242,12 @@ export const HELP_PAGES: DocPage[] = [
           [
             "The 24-hour window is closed",
             "The customer hasn't messaged you in 24 hours",
-            "Send a [template](/docs/api/send-template) instead",
+            "Send a [template](doc:api/send-template) instead",
           ],
           [
             "No approved template “…”",
             "Wrong name or language, or not approved yet",
-            "Check [GET /templates](/docs/api/list-templates)",
+            "Check [GET /templates](doc:api/list-templates)",
           ],
           [
             "Fill in every variable in the template",

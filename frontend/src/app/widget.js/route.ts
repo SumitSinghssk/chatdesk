@@ -1,3 +1,5 @@
+import { CUSTOMER_ROUTES } from "@/config/routes/customer";
+
 // The website chat loader: <script src="https://<chatdesk>/widget.js" data-agent="pk_..." async></script>
 // It only places an iframe (the chat itself lives at /ai-chat/<key>), so the host page's CSS and
 // scripts can't break the chat and the chat can't touch the host page.
@@ -14,7 +16,7 @@ const LOADER = `(function () {
   frame.title = "Chat";
   frame.allow = "clipboard-write";
   frame.setAttribute("aria-label", "Chat with us");
-  frame.src = base + "/ai-chat/" + encodeURIComponent(key) + "?embed=1&host=" + encodeURIComponent(location.host) +
+  frame.src = base + ${JSON.stringify(CUSTOMER_ROUTES.AI_CHAT(""))} + encodeURIComponent(key) + "?embed=1&host=" + encodeURIComponent(location.host) +
     "&page=" + encodeURIComponent(location.href.slice(0, 480));
   var s = frame.style;
   s.position = "fixed"; s.bottom = "0"; s.border = "0"; s.zIndex = "2147483000"; s.background = "transparent";

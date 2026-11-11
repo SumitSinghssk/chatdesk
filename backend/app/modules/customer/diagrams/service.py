@@ -20,6 +20,7 @@ from app.modules.customer.diagrams.models import (Diagram, DiagramActivity, Diag
 from app.modules.customer.diagrams.schemas import (AccessSchema, CommentSchema, DiagramSchema, DiagramUpdateSchema,
                                                    GuestCommentSchema, LinkSchema, Op, TaskSchema)
 from app.modules.customer.team.access import actor, role_of, root_id
+from app.shared.constants import customer_urls
 from app.shared.enums import Status
 from app.shared.utils.datetime import iso, now
 
@@ -505,7 +506,7 @@ def _tell(db: Session, d: Diagram, c: DiagramComment, author_id: int | None) -> 
     ids.discard(None)
     ids.discard(author_id)
     mentioned = {m["id"] for m in c.mentions or []}
-    url = f"/dashboard/diagrams/{d.id}?comment={thread}"
+    url = customer_urls.diagram(d.id, comment=thread)
     data = {"diagram_id": d.id, "comment_id": c.id}
     who = f"{c.author_name}{' (guest)' if c.guest else ''}"
     if mentioned:
@@ -574,7 +575,7 @@ def set_task(db: Session, ws: Customer, diagram_id: int, comment_id: int, payloa
             due = f" · due {payload.due_on.strftime('%d %b')}" if payload.due_on else ""
             people = db.query(Customer).filter(Customer.id == person["id"]).all()
             notify.notify(db, people, "diagram_task", f"{who} gave you a task in “{d.name}”{due}"[:200],
-                          c.body[:300], f"/dashboard/diagrams/{d.id}?comment={c.id}",
+                          c.body[:300], customer_urls.diagram(d.id, comment=c.id),
                           {"diagram_id": d.id, "comment_id": c.id})
     db.commit()
     live.publish(d.id, {"k": "comments"})
@@ -611,7 +612,7 @@ def task_reminders(db: Session) -> int:
                                            Customer.status == Status.ACTIVE.value).all()
         title = (f"A task in “{d.name}” is overdue" if c.due_on < today else f"A task in “{d.name}” is due today")
         sent += notify.notify(db, people, "diagram_task", title[:200], c.body[:300],
-                              f"/dashboard/diagrams/{d.id}?comment={c.id}",
+                              customer_urls.diagram(d.id, comment=c.id),
                               {"diagram_id": d.id, "comment_id": c.id},
                               once_key=f"task:{c.id}:{c.due_on.isoformat()}")
     db.commit()
@@ -904,7 +905,7 @@ def request_change(db: Session, ws: Customer, diagram_id: int, note: str | None)
     _activity(db, d, "change_requested", _name(ws), detail=(note or "")[:255] or None)
     notify.notify(db, people, "diagram_approval", f"{_name(ws)} asks to change “{d.name}”"[:200],
                   note or "It's approved and locked. Unlock it if the change is OK.",
-                  f"/dashboard/diagrams/{d.id}", {"diagram_id": d.id}, skip=actor(ws).id)
+                  customer_urls.diagram(d.id), {"diagram_id": d.id}, skip=actor(ws).id)
     db.commit()
     return {"status": True, "message": "Asked. You'll be able to edit once it's unlocked.", "data": None}
 

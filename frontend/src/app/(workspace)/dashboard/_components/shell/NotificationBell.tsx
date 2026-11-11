@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { CUSTOMER_ROUTES } from "@/config/routes";
 import { playChime, showDesktop } from "@/lib/alerts";
 import { cn, timeAgo } from "@/lib/utils";
 
@@ -128,7 +129,7 @@ export function NotificationBell({ className }: { className?: string }) {
                 title="Notification settings"
                 onClick={() => {
                   setOpen(false);
-                  router.push("/dashboard/account?section=notifications");
+                  router.push(CUSTOMER_ROUTES.ACCOUNT({ section: "notifications" }));
                 }}
                 className="text-fg-subtle hover:bg-hover rounded-md p-1.5"
               >

@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.customer.account.models import Customer
 from app.modules.customer.diagrams.models import Diagram
+from app.shared.constants import customer_urls
 from app.shared.utils.datetime import iso, now
 
 TYPES = ("contact", "order", "campaign", "chatbot")
@@ -75,7 +76,7 @@ def _contact(db: Session, c, full: bool) -> dict:
     chat = db.query(WaConversation).filter(WaConversation.contact_id == c.id).first()
     return {**card, "phone": _mask(c.wa_id), "status": chat.status if chat else None,
             "preview": chat.last_message_preview if chat else None,
-            "path": f"/dashboard/inbox?c={chat.id}" if chat else "/dashboard/contacts"}
+            "path": customer_urls.conversation(chat.id) if chat else customer_urls.CONTACTS}
 
 
 def _order(db: Session, o, full: bool) -> dict:
@@ -88,7 +89,7 @@ def _order(db: Session, o, full: bool) -> dict:
         return card
     items = len(o.items)
     return {**card, "total": _money(o.total, o.currency), "items": items, "customer": o.customer_name,
-            "placed_at": iso(o.placed_at or o.created_at), "path": f"/dashboard/commerce/orders/{o.id}"}
+            "placed_at": iso(o.placed_at or o.created_at), "path": customer_urls.order(o.id)}
 
 
 def _campaign(db: Session, c, full: bool) -> dict:
@@ -101,7 +102,7 @@ def _campaign(db: Session, c, full: bool) -> dict:
     return {**card, "report": {k: report[k] for k in ("recipients", "sent", "delivered", "read", "replied",
                                                       "failed")},
             "scheduled_at": iso(c.scheduled_at), "completed_at": iso(c.completed_at),
-            "path": f"/dashboard/campaigns/{c.id}"}
+            "path": customer_urls.campaign(c.id)}
 
 
 def _chatbot(db: Session, b, full: bool) -> dict:
@@ -114,7 +115,7 @@ def _chatbot(db: Session, b, full: bool) -> dict:
             .filter(WaChatbotSession.chatbot_id == b.id, WaChatbotSession.started_at >= now() - timedelta(days=7))
             .scalar() or 0)
     return {**card, "trigger": b.trigger, "keywords": list(b.keywords or [])[:4], "chats_week": int(week),
-            "path": f"/dashboard/chatbots/{b.id}"}
+            "path": customer_urls.chatbot(b.id)}
 
 
 SUMMARY = {"contact": _contact, "order": _order, "campaign": _campaign, "chatbot": _chatbot}

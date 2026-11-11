@@ -3,20 +3,22 @@ from app.core.database import SessionLocal
 from app.modules.admin.menus.models import Menu, MenuItem
 from app.modules.admin.seo.models import DEFAULT_SEO_PATH, SeoPage
 from app.modules.admin.settings.models import Setting
+from app.shared.constants import website_urls as site
 
 MENUS = {
-    "header": ("Header menu", [("Home", "/"), ("Features", "/#features"), ("Pricing", "/#pricing"),
-                               ("Blog", "/blog"), ("Contact", "/contact")]),
-    "footer": ("Footer menu", [("Privacy policy", "/privacy-policy"), ("Terms", "/terms"),
-                               ("Contact", "/contact")]),
+    "header": ("Header menu", [("Home", site.HOME), ("Features", f"{site.HOME}#features"),
+                               ("Pricing", f"{site.HOME}#pricing"), ("Blog", site.BLOG),
+                               ("Contact", site.CONTACT)]),
+    "footer": ("Footer menu", [("Privacy policy", site.PRIVACY_POLICY), ("Terms", site.TERMS),
+                               ("Contact", site.CONTACT)]),
 }
 
 SEO = [
     (DEFAULT_SEO_PATH, "Default (all pages)", f"{DEFAULT_APP_NAME} | Welcome",
      "Team inbox, broadcasts, chatbots and AI for WhatsApp Business."),
-    ("/", "Home", f"{DEFAULT_APP_NAME} | WhatsApp Business platform", "Talk to every customer on WhatsApp: shared inbox, broadcasts, chatbots and AI agents."),
-    ("/blog", "Blog", f"Blog | {DEFAULT_APP_NAME}", "News, guides and updates."),
-    ("/contact", "Contact", f"Contact us | {DEFAULT_APP_NAME}", "Get in touch with our team."),
+    (site.HOME, "Home", f"{DEFAULT_APP_NAME} | WhatsApp Business platform", "Talk to every customer on WhatsApp: shared inbox, broadcasts, chatbots and AI agents."),
+    (site.BLOG, "Blog", f"Blog | {DEFAULT_APP_NAME}", "News, guides and updates."),
+    (site.CONTACT, "Contact", f"Contact us | {DEFAULT_APP_NAME}", "Get in touch with our team."),
 ]
 
 

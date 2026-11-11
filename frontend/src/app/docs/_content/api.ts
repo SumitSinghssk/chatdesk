@@ -76,7 +76,7 @@ const MESSAGE_FIELDS: Param[] = [
   {
     name: "id",
     type: "integer",
-    desc: "ChatDesk's id for the message. Use it with [GET /messages/{id}](/docs/api/get-message).",
+    desc: "ChatDesk's id for the message. Use it with [GET /messages/{id}](doc:api/get-message).",
   },
   { name: "wamid", type: "string", desc: "WhatsApp's own id for the message." },
   {
@@ -147,7 +147,7 @@ export const API_PAGES: DocPage[] = [
         t: "callout",
         kind: "warning",
         title: "Only inside the 24-hour window",
-        text: "Text, images and files can only go to someone who messaged you in the last 24 hours. Otherwise you get a `422` error: [send a template](/docs/api/send-template) instead.",
+        text: "Text, images and files can only go to someone who messaged you in the last 24 hours. Otherwise you get a `422` error: [send a template](doc:api/send-template) instead.",
       },
       {
         t: "endpoint",
@@ -167,7 +167,7 @@ export const API_PAGES: DocPage[] = [
           {
             name: "type",
             type: "string",
-            desc: "`text` (the default). Other types: [template](/docs/api/send-template), [image, video, audio, document](/docs/api/send-media).",
+            desc: "`text` (the default). Other types: [template](doc:api/send-template), [image, video, audio, document](doc:api/send-media).",
           },
           {
             name: "text",
@@ -206,7 +206,7 @@ export const API_PAGES: DocPage[] = [
       {
         t: "callout",
         kind: "tip",
-        text: "`sent` means WhatsApp accepted the message. Delivery and read receipts come later: watch them with the `message.delivered` and `message.read` [webhooks](/docs/webhooks/events), or check [GET /messages/{id}](/docs/api/get-message).",
+        text: "`sent` means WhatsApp accepted the message. Delivery and read receipts come later: watch them with the `message.delivered` and `message.read` [webhooks](doc:webhooks/events), or check [GET /messages/{id}](doc:api/get-message).",
       },
     ],
   },
@@ -231,7 +231,7 @@ export const API_PAGES: DocPage[] = [
           },
           {
             title: "Find its variables",
-            text: "Call [GET /templates](/docs/api/list-templates): `variables.body` lists what you must fill in, in order.",
+            text: "Call [GET /templates](doc:api/list-templates): `variables.body` lists what you must fill in, in order.",
           },
           { title: "Send it", text: "Send the values in `template.body`, in the same order." },
         ],
@@ -440,7 +440,7 @@ export const API_PAGES: DocPage[] = [
       {
         t: "callout",
         kind: "tip",
-        text: "Checking again and again (polling) works, but [webhooks](/docs/webhooks) tell you the moment the status changes, with no extra requests.",
+        text: "Checking again and again (polling) works, but [webhooks](doc:webhooks) tell you the moment the status changes, with no extra requests.",
       },
     ],
   },
@@ -530,7 +530,7 @@ export const API_PAGES: DocPage[] = [
           {
             name: "tags",
             type: "string[]",
-            desc: "Replaces all their tags. To add or remove one tag, use [PATCH](/docs/api/update-contact).",
+            desc: "Replaces all their tags. To add or remove one tag, use [PATCH](doc:api/update-contact).",
           },
           {
             name: "attributes",

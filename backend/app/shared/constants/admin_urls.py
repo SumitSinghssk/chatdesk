@@ -1,19 +1,29 @@
+"""Admin panel page paths on the frontend.
+
+Keep in sync with frontend/src/config/routes/admin.ts and frontend/src/config/modules.ts.
+"""
+
 from urllib.parse import urlencode
 
-ENQUIRIES = "/admin/enquiries"
-USERS = "/admin/users"
-CUSTOMERS = "/admin/customers"
-BLOGS = "/admin/blogs"
-BLOG_CATEGORIES = "/admin/blog-categories"
-COMMENTS = "/admin/comments"
-PAGES = "/admin/pages"
-TESTIMONIALS = "/admin/testimonials"
-TEAM = "/admin/team"
-GALLERIES = "/admin/galleries"
-REDIRECTS = "/admin/redirects"
-SEO = "/admin/seo"
-SETTINGS = "/admin/settings"
-BACKUPS = "/admin/backups"
+ROOT = "/admin"
+LOGIN = f"{ROOT}/login"
+FORGOT_PASSWORD = f"{ROOT}/forgot-password"
+RESET_PASSWORD = f"{ROOT}/reset-password"
+
+ENQUIRIES = f"{ROOT}/enquiries"
+USERS = f"{ROOT}/users"
+CUSTOMERS = f"{ROOT}/customers"
+BLOGS = f"{ROOT}/blogs"
+BLOG_CATEGORIES = f"{ROOT}/blog-categories"
+COMMENTS = f"{ROOT}/comments"
+PAGES = f"{ROOT}/pages"
+TESTIMONIALS = f"{ROOT}/testimonials"
+TEAM = f"{ROOT}/team"
+GALLERIES = f"{ROOT}/galleries"
+REDIRECTS = f"{ROOT}/redirects"
+SEO = f"{ROOT}/seo"
+SETTINGS = f"{ROOT}/settings"
+BACKUPS = f"{ROOT}/backups"
 
 
 def admin_url(path: str, **params) -> str:

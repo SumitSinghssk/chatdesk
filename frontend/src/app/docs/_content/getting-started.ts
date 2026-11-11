@@ -1,3 +1,5 @@
+import { CUSTOMER_ROUTES } from "@/config/routes";
+
 import { shot } from "./shots";
 import type { DocPage } from "./types";
 
@@ -26,25 +28,25 @@ export const GETTING_STARTED: DocPage[] = [
           {
             title: "Quickstart",
             text: "Create a key and send your first message in 5 minutes.",
-            href: "/docs/quickstart",
+            href: CUSTOMER_ROUTES.DOCS_PAGE("quickstart"),
             icon: "rocket",
           },
           {
             title: "Send a message",
             text: "Text, templates, images and documents.",
-            href: "/docs/api/send-message",
+            href: CUSTOMER_ROUTES.DOCS_PAGE("api/send-message"),
             icon: "send",
           },
           {
             title: "Webhooks",
             text: "Get new messages, read receipts and orders as they happen.",
-            href: "/docs/webhooks",
+            href: CUSTOMER_ROUTES.DOCS_PAGE("webhooks"),
             icon: "webhook",
           },
           {
             title: "Zapier & Make",
             text: "Connect thousands of apps without writing code.",
-            href: "/docs/guides/zapier",
+            href: CUSTOMER_ROUTES.DOCS_PAGE("guides/zapier"),
             icon: "zap",
           },
         ],
@@ -84,7 +86,7 @@ export const GETTING_STARTED: DocPage[] = [
         t: "callout",
         kind: "tip",
         title: "No coding?",
-        text: "You can still use all of this through [Zapier](/docs/guides/zapier) or [Make](/docs/guides/make). They handle the technical part for you.",
+        text: "You can still use all of this through [Zapier](doc:guides/zapier) or [Make](doc:guides/make). They handle the technical part for you.",
       },
     ],
   },
@@ -130,7 +132,7 @@ export const GETTING_STARTED: DocPage[] = [
       { t: "h2", text: "Step 2: Check the key works" },
       {
         t: "p",
-        text: "Run this in a terminal (replace `YOUR_API_KEY`). You can also use the **Try it** button on the [GET /me](/docs/api/me) page right here in the docs.",
+        text: "Run this in a terminal (replace `YOUR_API_KEY`). You can also use the **Try it** button on the [GET /me](doc:api/me) page right here in the docs.",
       },
       {
         t: "code",
@@ -156,7 +158,7 @@ export const GETTING_STARTED: DocPage[] = [
       { t: "h2", text: "Step 3: Send a message" },
       {
         t: "p",
-        text: "WhatsApp has one important rule: you can send a **normal text** only to someone who messaged you in the **last 24 hours**. To start a conversation, you send an approved **template** instead. [Learn more](/docs/basics#the-24-hour-rule).",
+        text: "WhatsApp has one important rule: you can send a **normal text** only to someone who messaged you in the **last 24 hours**. To start a conversation, you send an approved **template** instead. [Learn more](doc:basics#the-24-hour-rule).",
       },
       {
         t: "p",
@@ -190,9 +192,9 @@ export const GETTING_STARTED: DocPage[] = [
       {
         t: "list",
         items: [
-          "Send a [template message](/docs/api/send-template) to people who haven't written to you yet.",
-          "Add a [webhook](/docs/webhooks) to hear about replies and read receipts.",
-          "Read [The basics](/docs/basics): phone number format, errors and limits.",
+          "Send a [template message](doc:api/send-template) to people who haven't written to you yet.",
+          "Add a [webhook](doc:webhooks) to hear about replies and read receipts.",
+          "Read [The basics](doc:basics): phone number format, errors and limits.",
         ],
       },
     ],
@@ -313,7 +315,7 @@ export const GETTING_STARTED: DocPage[] = [
       {
         t: "callout",
         kind: "tip",
-        text: "The [conversations](/docs/api/list-conversations) endpoint tells you if the window is open (`window_open`). Templates are made in ChatDesk under **Templates**.",
+        text: "The [conversations](doc:api/list-conversations) endpoint tells you if the window is open (`window_open`). Templates are made in ChatDesk under **Templates**.",
       },
       { t: "h2", text: "Pages (pagination)" },
       {
@@ -354,7 +356,7 @@ export const GETTING_STARTED: DocPage[] = [
       },
       {
         t: "p",
-        text: "See [Errors and fixes](/docs/errors) for the common errors and how to solve them.",
+        text: "See [Errors and fixes](doc:errors) for the common errors and how to solve them.",
       },
     ],
   },

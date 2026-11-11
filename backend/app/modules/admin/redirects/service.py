@@ -10,6 +10,7 @@ from app.modules.admin.activity_log.service import diff, log_activity, log_bulk
 from app.modules.admin.redirects.models import Redirect
 from app.modules.admin.redirects.schemas import RedirectCreateSchema, RedirectUpdateSchema
 from app.shared.enums import Status
+from app.shared.constants import admin_urls
 from app.shared.pagination import list_response
 from app.shared.utils.bulk import BulkActionSchema
 from app.shared.utils.datetime import iso, now
@@ -18,7 +19,7 @@ from app.shared.utils.search import search_clause
 from app.shared.utils.slug import normalize_path
 
 SUBJECT = "redirect"
-RESERVED_PREFIXES = ("/admin", "/api")
+RESERVED_PREFIXES = (admin_urls.ROOT, "/api")
 
 
 def _serialize(row: Redirect) -> dict:

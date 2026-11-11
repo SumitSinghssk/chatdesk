@@ -36,6 +36,7 @@ import {
   Textarea,
 } from "@/app/admin/_components/ui/index";
 import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
+import { CUSTOMER_ROUTES } from "@/config/routes";
 import { siteConfig } from "@/config/site";
 import { cn } from "@/lib/utils";
 
@@ -254,8 +255,8 @@ export function Channels({ agent }: { agent: Agent }) {
   const setWa = (patch: Partial<ChannelsInput["whatsapp"]>) =>
     setForm((f) => ({ ...f, whatsapp: { ...f.whatsapp, ...patch } }));
   const key = agent.public_key;
-  const script = `<script src="${site}/widget.js" data-agent="${key}" async></script>`;
-  const link = `${site}/ai-chat/${key}`;
+  const script = `<script src="${site}${CUSTOMER_ROUTES.AI_WIDGET_SCRIPT()}" data-agent="${key}" async></script>`;
+  const link = `${site}${CUSTOMER_ROUTES.AI_CHAT(key)}`;
   const curl = `curl -X POST ${site}/api/v1/website/ai/${key}/messages \\
   -H "Authorization: Bearer ${secret ?? "YOUR_API_KEY"}" \\
   -H "Content-Type: application/json" \\
@@ -517,7 +518,7 @@ export function Channels({ agent }: { agent: Agent }) {
             </div>
           </div>
           <div>
-            <div className="space-y-2 sticky top-0">
+            <div className="sticky top-0 space-y-2">
               <p className="text-fg text-sm font-medium">Preview</p>
               <WidgetPreview widget={w} name={agent.name} />
             </div>
