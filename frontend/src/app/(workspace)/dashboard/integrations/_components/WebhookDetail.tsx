@@ -230,7 +230,7 @@ export function WebhookDetail({ id, onClose }: { id: number | null; onClose: () 
               </Button>
             </div>
             <a
-              href={`${CUSTOMER_ROUTES.DOCS()}/webhooks/verify-signatures`}
+              href={CUSTOMER_ROUTES.DOCS_PAGE("webhooks/verify-signatures")}
               target="_blank"
               rel="noreferrer"
               className="text-primary text-xs hover:underline"

@@ -22,13 +22,13 @@ const GUIDES = [
     icon: Code2,
     title: "API reference",
     text: "Every endpoint, with a Try it button",
-    href: `${CUSTOMER_ROUTES.DOCS()}/api/send-message`,
+    href: CUSTOMER_ROUTES.DOCS_PAGE("api/send-message"),
   },
   {
     icon: Zap,
     title: "Zapier & Make",
     text: "Connect 6,000+ apps without code",
-    href: `${CUSTOMER_ROUTES.DOCS()}/guides/zapier`,
+    href: CUSTOMER_ROUTES.DOCS_PAGE("guides/zapier"),
   },
 ];
 

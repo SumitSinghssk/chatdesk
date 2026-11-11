@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   Megaphone,
   MessageCircle,
+  Phone,
   PlugZap,
   Rocket,
   Settings,
@@ -24,6 +25,7 @@ import { CUSTOMER_ROUTES } from "@/config/routes";
 export type ModuleKey =
   | "overview"
   | "inbox"
+  | "calls"
   | "contacts"
   | "diagrams"
   | "campaigns"
@@ -86,6 +88,21 @@ export const WORKSPACE_MODULES: WorkspaceModule[] = [
       "Internal notes, quick replies and labels",
       "24-hour window timer and template sending",
       "Open / pending / resolved filters and search",
+    ],
+  },
+  {
+    key: "calls",
+    label: "Calls",
+    href: CUSTOMER_ROUTES.CALLS(),
+    icon: Phone,
+    section: "main",
+    status: "live",
+    description: "Phone calls through your own Exotel account, with recordings and a WhatsApp follow-up.",
+    features: [
+      "Click-to-call: your phone rings first, then the customer's",
+      "A WhatsApp message after answered or missed calls, or none",
+      "Call recordings saved in your workspace",
+      "Call log with search and filters",
     ],
   },
   {
