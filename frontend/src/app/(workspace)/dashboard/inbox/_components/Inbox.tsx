@@ -4,7 +4,7 @@ import { useCallback, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { MessageCircle, MessagesSquare } from "lucide-react";
+import { MessageCircle, MessagesSquare, SlidersHorizontal, X } from "lucide-react";
 
 import { Button, EmptyState } from "@/app/admin/_components/ui/index";
 import { useDebouncedValue } from "@/app/admin/_hooks/useDebouncedValue";
@@ -13,17 +13,42 @@ import { cn } from "@/lib/utils";
 
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 
-import { INBOX_QK, inboxApi, type BulkAction, type Conversation, type Page } from "../../_lib/inboxApi";
+import {
+  INBOX_QK,
+  inboxApi,
+  type BulkAction,
+  type Conversation,
+  type InboxFilters,
+  type Page,
+  type SavedView,
+} from "../../_lib/inboxApi";
+import { TEAM_QK, teamApi } from "../../_lib/teamApi";
+import { FilterPanel, filterChips } from "./FilterPanel";
+import { ViewsMenu } from "./ViewsMenu";
 import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
 import { ChatPanel } from "./ChatPanel";
 import { ContactPanel } from "./ContactPanel";
 import { ConversationList, type ListFilter, type OwnerFilter } from "./ConversationList";
+import { Tooltip } from "../../_components/Tooltip";
 import { useDashboard } from "../../_components/DashboardContext";
 import { NewChatModal } from "./NewChatModal";
 import { SnoozeDialog } from "./SnoozeDialog";
 import { StarredModal } from "./StarredModal";
 
 const PAGE = 30;
+const FILTERS_KEY = "cd_inbox_filters";
+
+function readFilters(): InboxFilters {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY);
+    return raw ? (JSON.parse(raw) as InboxFilters) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** the words a search looks for, as the server splits them */
+const searchWords = (term: string) => (term.toLowerCase().match(/[\p{L}\p{N}_]+/gu) ?? []).slice(0, 8);
 const conversationKey = (id: number) => ["inbox", "conversation", id] as const;
 
 export function Inbox() {
@@ -46,6 +71,23 @@ export function Inbox() {
   const debounced = useDebouncedValue(search.trim(), 300);
 
   const [starredOpen, setStarredOpen] = useState(false);
+  const [filters, setFiltersState] = useState<InboxFilters>(readFilters);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [jump, setJump] = useState<{ conversationId: number; messageId: number; words: string[] } | null>(
+    null
+  );
+  const setFilters = (next: InboxFilters) => {
+    setFiltersState(next);
+    try {
+      localStorage.setItem(FILTERS_KEY, JSON.stringify(next));
+    } catch {}
+  };
+  const members = useQuery({
+    queryKey: TEAM_QK.MEMBERS,
+    queryFn: async () => (await teamApi.members()).data,
+    staleTime: 60_000,
+    enabled: /^\d+$/.test(owner),
+  });
   const [bulkSnooze, setBulkSnooze] = useState<number[] | null>(null);
   const bulkDone = useRef<((ok: boolean) => void) | null>(null);
 
@@ -55,6 +97,8 @@ export function Inbox() {
     unread: unreadOnly || undefined,
     search: debounced || undefined,
     per_page: PAGE,
+    ...filters,
+    starred: filters.starred || undefined,
   };
   // pages load as the list scrolls; the poll refreshes every loaded page
   const list = useInfiniteQuery({
@@ -119,6 +163,49 @@ export function Inbox() {
   );
 
   const notConnected = connection.data === null || connection.data?.status === "error";
+  const total = list.data?.pages[0]?.meta?.total;
+  const memberName = members.data?.find((m) => String(m.id) === owner);
+  const chips = [
+    ...filterChips(filters).map((chip) => ({
+      key: chip.key as string,
+      label: chip.label,
+      remove: () => setFilters({ ...filters, [chip.key]: undefined }),
+    })),
+    ...(/^\d+$/.test(owner)
+      ? [
+          {
+            key: "assignee",
+            label: `Assigned to ${memberName?.name || memberName?.email || "a team member"}`,
+            remove: () => setOwner("all"),
+          },
+        ]
+      : []),
+  ];
+  const activeFilters = chips.length;
+  const viewParams = {
+    search: debounced || undefined,
+    status: filter,
+    assignee: owner === "all" ? undefined : owner,
+    unread: unreadOnly || undefined,
+    ...filters,
+  };
+  const applyView = (view: SavedView) => {
+    const p = view.params;
+    setSearch(typeof p.search === "string" ? p.search : "");
+    setFilter((p.status as ListFilter) || "open");
+    setOwner((p.assignee as OwnerFilter) || "all");
+    setUnreadOnly(!!p.unread);
+    setFilters({
+      waiting: p.waiting ? Number(p.waiting) : undefined,
+      attachment: (p.attachment as InboxFilters["attachment"]) || undefined,
+      date_from: (p.date_from as string) || undefined,
+      date_to: (p.date_to as string) || undefined,
+      window: (p.window as InboxFilters["window"]) || undefined,
+      starred: !!p.starred || undefined,
+      tag: (p.tag as string) || undefined,
+    });
+  };
+
   const runBulk = async (ids: number[], action: BulkAction, until?: string, note?: string | null) => {
     try {
       const res = await inboxApi.bulk({ ids, action, until, note });
@@ -174,8 +261,77 @@ export function Inbox() {
           selectedId={selectedId}
           onSelect={(c) => {
             onChanged(c);
+            // a search hit opens the chat at the matching message
+            setJump(
+              c.match?.message_id && debounced
+                ? { conversationId: c.id, messageId: c.match.message_id, words: searchWords(debounced) }
+                : null
+            );
             select(c.id);
           }}
+          searchWords={debounced ? searchWords(debounced) : undefined}
+          headerExtra={
+            <>
+              <Tooltip label="Filters" align="end">
+                <span className="relative inline-flex">
+                  <Button
+                    iconOnly
+                    variant={activeFilters ? "secondary" : "ghost"}
+                    size="sm"
+                    leftIcon={SlidersHorizontal}
+                    aria-label={activeFilters ? `Filters (${activeFilters} on)` : "Filters"}
+                    onClick={() => setFiltersOpen(true)}
+                  />
+                  {activeFilters > 0 && (
+                    <span className="bg-primary text-primary-fg pointer-events-none absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold">
+                      {activeFilters}
+                    </span>
+                  )}
+                </span>
+              </Tooltip>
+              <ViewsMenu
+                current={viewParams}
+                canSave={!!debounced || activeFilters > 0 || owner !== "all" || unreadOnly}
+                readOnly={readOnly}
+                onApply={applyView}
+              />
+            </>
+          }
+          chips={
+            chips.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1">
+                {chips.map((chip) => (
+                  <span
+                    key={chip.key}
+                    className="bg-primary-soft text-primary inline-flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2 text-[11px] font-medium"
+                  >
+                    {chip.label}
+                    <button
+                      type="button"
+                      aria-label={`Remove filter ${chip.label}`}
+                      onClick={chip.remove}
+                      className="hover:bg-primary/15 rounded-full p-0.5"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </span>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFilters({});
+                    if (/^\d+$/.test(owner)) setOwner("all");
+                  }}
+                  className="text-fg-subtle hover:text-fg text-[11px] font-medium underline-offset-2 hover:underline"
+                >
+                  Clear all
+                </button>
+                {total !== undefined && (
+                  <span className="text-fg-faint ml-auto text-[11px]">{total} chats</span>
+                )}
+              </div>
+            ) : undefined
+          }
           onNewChat={readOnly ? undefined : () => setNewChatOpen(true)}
           hasMore={!!list.hasNextPage}
           onLoadMore={() => {
@@ -198,6 +354,8 @@ export function Inbox() {
             onToggleContact={() => setContactOpen((v) => !v)}
             autoTemplate={templateFor === selected.id}
             onTemplateShown={() => setTemplateFor(null)}
+            jump={jump && jump.conversationId === selected.id ? jump : null}
+            onJumped={() => setJump(null)}
           />
         ) : (
           <div className="flex flex-1 items-center justify-center bg-[#efeae2] p-6 dark:bg-[#0b141a]">
@@ -247,10 +405,27 @@ export function Inbox() {
         </>
       )}
 
+      {filtersOpen && (
+        <FilterPanel
+          open
+          filters={filters}
+          assignee={/^\d+$/.test(owner) ? owner : ""}
+          onClose={() => setFiltersOpen(false)}
+          onApply={(next, who) => {
+            setFilters(next);
+            if (who) setOwner(who as OwnerFilter);
+            else if (/^\d+$/.test(owner)) setOwner("all");
+          }}
+        />
+      )}
+
       <StarredModal
         open={starredOpen}
         onClose={() => setStarredOpen(false)}
-        onOpen={(item) => select(item.conversation.id)}
+        onOpen={(item) => {
+          setJump({ conversationId: item.conversation.id, messageId: item.message.id, words: [] });
+          select(item.conversation.id);
+        }}
       />
 
       {bulkSnooze && (

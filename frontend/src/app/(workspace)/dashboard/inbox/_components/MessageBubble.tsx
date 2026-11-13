@@ -316,6 +316,8 @@ export function MessageBubble({
   onRetry,
   retrying,
   onStar,
+  highlight,
+  current,
 }: {
   message: InboxMessage;
   reactions: string[];
@@ -325,6 +327,10 @@ export function MessageBubble({
   retrying: boolean;
   /** star or unstar for the team (left out for viewers) */
   onStar?: (m: InboxMessage) => void;
+  /** search words to mark in the text */
+  highlight?: string[];
+  /** the current search hit: drawn with a ring */
+  current?: boolean;
 }) {
   const out = message.direction === "out";
   const type = mediaType(message);
@@ -340,7 +346,11 @@ export function MessageBubble({
   return (
     <div className={cn("group/msg flex flex-col px-3 sm:px-6", out ? "items-end" : "items-start")}>
       <div
-        className={cn("relative flex max-w-[85%] items-end gap-1 sm:max-w-[70%]", out && "flex-row-reverse")}
+        className={cn(
+          "relative flex max-w-[85%] items-end gap-1 rounded-lg sm:max-w-[70%]",
+          out && "flex-row-reverse",
+          current && "ring-2 ring-amber-400 ring-offset-2 ring-offset-transparent"
+        )}
       >
         <div
           className={cn(
@@ -396,7 +406,7 @@ export function MessageBubble({
           {message.cart && <CartCard cart={message.cart} />}
           {showText && (
             <p className={cn("break-words whitespace-pre-wrap", visual && "px-1.5 pt-1")}>
-              <WaText text={message.text!} />
+              <WaText text={message.text!} highlight={highlight} />
             </p>
           )}
           {message.type === "unsupported" && !message.text && (
