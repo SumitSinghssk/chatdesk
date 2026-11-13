@@ -71,6 +71,7 @@ def notify(db: Session, people: list[Customer], event: str, title: str, body: st
         title, url = _on_number(db, number_id, title, url)
     sent = 0
     emails = []
+    pushes = []
     for person in people:
         if skip is not None and person.id == skip:
             continue
@@ -88,8 +89,14 @@ def notify(db: Session, people: list[Customer], event: str, title: str, body: st
                                     created_at=now()))
         if ch["email"]:
             emails.append(person.id)
+        if ch["browser"]:
+            pushes.append(person.id)
         sent += 1
     db.flush()
+    if pushes:
+        from app.modules.customer.account import push
+
+        push.send(pushes, title, body, url, tag=f"{event}:{(data or {}).get('conversation_id') or once_key or ''}")
     for person_id in emails:
         if os.getenv("NOTIFY_EMAIL_INLINE") == "1":
             _email(person_id, title, body, url)
@@ -247,3 +254,37 @@ def snooze_ended(db: Session, conversation) -> None:
            conversation.snooze_note or conversation.last_message_preview,
            customer_urls.conversation(conversation.id), {"conversation_id": conversation.id},
            once_key=f"snooze:{conversation.id}:{conversation.snooze_woke_at}", number_id=conversation.customer_id)
+
+
+NEW_MESSAGE_EVERY = 10  # minutes: at most one "new message" alert per chat per person in this time
+
+
+def new_message(db: Session, conversation, message) -> int:
+    """A customer wrote: tell the people whose chosen scope covers this chat (and who may see it)."""
+    from app.modules.customer.team.access import settings_of
+    from app.shared.utils.datetime import iso
+
+    owner = db.get(Customer, conversation.customer_id)
+    if owner is None:
+        return 0
+    visibility = settings_of(owner)["agent_visibility"]
+    picked = []
+    for person in team(db, conversation.customer_id):
+        scope = notification_settings(person)["scope"]
+        mine = conversation.assignee_id == person.id
+        unassigned = conversation.assignee_id is None
+        if not (mine or (unassigned and scope in ("mine_unassigned", "all")) or scope == "all"):
+            continue
+        limited = person.workspace_id is not None and person.role in ("agent", "viewer")
+        if limited and not mine and (visibility == "own" or (visibility == "assigned" and not unassigned)):
+            continue  # they can't open this chat
+        picked.append(person)
+    if not picked:
+        return 0
+    contact = conversation.contact
+    who = contact.name or contact.profile_name or f"+{contact.wa_id}"
+    bucket = message.created_at.replace(minute=message.created_at.minute // NEW_MESSAGE_EVERY * NEW_MESSAGE_EVERY,
+                                        second=0, microsecond=0)
+    return notify(db, picked, "new_message", f"New message from {who}", conversation.last_message_preview,
+                  customer_urls.conversation(conversation.id), {"conversation_id": conversation.id},
+                  once_key=f"msg:{conversation.id}:{iso(bucket)}", number_id=conversation.customer_id)

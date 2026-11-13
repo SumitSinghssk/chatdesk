@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.core.customer_auth import require_customer, require_customer_csrf
@@ -186,3 +187,44 @@ def export(customer: Customer = Depends(require_customer), db: Session = Depends
 def delete_account(payload: DeleteAccountSchema, request: Request, response: Response,
                    customer: Customer = Depends(require_customer), db: Session = Depends(get_db)):
     return data.delete_account(db, customer, payload, request, response)
+
+
+class PushSubscriptionSchema(BaseModel):
+    endpoint: str = Field(..., min_length=10, max_length=2000)
+    keys: dict[str, str]
+
+
+@router.get("/push")
+def push_info(customer: Customer = Depends(require_customer), db: Session = Depends(get_db)):
+    from app.modules.customer.account import push
+
+    return {"status": True, "data": {"enabled": push.enabled(), "public_key": push.public_key() or None,
+                                     "devices": push.count(db, customer.id)}}
+
+
+@router.post("/push", dependencies=[Depends(RateLimit(20, 60)), _csrf])
+def push_subscribe(payload: PushSubscriptionSchema, request: Request, customer: Customer = Depends(require_customer),
+                   db: Session = Depends(get_db)):
+    from fastapi import HTTPException
+
+    from app.modules.customer.account import push
+
+    if not push.enabled():
+        raise HTTPException(422, detail="Push notifications aren't set up on this server")
+    p256dh, auth = (payload.keys.get("p256dh") or "").strip(), (payload.keys.get("auth") or "").strip()
+    if not p256dh or not auth or len(p256dh) > 255 or len(auth) > 255:
+        raise HTTPException(422, detail="This browser didn't give push keys")
+    try:
+        push.subscribe(db, customer.id, payload.endpoint.strip(), p256dh, auth, request.headers.get("user-agent"))
+    except ValueError as exc:
+        raise HTTPException(422, detail=str(exc)) from exc
+    return {"status": True, "message": "Push notifications are on for this browser", "data": None}
+
+
+@router.delete("/push", dependencies=[_csrf])
+def push_unsubscribe(endpoint: str = Query(..., max_length=2000), customer: Customer = Depends(require_customer),
+                     db: Session = Depends(get_db)):
+    from app.modules.customer.account import push
+
+    push.unsubscribe(db, customer.id, endpoint)
+    return {"status": True, "message": "Push notifications are off for this browser", "data": None}

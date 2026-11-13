@@ -27,6 +27,7 @@ export const CUSTOMER_ENDPOINTS = {
     GOOGLE: "/customer/account/google",
     PREFERENCES: "/customer/account/preferences",
     NOTIFICATION_SETTINGS: "/customer/account/notification-settings",
+    PUSH: "/customer/account/push",
     NOTIFICATIONS: "/customer/account/notifications",
     NOTIFICATIONS_READ: "/customer/account/notifications/read",
     EXPORT: "/customer/account/export",

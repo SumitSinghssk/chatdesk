@@ -231,6 +231,8 @@ def save_notification_settings(db: Session, customer: Customer, payload) -> dict
     customer.notification_settings = {
         "events": {k: v.model_dump() for k, v in payload.events.items() if k in allowed},
         "waiting_minutes": payload.waiting_minutes,
+        "scope": payload.scope,
+        "quiet_when_away": payload.quiet_when_away,
     }
     db.commit()
     return {"status": True, "message": "Notification settings saved", "data": notification_settings(customer)}

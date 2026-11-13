@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, BellRing, Mail, Monitor, Save } from "lucide-react";
+import { Bell, BellRing, Mail, Monitor, Save, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, Card, Select, Skeleton, Switch } from "@/app/admin/_components/ui/index";
@@ -14,15 +14,22 @@ import {
   showDesktop,
   type DesktopPermission,
 } from "@/lib/alerts";
+import { pushState, subscribePush, unsubscribePush, type PushState } from "@/lib/push";
 
 import { CardHeader } from "../../_components/CardHeader";
 import { useDashboard } from "../../_components/DashboardContext";
-import { ACCOUNT_QK, accountApi, type ChannelSet, type NotificationSettings } from "../../_lib/accountApi";
+import {
+  ACCOUNT_QK,
+  accountApi,
+  type ChannelSet,
+  type NotificationSettings,
+  type NotifyScope,
+} from "../../_lib/accountApi";
 
 const CHANNELS: { key: keyof ChannelSet; label: string; icon: typeof Bell }[] = [
   { key: "in_app", label: "In ChatDesk", icon: Bell },
   { key: "email", label: "Email", icon: Mail },
-  { key: "browser", label: "Desktop pop-up", icon: Monitor },
+  { key: "browser", label: "Pop-up & push", icon: Monitor },
 ];
 
 function usePermission(): DesktopPermission {
@@ -33,6 +40,101 @@ function usePermission(): DesktopPermission {
     },
     desktopPermission,
     () => "default"
+  );
+}
+
+const SCOPES: { value: NotifyScope; label: string; hint: string }[] = [
+  { value: "mine", label: "Chats assigned to me", hint: "Only chats assigned to you" },
+  {
+    value: "mine_unassigned",
+    label: "Mine and unassigned chats",
+    hint: "Your chats and chats nobody has yet",
+  },
+  { value: "all", label: "Every chat I can see", hint: "Every chat you can open" },
+];
+
+/** Push to this browser or phone, so alerts arrive with ChatDesk closed. */
+function PushCard() {
+  const qc = useQueryClient();
+  const info = useQuery({
+    queryKey: [...ACCOUNT_QK.NOTIFY, "push"],
+    queryFn: () => accountApi.push().then((r) => r.data),
+  });
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    void pushState().then(setState);
+  }, []);
+
+  const turnOn = async () => {
+    if (!info.data?.public_key) return;
+    setBusy(true);
+    try {
+      const sub = await subscribePush(info.data.public_key);
+      if (!sub) {
+        toast.error("The browser didn't allow notifications. Allow them for this site, then try again.");
+      } else {
+        await accountApi.pushSubscribe(sub);
+        toast.success("Push notifications are on for this browser");
+      }
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setState(await pushState());
+      void qc.invalidateQueries({ queryKey: [...ACCOUNT_QK.NOTIFY, "push"] });
+      setBusy(false);
+    }
+  };
+  const turnOff = async () => {
+    setBusy(true);
+    try {
+      const endpoint = await unsubscribePush();
+      if (endpoint) await accountApi.pushUnsubscribe(endpoint);
+      toast.success("Push notifications are off for this browser");
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setState(await pushState());
+      void qc.invalidateQueries({ queryKey: [...ACCOUNT_QK.NOTIFY, "push"] });
+      setBusy(false);
+    }
+  };
+
+  if (info.data && !info.data.enabled) return null; // the server has no push keys
+  const devices = info.data?.devices ?? 0;
+  return (
+    <Card>
+      <CardHeader
+        title="Push to this browser or phone"
+        icon={Smartphone}
+        description="Alerts that reach you even when ChatDesk is closed (for everything set to “Pop-up & push”)."
+      />
+      <div className="flex flex-wrap items-center gap-3 p-5">
+        <p className="text-fg-muted min-w-0 flex-1 text-sm">
+          {state === "on"
+            ? "On for this browser."
+            : state === "denied"
+              ? "Blocked in this browser. Allow notifications for this site in the browser's settings."
+              : state === "unsupported"
+                ? "This browser can't receive push (on iPhone, add ChatDesk to the Home Screen first)."
+                : "Off for this browser."}
+          {devices > 0 && (
+            <span className="text-fg-subtle block text-xs">
+              On for {devices} browser{devices === 1 ? "" : "s"} or phone{devices === 1 ? "" : "s"} in total.
+            </span>
+          )}
+        </p>
+        {state === "on" ? (
+          <Button variant="secondary" loading={busy} onClick={turnOff}>
+            Turn off here
+          </Button>
+        ) : state === "off" ? (
+          <Button loading={busy} disabled={!info.data?.public_key} onClick={turnOn}>
+            Turn on push here
+          </Button>
+        ) : null}
+      </div>
+    </Card>
   );
 }
 
@@ -61,6 +163,8 @@ function Editor({ initial }: { initial: NotificationSettings }) {
           events.map(([k, v]) => [k, { in_app: v!.in_app, email: v!.email, browser: v!.browser }])
         ),
         waiting_minutes: form.waiting_minutes,
+        scope: form.scope,
+        quiet_when_away: form.quiet_when_away,
       };
       const res = await accountApi.saveNotificationSettings(body);
       qc.setQueryData(ACCOUNT_QK.NOTIFY, res.data);
@@ -101,6 +205,11 @@ function Editor({ initial }: { initial: NotificationSettings }) {
                 <tr key={key}>
                   <td className="text-fg px-5 py-3">
                     {ev!.label}
+                    {key === "new_message" && (
+                      <span className="text-fg-subtle block text-xs">
+                        {SCOPES.find((o) => o.value === form.scope)?.hint}
+                      </span>
+                    )}
                     {key === "customer_waiting" && (
                       <span className="text-fg-subtle block text-xs">
                         After {form.waiting_minutes} minutes without a reply
@@ -135,6 +244,20 @@ function Editor({ initial }: { initial: NotificationSettings }) {
               label: m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? "s" : ""}`,
             }))}
           />
+          <Select
+            label="Tell me about new messages in"
+            value={form.scope}
+            onChange={(v) => setForm((f) => ({ ...f, scope: v as NotifyScope }))}
+            options={SCOPES.map((o) => ({ value: o.value, label: o.label }))}
+          />
+          <div className="sm:col-span-2">
+            <Switch
+              label="Quiet while I'm Away"
+              hint="No pop-ups or push while you've set yourself Away. The bell still keeps everything."
+              checked={form.quiet_when_away}
+              onChange={(quiet_when_away) => setForm((f) => ({ ...f, quiet_when_away }))}
+            />
+          </div>
           {!me.email && (
             <p className="text-fg-subtle self-end text-xs">Add an email in Profile to get emails.</p>
           )}
@@ -145,6 +268,7 @@ function Editor({ initial }: { initial: NotificationSettings }) {
           </Button>
         </div>
       </Card>
+      <PushCard />
       <Card>
         <CardHeader
           title="Desktop pop-ups"
