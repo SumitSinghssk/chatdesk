@@ -10,6 +10,7 @@ import { Avatar, Badge, Button, Input, Skeleton, Switch } from "@/app/admin/_com
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { formatDateTime, timeAgo } from "@/lib/utils";
 
+import { StarredList } from "./StarredModal";
 import { useDashboard } from "../../_components/DashboardContext";
 import { INBOX_QK, inboxApi, type Conversation } from "../../_lib/inboxApi";
 import { InfoHint } from "../../_components/CardHeader";
@@ -271,6 +272,24 @@ export function ContactPanel({
               onChange={toggleBlock}
             />
           </div>
+        </Section>
+
+        <Section title="Starred messages">
+          <StarredList
+            compact
+            conversationId={conversation.id}
+            onOpen={(item) => {
+              const el = document.getElementById(`msg-${item.message.id}`);
+              if (!el) {
+                toast.info("Scroll up in the chat to load older messages");
+                return;
+              }
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+              el.animate([{ backgroundColor: "rgba(251,191,36,.35)" }, { backgroundColor: "transparent" }], {
+                duration: 1600,
+              });
+            }}
+          />
         </Section>
 
         <Section title="Orders">

@@ -234,3 +234,16 @@ def start_ticker() -> None:
     if _ticker is None or not _ticker.is_alive():
         _ticker = threading.Thread(target=_tick, name="notify-ticker", daemon=True)
         _ticker.start()
+
+
+def snooze_ended(db: Session, conversation) -> None:
+    """A snoozed chat came back: tell whoever snoozed it (and whoever handles it)."""
+    contact = conversation.contact
+    who = contact.name or contact.profile_name or f"+{contact.wa_id}"
+    ids = {conversation.snoozed_by_id, conversation.assignee_id} - {None}
+    people = (db.query(Customer).filter(Customer.id.in_(ids), Customer.not_deleted()).all() if ids
+              else for_chat(db, conversation.customer_id, None))
+    notify(db, people, "snooze_ended", f"Snoozed chat is back: {who}",
+           conversation.snooze_note or conversation.last_message_preview,
+           customer_urls.conversation(conversation.id), {"conversation_id": conversation.id},
+           once_key=f"snooze:{conversation.id}:{conversation.snooze_woke_at}", number_id=conversation.customer_id)

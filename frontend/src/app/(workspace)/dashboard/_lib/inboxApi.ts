@@ -48,7 +48,38 @@ export interface Conversation {
   bot_session?: { id: number; chatbot_id: number; name: string; wait: string | null; node: string } | null;
   /** other team members in this chat right now (list responses only) */
   presence?: Presence[];
+  /** snoozed until this time (only while it's snoozed) */
+  snoozed_until: string | null;
+  snooze_note: string | null;
+  /** stays snoozed even if the customer writes */
+  snooze_keep: boolean;
+  /** the snooze ended and nobody has handled the chat yet */
+  snooze_woke_at: string | null;
+  /** pinned to the top: for the signed-in person, or for everyone */
+  pin: "me" | "everyone" | null;
 }
+
+export interface MessageStar {
+  id: number;
+  note: string | null;
+  created_at: string;
+  by: { id: number; name: string } | null;
+}
+
+/** A starred message, from the Starred list across chats. */
+export interface StarredItem extends MessageStar {
+  message: {
+    id: number;
+    type: string;
+    direction: "in" | "out";
+    text: string | null;
+    media_filename: string | null;
+    created_at: string;
+  };
+  conversation: { id: number; contact: string };
+}
+
+export type BulkAction = "pin" | "pin_everyone" | "unpin" | "snooze" | "wake" | "resolve" | "read";
 
 /** A team member who has a chat open: just looking, typing a reply, or writing a note. */
 export interface Presence {
@@ -74,7 +105,7 @@ export interface PresenceInfo {
 /** Something that happened to a chat, shown in its timeline (assigned, resolved…). */
 export interface ConversationEvent {
   id: number;
-  kind: "assigned" | "unassigned" | "team" | "status" | "bot" | "ai";
+  kind: "assigned" | "unassigned" | "team" | "status" | "bot" | "ai" | "snooze" | "pin";
   text: string;
   actor: string | null;
   created_at: string;
@@ -104,6 +135,8 @@ export interface InboxMessage {
   } | null;
   location: { latitude: number; longitude: number; name: string | null; address: string | null } | null;
   reaction_to: string | null;
+  /** starred for the team */
+  star?: MessageStar | null;
   reply_to: { id: number; text: string | null; type: string; direction: "in" | "out" } | null;
   /** Template messages: the header kind and the buttons, to draw them like WhatsApp does */
   template: { header_format: string | null; buttons: { type: string; text: string }[] } | null;
@@ -132,6 +165,7 @@ export interface InboxSummary {
   unread: number;
   mine: number;
   unassigned: number;
+  snoozed: number;
   role: "owner" | "admin" | "agent" | "viewer";
 }
 
@@ -245,6 +279,20 @@ export const inboxApi = {
     request<PresenceInfo | null>("POST", I.PRESENCE(id), { state }),
   retry: (messageId: number) => request<InboxMessage>("POST", I.RETRY(messageId)),
   typing: (id: number) => request<null>("POST", I.TYPING(id)),
+  snooze: (id: number, body: { until: string; note?: string | null; keep?: boolean }) =>
+    request<Conversation>("PUT", I.SNOOZE(id), body),
+  /** wake a snoozed chat now, or dismiss its "came back" marker */
+  wake: (id: number) => request<Conversation>("DELETE", I.SNOOZE(id)),
+  pin: (id: number, scope: "me" | "everyone") => request<Conversation>("POST", I.PIN(id), { scope }),
+  unpin: (id: number, scope?: "me" | "everyone") =>
+    request<Conversation>("DELETE", withQuery(I.PIN(id), { scope })),
+  star: (messageId: number, note?: string | null) =>
+    request<InboxMessage>("PUT", I.STAR(messageId), { note: note ?? null }),
+  unstar: (messageId: number) => request<InboxMessage>("DELETE", I.STAR(messageId)),
+  stars: (params: { conversation_id?: number; mine?: boolean; search?: string; before?: number }) =>
+    getFull<{ data: StarredItem[]; meta: { has_more: boolean } }>(withQuery(I.STARS, params)),
+  bulk: (body: { ids: number[]; action: BulkAction; until?: string; note?: string | null }) =>
+    request<{ done: number; skipped: number }>("POST", I.BULK, body),
   quickReplies: () => request<QuickReply[]>("GET", I.QUICK_REPLIES),
   saveQuickReply: (body: { shortcut: string; text: string }, id?: number) =>
     id
@@ -265,4 +313,5 @@ export const INBOX_QK = {
   TEMPLATES: ["inbox", "templates"] as const,
   TAGS: ["inbox", "tags"] as const,
   QUICK_REPLIES: ["inbox", "quick-replies"] as const,
+  STARS: (params: QueryParams) => ["inbox", "stars", params] as const,
 };

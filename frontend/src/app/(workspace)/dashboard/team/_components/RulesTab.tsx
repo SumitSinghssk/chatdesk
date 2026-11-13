@@ -108,6 +108,15 @@ function Form({ initial, teams }: { initial: TeamSettings; teams: Team[] }) {
         />
       </section>
 
+      <section className="space-y-3">
+        <Switch
+          label="Unpin chats when they're resolved"
+          hint="Pinned chats leave the top of everyone's list once they're done."
+          checked={rules.unpin_on_resolve ?? true}
+          onChange={(unpin_on_resolve) => set({ unpin_on_resolve })}
+        />
+      </section>
+
       <div className="flex justify-end">
         <Button loading={saving} onClick={save}>
           Save rules

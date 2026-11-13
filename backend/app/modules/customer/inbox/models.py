@@ -63,6 +63,13 @@ class WaConversation(Base, TimestampMixin):
     team_id = Column(Integer, ForeignKey("wa_teams.id", ondelete="SET NULL"), nullable=True, index=True)
     assigned_at = Column(DateTime, nullable=True)
     waiting_since = Column(DateTime, nullable=True)  # oldest customer message nobody has answered yet
+    # Snooze: hidden from the queues until this time, then back on top with a reminder. A customer message
+    # wakes it early unless snooze_keep. snooze_woke_at marks "came back" until someone handles the chat.
+    snoozed_until = Column(DateTime, nullable=True, index=True)
+    snooze_note = Column(String(200), nullable=True)
+    snoozed_by_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    snooze_keep = Column(Boolean, nullable=False, default=False, server_default="false")
+    snooze_woke_at = Column(DateTime, nullable=True)
 
     contact = relationship("WaContact", back_populates="conversation")
     assignee = relationship("Customer", foreign_keys=[assignee_id])
@@ -184,4 +191,38 @@ class WaResponse(Base):
                              index=True)
     member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     seconds = Column(Integer, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=now)
+
+
+class WaConversationPin(Base):
+    """A chat pinned to the top of the list: for one person (member_id) or for everyone (member_id empty)."""
+
+    __tablename__ = "wa_conversation_pins"
+    __table_args__ = (
+        Index("uq_wa_conversation_pins_member", "conversation_id", "member_id", unique=True,
+              postgresql_where=text("member_id IS NOT NULL")),
+        Index("uq_wa_conversation_pins_everyone", "conversation_id", unique=True,
+              postgresql_where=text("member_id IS NULL")),
+    )
+
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("wa_conversations.id", ondelete="CASCADE"), nullable=False)
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True)
+    created_by_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=now)
+
+
+class WaMessageStar(Base):
+    """A starred message, shared with the team, with an optional note ("price we agreed", "address")."""
+
+    __tablename__ = "wa_message_stars"
+
+    id = Column(Integer, primary_key=True, index=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("wa_conversations.id", ondelete="CASCADE"), nullable=False,
+                             index=True)
+    message_id = Column(Integer, ForeignKey("wa_messages.id", ondelete="CASCADE"), nullable=False, unique=True)
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    note = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=now)

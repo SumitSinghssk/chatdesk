@@ -36,6 +36,7 @@ DEFAULT_SETTINGS = {
     "only_available": True,  # skip members who set themselves Away
     "max_open": None,  # skip members who already have this many open chats
     "agent_visibility": "all",  # agents see: all chats | assigned (theirs + unassigned + their teams') | own
+    "unpin_on_resolve": True,  # resolving a chat removes its pins
 }
 
 

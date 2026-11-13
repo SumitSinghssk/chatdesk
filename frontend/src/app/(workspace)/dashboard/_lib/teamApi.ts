@@ -43,6 +43,8 @@ export interface TeamSettings {
   only_available: boolean;
   max_open: number | null;
   agent_visibility: "all" | "assigned" | "own";
+  /** resolving a chat removes its pins */
+  unpin_on_resolve: boolean;
 }
 
 export interface MemberPerformance {

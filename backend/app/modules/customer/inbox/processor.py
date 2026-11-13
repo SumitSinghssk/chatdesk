@@ -143,6 +143,10 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
         conversation.unread_count = (conversation.unread_count or 0) + 1
         if conversation.waiting_since is None or created < conversation.waiting_since:
             conversation.waiting_since = created  # the response-time clock starts
+    if message.type != "reaction":
+        from app.modules.customer.inbox.snooze import on_customer_message
+
+        on_customer_message(conversation)  # wakes a snoozed chat, unless "keep snoozed"
     if conversation.status == "resolved":
         conversation.status = "open"  # a new message reopens a solved chat
         conversation.resolved_at = None
