@@ -45,6 +45,7 @@ class SettingsSchema(BaseModel):
     only_available: bool = True
     max_open: Optional[int] = Field(None, ge=1, le=1000)
     agent_visibility: Literal["all", "assigned", "own"] = "all"
+    unpin_on_resolve: bool = True
 
 
 class AcceptInviteSchema(BaseModel):

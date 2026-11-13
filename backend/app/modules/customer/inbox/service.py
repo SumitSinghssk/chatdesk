@@ -20,9 +20,14 @@ from app.modules.customer.inbox.models import (
     WaQuickReply,
 )
 from app.modules.customer.integrations import hooks
+from app.modules.customer.inbox import marks
 from app.modules.customer.inbox import presence as here
+from app.modules.customer.inbox import snooze as snoozing
 from app.modules.customer.inbox.processor import get_or_create_contact, get_or_create_conversation, touch
 from app.modules.customer.inbox.schemas import (
+    StarSchema,
+    SnoozeSchema,
+    BulkSchema,
     ContactUpdateSchema,
     NoteSchema,
     QuickReplySchema,
@@ -32,7 +37,7 @@ from app.modules.customer.inbox.schemas import (
     StatusSchema,
 )
 from app.modules.customer.team import assign as assigning
-from app.modules.customer.team.access import actor, actor_name, can_reply, role_of, visible_chats
+from app.modules.customer.team.access import actor, actor_name, can_reply, role_of, settings_of, visible_chats
 from app.modules.customer.templates import builder
 from app.modules.customer.templates import service as templates_service
 from app.modules.customer.whatsapp.models import WhatsAppAccount
@@ -122,6 +127,8 @@ def serialize_conversation(conversation: WaConversation, bot: str | None = None)
         "assigned_at": iso(conversation.assigned_at),
         "waiting_since": iso(conversation.waiting_since),
         "bot": bot,  # name of the chatbot talking in the chat right now
+        **snoozing.serialize(conversation),
+        "pin": None,  # "me" | "everyone", filled in for the signed-in person
     }
 
 
@@ -189,6 +196,9 @@ def _serialize_messages(db: Session, messages: list[WaMessage]) -> list[dict]:
     wamids = {m.context_wamid for m in messages if m.context_wamid}
     replied = {m.wamid: m for m in db.query(WaMessage).filter(WaMessage.wamid.in_(wamids)).all()} if wamids else {}
     rows = [serialize_message(m, replied.get(m.context_wamid)) for m in messages]
+    stars = marks.stars_for(db, [m.id for m in messages])
+    for row in rows:
+        row["star"] = stars.get(row["id"])
     carts = [m.id for m in messages if m.type == "order"]
     if carts:  # link each incoming cart to the order it became
         made = db.query(Order.message_id, Order.id, Order.number, Order.customer_id).filter(
@@ -233,6 +243,7 @@ def _attempt(db: Session, conversation: WaConversation, message: WaMessage, send
                                                              "expired or was revoked. Update it in WhatsApp setup.")
     touch(conversation, message)
     if reopen and message.status == "sent":  # a person answered (campaign sends don't count)
+        snoozing.clear(conversation)
         member = db.get(Customer, message.member_id) if message.member_id else None
         assigning.record_response(db, conversation, member)
         from app.modules.customer.chatbots.engine import stop_for
@@ -271,55 +282,77 @@ def list_conversations(db: Session, customer: Customer, status: str | None, sear
         q = q.filter(WaConversation.assignee_id == int(assignee))
     if team_id:
         q = q.filter(WaConversation.team_id == team_id)
-    if status in ("open", "pending", "resolved"):
-        q = q.filter(WaConversation.status == status)
+    moment = now()
+    if status == "snoozed":
+        q = q.filter(snoozing.active(moment))
+    else:
+        if status in ("open", "pending", "resolved"):
+            q = q.filter(WaConversation.status == status)
+        q = q.filter(snoozing.not_snoozed(moment))  # snoozed chats wait in their own tab
     if unread:
         q = q.filter(WaConversation.unread_count > 0)
     clause = search_clause([WaContact.name, WaContact.profile_name, WaContact.wa_id,
                             WaConversation.last_message_preview], search)
     if clause is not None:
         q = q.filter(clause)
-    q = q.order_by(WaConversation.last_message_at.desc().nulls_last(), WaConversation.id.desc())
+    me = actor(customer).id
+    pinned_first = case((marks.pinned_for(me), 0), else_=1)
+    if status == "snoozed":  # the next one to come back first
+        q = q.order_by(WaConversation.snoozed_until.asc(), WaConversation.id.desc())
+    else:
+        q = q.order_by(pinned_first, WaConversation.last_message_at.desc().nulls_last(), WaConversation.id.desc())
     result = list_response(q, serialize_conversation, page or 1, per_page or 30, search)
     from app.modules.customer.chatbots.service import running_in
 
     ids = [c["id"] for c in result["data"]]
     bots = running_in(db, ids)
-    live = here.others(db, ids, actor(customer).id)
+    live = here.others(db, ids, me)
+    pins = marks.pins_for(db, me, ids)
     for row in result["data"]:
         row["bot"] = bots.get(row["id"])
         row["presence"] = live.get(row["id"], [])
+        row["pin"] = pins.get(row["id"])
     return result
 
 
 def summary(db: Session, customer: Customer) -> dict:
+    moment = now()
+    awake = snoozing.not_snoozed(moment)  # snoozed chats only count in their own tab
     row = db.query(
-        func.count(WaConversation.id),
-        func.sum(case((WaConversation.status == "open", 1), else_=0)),
-        func.sum(case((WaConversation.status == "pending", 1), else_=0)),
-        func.sum(case((WaConversation.status == "resolved", 1), else_=0)),
+        func.sum(case((awake, 1), else_=0)),
+        func.sum(case(((WaConversation.status == "open") & awake, 1), else_=0)),
+        func.sum(case(((WaConversation.status == "pending") & awake, 1), else_=0)),
+        func.sum(case(((WaConversation.status == "resolved") & awake, 1), else_=0)),
         func.sum(case((WaConversation.unread_count > 0, 1), else_=0)),
         func.sum(case(((WaConversation.assignee_id == actor(customer).id)
-                       & WaConversation.status.in_(assigning.OPEN), 1), else_=0)),
-        func.sum(case((WaConversation.assignee_id.is_(None) & WaConversation.status.in_(assigning.OPEN), 1),
-                      else_=0)),
+                       & WaConversation.status.in_(assigning.OPEN) & awake, 1), else_=0)),
+        func.sum(case((WaConversation.assignee_id.is_(None) & WaConversation.status.in_(assigning.OPEN) & awake,
+                       1), else_=0)),
+        func.sum(case((snoozing.active(moment), 1), else_=0)),
     ).select_from(WaConversation).filter(
         WaConversation.id.in_(_scoped(db, customer).with_entities(WaConversation.id))).one()
-    total, open_, pending, resolved, unread, mine, unassigned = (int(v or 0) for v in row)
+    total, open_, pending, resolved, unread, mine, unassigned, snoozed = (int(v or 0) for v in row)
     return {"status": True, "data": {"all": total, "open": open_, "pending": pending, "resolved": resolved,
                                      "unread": unread, "mine": mine, "unassigned": unassigned,
-                                     "role": role_of(customer)}}
+                                     "snoozed": snoozed, "role": role_of(customer)}}
 
 
-def _with_bot(db: Session, conversation: WaConversation) -> dict:
+def _out(db: Session, customer: Customer, conversation: WaConversation, bot: str | None = None) -> dict:
+    """A conversation as the signed-in person sees it (with their pin)."""
+    data = serialize_conversation(conversation, bot)
+    data["pin"] = marks.pins_for(db, actor(customer).id, [conversation.id]).get(conversation.id)
+    return data
+
+
+def _with_bot(db: Session, customer: Customer, conversation: WaConversation) -> dict:
     from app.modules.customer.chatbots.service import session_info
 
     bot = session_info(db, conversation.id)
-    return {**serialize_conversation(conversation, bot["name"] if bot else None), "bot_session": bot}
+    return {**_out(db, customer, conversation, bot["name"] if bot else None), "bot_session": bot}
 
 
 def get_conversation(db: Session, customer: Customer, conversation_id: int) -> dict:
-    return {"status": True, "data": _with_bot(db, _conversation(db, customer, conversation_id))}
+    return {"status": True, "data": _with_bot(db, customer, _conversation(db, customer, conversation_id))}
 
 
 def start_conversation(db: Session, customer: Customer, payload: StartConversationSchema) -> dict:
@@ -336,7 +369,7 @@ def start_conversation(db: Session, customer: Customer, payload: StartConversati
                          actor_name(customer))
     db.commit()
     db.refresh(conversation)
-    return {"status": True, "data": serialize_conversation(conversation)}
+    return {"status": True, "data": _out(db, customer, conversation)}
 
 
 def set_status(db: Session, customer: Customer, conversation_id: int, payload: StatusSchema) -> dict:
@@ -351,12 +384,14 @@ def set_status(db: Session, customer: Customer, conversation_id: int, payload: S
     if payload.status == "resolved":
         conversation.unread_count = 0
         conversation.waiting_since = None  # nothing left to answer
+        snoozing.clear(conversation)
+        marks.on_resolved(db, conversation, settings_of(customer)["unpin_on_resolve"])
         from app.modules.customer.ai_agent.engine import on_resolved
 
         on_resolved(db, conversation)
     db.commit()
     labels = {"open": "Conversation reopened", "pending": "Marked as pending", "resolved": "Conversation resolved"}
-    return {"status": True, "message": labels[payload.status], "data": serialize_conversation(conversation)}
+    return {"status": True, "message": labels[payload.status], "data": _out(db, customer, conversation)}
 
 
 def mark_read(db: Session, customer: Customer, conversation_id: int) -> dict:
@@ -374,7 +409,7 @@ def mark_read(db: Session, customer: Customer, conversation_id: int) -> dict:
             except WhatsAppError:
                 pass
         db.commit()
-    return {"status": True, "data": serialize_conversation(conversation)}
+    return {"status": True, "data": _out(db, customer, conversation)}
 
 
 # Messages ----------------------------------------------------------------------------
@@ -398,7 +433,7 @@ def list_messages(db: Session, customer: Customer, conversation_id: int, before:
     notes = (db.query(WaNote).filter(WaNote.conversation_id == conversation.id)
              .order_by(WaNote.id.desc()).limit(200).all())
     return {"status": True, "data": _serialize_messages(db, rows), "meta": {"has_more": has_more},
-            "conversation": _with_bot(db, conversation),
+            "conversation": _with_bot(db, customer, conversation),
             "events": [{"id": e.id, "kind": e.kind, "text": e.text, "actor": e.actor, "created_at": iso(e.created_at)}
                        for e in reversed(events)],
             "notes": [_note(n, customer) for n in reversed(notes)]}
@@ -418,7 +453,7 @@ def assign_conversation(db: Session, customer: Customer, conversation_id: int, a
         text = "Chat unassigned"
     else:
         text = "Saved"
-    return {"status": True, "message": text, "data": serialize_conversation(conversation)}
+    return {"status": True, "message": text, "data": _out(db, customer, conversation)}
 
 
 def send_text(db: Session, customer: Customer, conversation_id: int, payload: SendTextSchema) -> dict:
@@ -684,7 +719,7 @@ def update_contact(db: Session, customer: Customer, conversation_id: int, payloa
         if data.get(flag) is not None:
             setattr(contact, flag, data[flag])
     db.commit()
-    return {"status": True, "message": "Contact saved", "data": serialize_conversation(conversation)}
+    return {"status": True, "message": "Contact saved", "data": _out(db, customer, conversation)}
 
 
 def contact_tags(db: Session, customer: Customer) -> dict:
@@ -874,3 +909,116 @@ def heartbeat(db: Session, customer: Customer, conversation_id: int, state: str)
         return {"status": True, "data": None}
     return {"status": True, "data": {"others": here.others(db, [conversation.id], me).get(conversation.id, []),
                                      "last_colleague_reply": _last_colleague_reply(db, customer, conversation)}}
+
+
+# Snooze, pins, stars, bulk -------------------------------------------------------------
+
+def snooze_conversation(db: Session, customer: Customer, conversation_id: int, payload: SnoozeSchema) -> dict:
+    conversation = _conversation(db, customer, conversation_id)
+    text = snoozing.snooze(conversation, payload.until, payload.note, payload.keep, actor(customer).id)
+    assigning.event(db, conversation, "snooze", text, actor_name(customer))
+    db.commit()
+    return {"status": True, "message": "Chat snoozed", "data": _out(db, customer, conversation)}
+
+
+def wake_conversation(db: Session, customer: Customer, conversation_id: int) -> dict:
+    """Wake a snoozed chat now, or dismiss its "came back" marker."""
+    conversation = _conversation(db, customer, conversation_id)
+    if snoozing.wake(conversation):
+        assigning.event(db, conversation, "snooze", "Woken up", actor_name(customer))
+    db.commit()
+    return {"status": True, "message": "Chat is back in the inbox", "data": _out(db, customer, conversation)}
+
+
+
+
+def pin_conversation(db: Session, customer: Customer, conversation_id: int, scope: str) -> dict:
+    conversation = _conversation(db, customer, conversation_id)
+    if marks.pin(db, conversation, scope, actor(customer).id):
+        assigning.event(db, conversation, "pin", "Pinned for everyone", actor_name(customer))
+    db.commit()
+    return {"status": True, "message": "Pinned for everyone" if scope == "everyone" else "Pinned for you",
+            "data": _out(db, customer, conversation)}
+
+
+def unpin_conversation(db: Session, customer: Customer, conversation_id: int, scope: str | None) -> dict:
+    conversation = _conversation(db, customer, conversation_id)
+    if marks.unpin(db, conversation, scope, actor(customer).id):
+        assigning.event(db, conversation, "pin", "Unpinned for everyone", actor_name(customer))
+    db.commit()
+    return {"status": True, "message": "Unpinned", "data": _out(db, customer, conversation)}
+
+
+def _message(db: Session, customer: Customer, message_id: int) -> WaMessage:
+    message = db.query(WaMessage).filter(WaMessage.id == message_id, WaMessage.customer_id == customer.id).first()
+    if message is None:
+        raise HTTPException(404, detail="Message not found")
+    _conversation(db, customer, message.conversation_id)  # the person may see this chat
+    return message
+
+
+def star_message(db: Session, customer: Customer, message_id: int, payload: StarSchema) -> dict:
+    message = _message(db, customer, message_id)
+    marks.star(db, message, payload.note, actor(customer).id)
+    db.commit()
+    return {"status": True, "message": "Message starred", "data": _serialize_messages(db, [message])[0]}
+
+
+def unstar_message(db: Session, customer: Customer, message_id: int) -> dict:
+    message = _message(db, customer, message_id)
+    marks.unstar(db, message)
+    db.commit()
+    return {"status": True, "message": "Star removed", "data": _serialize_messages(db, [message])[0]}
+
+
+def list_stars(db: Session, customer: Customer, conversation_id: int | None, mine: bool, search: str | None,
+               before: int | None, limit: int = 30) -> dict:
+    visible = _scoped(db, customer).with_entities(WaConversation.id)
+    rows = marks.starred(db, visible, conversation_id=conversation_id, member_id=actor(customer).id if mine else None,
+                         search=search, before=before, limit=limit)
+    more = len(rows) > limit
+    data = []
+    for star, message, conversation, contact, by in rows[:limit]:
+        data.append({**marks.serialize_star(star, by),
+                     "message": {"id": message.id, "type": message.type, "direction": message.direction,
+                                 "text": message.text, "media_filename": message.media_filename,
+                                 "created_at": iso(message.created_at)},
+                     "conversation": {"id": conversation.id,
+                                      "contact": contact.name or contact.profile_name or f"+{contact.wa_id}"}})
+    return {"status": True, "data": data, "meta": {"has_more": more}}
+
+
+BULK_DONE = {"pin": "pinned for you", "pin_everyone": "pinned for everyone", "unpin": "unpinned",
+             "snooze": "snoozed", "wake": "woken up", "resolve": "resolved", "read": "marked as read"}
+
+
+def bulk(db: Session, customer: Customer, payload: BulkSchema) -> dict:
+    """The same action on many chats. Chats it can't apply to are skipped and counted."""
+    if payload.action == "snooze" and payload.until is None:
+        raise field_error(422, "until", "Pick when the chats should come back")
+    done = skipped = 0
+    for conversation_id in dict.fromkeys(payload.ids):
+        try:
+            if payload.action == "pin":
+                pin_conversation(db, customer, conversation_id, "me")
+            elif payload.action == "pin_everyone":
+                pin_conversation(db, customer, conversation_id, "everyone")
+            elif payload.action == "unpin":
+                unpin_conversation(db, customer, conversation_id, None)
+            elif payload.action == "snooze":
+                snooze_conversation(db, customer, conversation_id,
+                                    SnoozeSchema(until=payload.until, note=payload.note))
+            elif payload.action == "wake":
+                wake_conversation(db, customer, conversation_id)
+            elif payload.action == "resolve":
+                set_status(db, customer, conversation_id, StatusSchema(status="resolved"))
+            elif payload.action == "read":
+                mark_read(db, customer, conversation_id)
+            done += 1
+        except HTTPException:
+            db.rollback()
+            skipped += 1
+    message = f"{done} chat{'s' if done != 1 else ''} {BULK_DONE[payload.action]}"
+    if skipped:
+        message += f", {skipped} skipped"
+    return {"status": True, "message": message, "data": {"done": done, "skipped": skipped}}

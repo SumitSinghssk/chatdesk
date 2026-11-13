@@ -23,6 +23,12 @@ import {
   Sparkles,
   TimerOff,
   Upload,
+  AlarmClock,
+  AlarmClockOff,
+  Pin,
+  PinOff,
+  Users,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,6 +53,7 @@ import { useDashboard } from "../../_components/DashboardContext";
 import { Composer, MAX_FILES, type ComposerMode } from "./Composer";
 import { NoteBubble } from "./NoteBubble";
 import { PresenceChip } from "./Presence";
+import { SnoozeDialog } from "./SnoozeDialog";
 import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
@@ -451,6 +458,37 @@ export function ChatPanel({
   const sendTemplate = (input: SendTemplateInput) => run(() => inboxApi.sendTemplate(id, input));
   const sendProducts = (input: SendProductsInput) => run(() => commerceApi.send(id, input));
 
+  const [snoozeOpen, setSnoozeOpen] = useState(false);
+  const live = { ...conversation, ...(fresh ?? {}) };
+  const snoozed = !!live.snoozed_until;
+  const act = async (task: () => Promise<{ message?: string; data: Conversation }>) => {
+    try {
+      const res = await task();
+      // the message poll doesn't carry the pin, so keep the one the action returned
+      onChanged(res.data);
+      toast.success(res.message ?? "Done");
+      void queryClient.invalidateQueries({ queryKey: INBOX_QK.ALL });
+      return true;
+    } catch (err) {
+      toast.error(errorMessage(err));
+      return false;
+    }
+  };
+  const toggleStar = async (m: InboxMessage) => {
+    try {
+      const res = m.star ? await inboxApi.unstar(m.id) : await inboxApi.star(m.id);
+      queryClient.setQueryData(INBOX_QK.MESSAGES(id), (prev: typeof latest.data) =>
+        prev ? { ...prev, data: mergeById(prev.data, [res.data]) } : prev
+      );
+      setOlder((o) =>
+        o.id === id ? { ...o, items: o.items.map((x) => (x.id === m.id ? res.data : x)) } : o
+      );
+      void queryClient.invalidateQueries({ queryKey: ["inbox", "stars"] });
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+
   const setStatus = async (status: ConversationStatus) => {
     try {
       const res = await inboxApi.setStatus(id, status);
@@ -533,6 +571,56 @@ export function ChatPanel({
           <div className="hidden sm:block">
             <StartBotMenu conversation={conversation} />
           </div>
+        )}
+        {!readOnly && (
+          <Dropdown
+            width="w-56"
+            trigger={() => (
+              <Button
+                iconOnly
+                variant={conversation.pin || snoozed ? "secondary" : "ghost"}
+                size="sm"
+                leftIcon={snoozed ? AlarmClock : conversation.pin ? Pin : Pin}
+                aria-label="Pin or snooze"
+              />
+            )}
+            items={[
+              ...(conversation.pin
+                ? [
+                    {
+                      label: conversation.pin === "everyone" ? "Unpin for everyone" : "Unpin",
+                      icon: PinOff,
+                      onClick: () => void act(() => inboxApi.unpin(id, conversation.pin ?? undefined)),
+                    },
+                  ]
+                : [
+                    { label: "Pin for me", icon: Pin, onClick: () => void act(() => inboxApi.pin(id, "me")) },
+                    {
+                      label: "Pin for everyone",
+                      icon: Users,
+                      onClick: () => void act(() => inboxApi.pin(id, "everyone")),
+                    },
+                  ]),
+              ...(live.status !== "resolved"
+                ? [
+                    {
+                      label: snoozed ? "Change snooze" : "Snooze…",
+                      icon: AlarmClock,
+                      onClick: () => setSnoozeOpen(true),
+                    },
+                  ]
+                : []),
+              ...(snoozed
+                ? [
+                    {
+                      label: "Wake up now",
+                      icon: AlarmClockOff,
+                      onClick: () => void act(() => inboxApi.wake(id)),
+                    },
+                  ]
+                : []),
+            ]}
+          />
         )}
         {!readOnly && <AssignMenu conversation={conversation} onChanged={onChanged} />}
         {readOnly ? null : conversation.status === "resolved" ? (
@@ -622,7 +710,10 @@ export function ChatPanel({
                       </span>
                     </div>
                   )}
-                  <div className={cn(reactions.has(m.wamid ?? "") && "pb-3")}>
+                  <div
+                    id={`msg-${m.id}`}
+                    className={cn("scroll-mt-16", reactions.has(m.wamid ?? "") && "pb-3")}
+                  >
                     <MessageBubble
                       message={m}
                       reactions={reactions.get(m.wamid ?? "") ?? []}
@@ -630,6 +721,7 @@ export function ChatPanel({
                       onOpenMedia={(msg) => setViewer(media.findIndex((x) => x.id === msg.id))}
                       onRetry={retry}
                       retrying={retryingId === m.id}
+                      onStar={readOnly ? undefined : toggleStar}
                     />
                   </div>
                 </Fragment>
@@ -663,6 +755,54 @@ export function ChatPanel({
         )}
       </div>
 
+      {(snoozed || live.snooze_woke_at) && (
+        <div
+          role="status"
+          className="border-line flex flex-wrap items-center gap-2 border-t bg-sky-50 px-3 py-2 text-xs sm:px-4 dark:bg-sky-500/10"
+        >
+          <AlarmClock className="h-4 w-4 shrink-0 text-sky-600 dark:text-sky-300" aria-hidden />
+          <p className="text-fg min-w-0 flex-1">
+            {snoozed ? (
+              <>
+                <b>
+                  Snoozed until{" "}
+                  {new Date(live.snoozed_until!).toLocaleString(undefined, {
+                    weekday: "short",
+                    day: "numeric",
+                    month: "short",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </b>
+                {live.snooze_keep ? " (stays snoozed if the customer writes)" : ""}
+              </>
+            ) : (
+              <b>Back from snooze</b>
+            )}
+            {live.snooze_note ? ` · ${live.snooze_note}` : ""}
+          </p>
+          {!readOnly && snoozed && (
+            <>
+              <Button size="xs" variant="secondary" onClick={() => setSnoozeOpen(true)}>
+                Change
+              </Button>
+              <Button size="xs" variant="secondary" onClick={() => void act(() => inboxApi.wake(id))}>
+                Wake now
+              </Button>
+            </>
+          )}
+          {!readOnly && !snoozed && (
+            <Button
+              iconOnly
+              size="xs"
+              variant="ghost"
+              leftIcon={X}
+              aria-label="Dismiss"
+              onClick={() => void act(() => inboxApi.wake(id))}
+            />
+          )}
+        </div>
+      )}
       <BotBanner conversation={{ ...conversation, ...(fresh ?? {}) }} />
       {!(fresh ?? conversation).bot && (
         <AiBanner conversationId={conversation.id} lastMessageAt={(fresh ?? conversation).last_message_at} />
@@ -702,6 +842,19 @@ export function ChatPanel({
           contactName={contact.display_name}
           onClose={() => setProductsOpen(false)}
           onSend={sendProducts}
+        />
+      )}
+
+      {snoozeOpen && (
+        <SnoozeDialog
+          open
+          initial={
+            snoozed
+              ? { until: live.snoozed_until, note: live.snooze_note, keep: live.snooze_keep }
+              : undefined
+          }
+          onClose={() => setSnoozeOpen(false)}
+          onSnooze={(body) => act(() => inboxApi.snooze(id, body))}
         />
       )}
 

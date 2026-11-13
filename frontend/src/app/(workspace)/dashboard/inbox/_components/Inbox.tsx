@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient, type InfiniteData } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { MessageCircle, MessagesSquare } from "lucide-react";
 
 import { Button, EmptyState } from "@/app/admin/_components/ui/index";
@@ -10,13 +11,17 @@ import { useDebouncedValue } from "@/app/admin/_hooks/useDebouncedValue";
 import { CUSTOMER_ROUTES } from "@/config/routes";
 import { cn } from "@/lib/utils";
 
-import { INBOX_QK, inboxApi, type Conversation, type Page } from "../../_lib/inboxApi";
+import { errorMessage } from "@/app/(customer)/_lib/customerApi";
+
+import { INBOX_QK, inboxApi, type BulkAction, type Conversation, type Page } from "../../_lib/inboxApi";
 import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
 import { ChatPanel } from "./ChatPanel";
 import { ContactPanel } from "./ContactPanel";
 import { ConversationList, type ListFilter, type OwnerFilter } from "./ConversationList";
 import { useDashboard } from "../../_components/DashboardContext";
 import { NewChatModal } from "./NewChatModal";
+import { SnoozeDialog } from "./SnoozeDialog";
+import { StarredModal } from "./StarredModal";
 
 const PAGE = 30;
 const conversationKey = (id: number) => ["inbox", "conversation", id] as const;
@@ -32,7 +37,6 @@ export function Inbox() {
   const [unreadOnly, setUnreadOnly] = useState(false);
   const [owner, setOwner] = useState<OwnerFilter>("all");
   const [search, setSearch] = useState("");
-  const [perPage, setPerPage] = useState(PAGE);
   const [contactOpen, setContactOpen] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches
   );
@@ -41,17 +45,24 @@ export function Inbox() {
   const [templateFor, setTemplateFor] = useState<number | null>(null);
   const debounced = useDebouncedValue(search.trim(), 300);
 
+  const [starredOpen, setStarredOpen] = useState(false);
+  const [bulkSnooze, setBulkSnooze] = useState<number[] | null>(null);
+  const bulkDone = useRef<((ok: boolean) => void) | null>(null);
+
   const params = {
     status: filter,
     assignee: owner === "all" ? undefined : owner,
     unread: unreadOnly || undefined,
     search: debounced || undefined,
-    page: 1,
-    per_page: perPage,
+    per_page: PAGE,
   };
-  const list = useQuery({
+  // pages load as the list scrolls; the poll refreshes every loaded page
+  const list = useInfiniteQuery({
     queryKey: INBOX_QK.LIST(params),
-    queryFn: () => inboxApi.conversations(params),
+    queryFn: ({ pageParam }) => inboxApi.conversations({ ...params, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (last) =>
+      last.meta && last.meta.page < last.meta.total_pages ? last.meta.page + 1 : undefined,
     refetchInterval: 5000,
     placeholderData: (prev) => prev,
   });
@@ -66,7 +77,8 @@ export function Inbox() {
     staleTime: 60_000,
   });
 
-  const fromList = list.data?.data.find((c) => c.id === selectedId);
+  const items = list.data?.pages.flatMap((p) => p.data) ?? [];
+  const fromList = items.find((c) => c.id === selectedId);
   const detail = useQuery({
     queryKey: conversationKey(selectedId ?? 0),
     queryFn: async () => (await inboxApi.conversation(selectedId!)).data,
@@ -90,16 +102,47 @@ export function Inbox() {
   const onChanged = useCallback(
     (c: Conversation) => {
       queryClient.setQueryData(conversationKey(c.id), c);
-      queryClient.setQueriesData<Page<Conversation>>({ queryKey: ["inbox", "list"] }, (prev) =>
-        prev ? { ...prev, data: prev.data.map((row) => (row.id === c.id ? c : row)) } : prev
+      queryClient.setQueriesData<InfiniteData<Page<Conversation>>>({ queryKey: ["inbox", "list"] }, (prev) =>
+        prev
+          ? {
+              ...prev,
+              pages: prev.pages.map((page) => ({
+                ...page,
+                // the list knows who else is in each chat; single-chat answers don't
+                data: page.data.map((row) => (row.id === c.id ? { ...c, presence: row.presence } : row)),
+              })),
+            }
+          : prev
       );
     },
     [queryClient]
   );
 
   const notConnected = connection.data === null || connection.data?.status === "error";
-  const items = list.data?.data ?? [];
-  const meta = list.data?.meta;
+  const runBulk = async (ids: number[], action: BulkAction, until?: string, note?: string | null) => {
+    try {
+      const res = await inboxApi.bulk({ ids, action, until, note });
+      toast.success(res.message ?? "Done");
+      void queryClient.invalidateQueries({ queryKey: INBOX_QK.ALL });
+      return true;
+    } catch (err) {
+      toast.error(errorMessage(err));
+      return false;
+    }
+  };
+  const onBulk = (ids: number[], action: BulkAction) => {
+    if (action !== "snooze") return runBulk(ids, action);
+    // snoozing needs a time first: the dialog answers the list's promise
+    return new Promise<boolean>((resolve) => {
+      bulkDone.current = resolve;
+      setBulkSnooze(ids);
+    });
+  };
+  const closeBulkSnooze = (ok: boolean) => {
+    bulkDone.current?.(ok);
+    bulkDone.current = null;
+    setBulkSnooze(null);
+  };
 
   return (
     <div className="bg-surface relative -m-3 flex h-[calc(100%+1.5rem)] min-h-0 overflow-hidden sm:-m-4 sm:h-[calc(100%+2rem)]">
@@ -121,15 +164,9 @@ export function Inbox() {
           loading={list.isLoading}
           summary={summary.data}
           filter={filter}
-          onFilter={(f) => {
-            setFilter(f);
-            setPerPage(PAGE);
-          }}
+          onFilter={setFilter}
           owner={owner}
-          onOwner={(o) => {
-            setOwner(o);
-            setPerPage(PAGE);
-          }}
+          onOwner={setOwner}
           unreadOnly={unreadOnly}
           onUnreadOnly={setUnreadOnly}
           search={search}
@@ -140,9 +177,13 @@ export function Inbox() {
             select(c.id);
           }}
           onNewChat={readOnly ? undefined : () => setNewChatOpen(true)}
-          hasMore={!!meta && meta.total > items.length}
-          onLoadMore={() => setPerPage((n) => n + PAGE)}
-          loadingMore={list.isFetching && !list.isLoading}
+          hasMore={!!list.hasNextPage}
+          onLoadMore={() => {
+            if (!list.isFetchingNextPage) void list.fetchNextPage();
+          }}
+          loadingMore={list.isFetchingNextPage}
+          onStarred={() => setStarredOpen(true)}
+          onBulk={readOnly ? undefined : onBulk}
         />
       </div>
 
@@ -204,6 +245,25 @@ export function Inbox() {
             />
           </div>
         </>
+      )}
+
+      <StarredModal
+        open={starredOpen}
+        onClose={() => setStarredOpen(false)}
+        onOpen={(item) => select(item.conversation.id)}
+      />
+
+      {bulkSnooze && (
+        <SnoozeDialog
+          open
+          count={bulkSnooze.length}
+          onClose={() => closeBulkSnooze(false)}
+          onSnooze={async (body) => {
+            const ok = await runBulk(bulkSnooze, "snooze", body.until, body.note);
+            if (ok) closeBulkSnooze(true);
+            return ok;
+          }}
+        />
       )}
 
       <NewChatModal

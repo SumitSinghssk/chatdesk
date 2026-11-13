@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
@@ -47,6 +48,28 @@ class SendTemplateSchema(BaseModel):
 
 class StatusSchema(BaseModel):
     status: Literal["open", "pending", "resolved"]
+
+
+class SnoozeSchema(BaseModel):
+    until: datetime  # with its UTC offset, from the browser
+    note: Optional[str] = Field(None, max_length=200)
+    # stay snoozed even if the customer writes
+    keep: bool = False
+
+
+class PinSchema(BaseModel):
+    scope: Literal["me", "everyone"] = "me"
+
+
+class StarSchema(BaseModel):
+    note: Optional[str] = Field(None, max_length=200)
+
+
+class BulkSchema(BaseModel):
+    ids: list[int] = Field(..., min_length=1, max_length=200)
+    action: Literal["pin", "pin_everyone", "unpin", "snooze", "wake", "resolve", "read"]
+    until: Optional[datetime] = None  # for snooze
+    note: Optional[str] = Field(None, max_length=200)
 
 
 class PresenceSchema(BaseModel):

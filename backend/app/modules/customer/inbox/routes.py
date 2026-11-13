@@ -10,7 +10,11 @@ from app.modules.customer.account.models import Customer
 from app.modules.customer.inbox import service
 from app.modules.customer.inbox.schemas import (
     ContactUpdateSchema,
+    BulkSchema,
     NoteSchema,
+    PinSchema,
+    SnoozeSchema,
+    StarSchema,
     PresenceSchema,
     QuickReplySchema,
     SendTemplateSchema,
@@ -33,7 +37,7 @@ def summary(customer: Customer = Depends(require_workspace), db: Session = Depen
 
 @router.get("/conversations")
 def conversations(
-    status: Literal["open", "pending", "resolved", "all"] | None = None,
+    status: Literal["open", "pending", "resolved", "all", "snoozed"] | None = None,
     search: str | None = None,
     unread: bool = False,
     page: int | None = None,
@@ -182,3 +186,49 @@ def templates(fresh: bool = False, customer: Customer = Depends(require_workspac
 @router.get("/tags")
 def tags(customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
     return service.contact_tags(db, customer)
+
+
+@router.put("/conversations/{conversation_id}/snooze", dependencies=[_csrf])
+def snooze(conversation_id: int, payload: SnoozeSchema, customer: Customer = Depends(require_workspace),
+           db: Session = Depends(get_db)):
+    return service.snooze_conversation(db, customer, conversation_id, payload)
+
+
+@router.delete("/conversations/{conversation_id}/snooze", dependencies=[_csrf])
+def wake(conversation_id: int, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.wake_conversation(db, customer, conversation_id)
+
+
+@router.post("/conversations/{conversation_id}/pin", dependencies=[_csrf])
+def pin(conversation_id: int, payload: PinSchema, customer: Customer = Depends(require_workspace),
+        db: Session = Depends(get_db)):
+    return service.pin_conversation(db, customer, conversation_id, payload.scope)
+
+
+@router.delete("/conversations/{conversation_id}/pin", dependencies=[_csrf])
+def unpin(conversation_id: int, scope: Literal["me", "everyone"] | None = None,
+          customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.unpin_conversation(db, customer, conversation_id, scope)
+
+
+@router.put("/messages/{message_id}/star", dependencies=[_csrf])
+def star(message_id: int, payload: StarSchema, customer: Customer = Depends(require_workspace),
+         db: Session = Depends(get_db)):
+    return service.star_message(db, customer, message_id, payload)
+
+
+@router.delete("/messages/{message_id}/star", dependencies=[_csrf])
+def unstar(message_id: int, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.unstar_message(db, customer, message_id)
+
+
+@router.get("/stars")
+def stars(conversation_id: int | None = None, mine: bool = False, search: str | None = None,
+          before: int | None = None, customer: Customer = Depends(require_workspace),
+          db: Session = Depends(get_db)):
+    return service.list_stars(db, customer, conversation_id, mine, search, before)
+
+
+@router.post("/bulk", dependencies=[Depends(RateLimit(30, 60)), _csrf])
+def bulk(payload: BulkSchema, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.bulk(db, customer, payload)

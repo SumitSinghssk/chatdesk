@@ -15,6 +15,8 @@ EVENTS: dict[str, dict] = {
                          "default": {"in_app": True, "email": False, "browser": True}},
     "ai_handover": {"label": "The AI agent hands a chat to your team", "managers": False,
                     "default": {"in_app": True, "email": False, "browser": True}},
+    "snooze_ended": {"label": "A chat you snoozed comes back", "managers": False,
+                     "default": {"in_app": True, "email": False, "browser": True}},
     "campaign_finished": {"label": "A campaign finished sending", "managers": True,
                           "default": {"in_app": True, "email": True, "browser": False}},
     "whatsapp_problem": {"label": "Your WhatsApp number has a problem", "managers": True,

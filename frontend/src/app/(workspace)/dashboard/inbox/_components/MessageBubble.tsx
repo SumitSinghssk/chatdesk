@@ -21,6 +21,7 @@ import {
   ShoppingBag,
   ShoppingCart,
   Store,
+  Star,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -314,6 +315,7 @@ export function MessageBubble({
   onOpenMedia,
   onRetry,
   retrying,
+  onStar,
 }: {
   message: InboxMessage;
   reactions: string[];
@@ -321,6 +323,8 @@ export function MessageBubble({
   onOpenMedia: (m: InboxMessage) => void;
   onRetry: (m: InboxMessage) => void;
   retrying: boolean;
+  /** star or unstar for the team (left out for viewers) */
+  onStar?: (m: InboxMessage) => void;
 }) {
   const out = message.direction === "out";
   const type = mediaType(message);
@@ -407,6 +411,12 @@ export function MessageBubble({
             {out && message.sent_by && (
               <span className="hidden max-w-24 truncate sm:inline">{message.sent_by} ·</span>
             )}
+            {message.star && (
+              <Star
+                className="h-3 w-3 fill-amber-400 text-amber-500"
+                aria-label={`Starred${message.star.note ? `: ${message.star.note}` : ""}`}
+              />
+            )}
             {bubbleTime(message.created_at)}
             <Ticks message={message} />
           </span>
@@ -456,6 +466,19 @@ export function MessageBubble({
               <Reply className="h-3.5 w-3.5" />
             </button>
           </Tooltip>
+          {onStar && (
+            <Tooltip label={message.star ? "Remove star" : "Star for the team"}>
+              <button
+                type="button"
+                aria-label={message.star ? "Remove star" : "Star this message"}
+                aria-pressed={!!message.star}
+                onClick={() => onStar(message)}
+                className="text-fg-faint hover:bg-surface hover:text-fg rounded-full p-1"
+              >
+                <Star className={cn("h-3.5 w-3.5", message.star && "fill-amber-400 text-amber-500")} />
+              </button>
+            </Tooltip>
+          )}
           {message.text && (
             <Tooltip label="Copy">
               <button
