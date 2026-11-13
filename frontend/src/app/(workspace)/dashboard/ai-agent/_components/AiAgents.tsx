@@ -45,6 +45,7 @@ import { CUSTOMER_ROUTES } from "@/config/routes/customer";
 import { cn, timeAgo } from "@/lib/utils";
 
 import { AI_QK, aiAgentApi, compact, usd, type AgentSummary, type Connection } from "../../_lib/aiAgentApi";
+import { AssistSettingsModal } from "./AssistSettingsModal";
 import { ConnectionModal, useProviders } from "./ConnectionModal";
 import { ProviderMark } from "./ProviderMark";
 
@@ -510,6 +511,7 @@ export function AiAgents() {
   const agents = useQuery({ queryKey: AI_QK.AGENTS, queryFn: () => aiAgentApi.agents().then((r) => r.data) });
   const [creating, setCreating] = useState(false);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [assistOpen, setAssistOpen] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [editing, setEditing] = useState<Connection | null>(null);
   const list = agents.data ?? [];
@@ -605,12 +607,11 @@ export function AiAgents() {
                 Your AI key is connected. Now create an agent and teach it about your business.
               </p>
               <div className="flex flex-wrap justify-center gap-2">
-                <Button
-                  variant="secondary"
-                  leftIcon={KeyRound}
-                  onClick={() => setConnectionsOpen(true)}
-                >
+                <Button variant="secondary" leftIcon={KeyRound} onClick={() => setConnectionsOpen(true)}>
                   AI connections
+                </Button>
+                <Button variant="secondary" leftIcon={Sparkles} onClick={() => setAssistOpen(true)}>
+                  Team assist
                 </Button>
                 <Button leftIcon={Plus} onClick={() => setCreating(true)}>
                   New agent
@@ -625,11 +626,10 @@ export function AiAgents() {
                   <span className="text-fg-faint ml-1 font-normal tabular-nums">{list.length}</span>
                 </h2>
                 <div className="flex flex-wrap justify-end gap-2">
-                  <Button
-                    variant="secondary"
-                    leftIcon={KeyRound}
-                    onClick={() => setConnectionsOpen(true)}
-                  >
+                  <Button variant="secondary" leftIcon={Sparkles} onClick={() => setAssistOpen(true)}>
+                    Team assist
+                  </Button>
+                  <Button variant="secondary" leftIcon={KeyRound} onClick={() => setConnectionsOpen(true)}>
                     AI connections
                   </Button>
                   <Button leftIcon={Plus} onClick={() => setCreating(true)}>
@@ -659,6 +659,7 @@ export function AiAgents() {
         onEdit={setEditing}
       />
       {creating && <NewAgentModal open onClose={() => setCreating(false)} />}
+      {assistOpen && <AssistSettingsModal onClose={() => setAssistOpen(false)} />}
       {(connecting || editing) && (
         <ConnectionModal
           open

@@ -145,6 +145,11 @@ export const CUSTOMER_ENDPOINTS = {
     TRY: "/customer/automation/try",
   },
   ANALYTICS: "/customer/analytics",
+  AI_ASSIST: {
+    SETTINGS: "/customer/ai-assist/settings",
+    STATUS: "/customer/ai-assist/status",
+    RUN: (id: number, action: string) => `/customer/ai-assist/conversations/${id}/${action}`,
+  },
   AI_AGENT: {
     PROVIDERS: "/customer/ai-agent/providers",
     CONNECTIONS: "/customer/ai-agent/connections",

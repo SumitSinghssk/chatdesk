@@ -27,6 +27,7 @@ import {
   type Presence,
   type QuickReply,
 } from "../../_lib/inboxApi";
+import { AiAssistButton } from "./AiAssist";
 import { EmojiPicker } from "./EmojiPicker";
 import { CollisionBar } from "./Presence";
 import { fileKind } from "./fileKind";
@@ -172,6 +173,7 @@ export function Composer({
   onConflictEdit,
   others,
   assignedTo,
+  conversationId,
 }: {
   windowOpen: boolean;
   blocked: boolean;
@@ -201,6 +203,8 @@ export function Composer({
   others: Presence[];
   /** the chat is assigned to someone else (their name) */
   assignedTo: string | null;
+  /** for AI assist */
+  conversationId?: number;
 }) {
   const [text, setText] = useState("");
   const [active, setActive] = useState(0);
@@ -503,6 +507,17 @@ export function Composer({
         <div className="flex items-end gap-1 p-2 sm:p-3">
           <input ref={fileRef} type="file" multiple accept={ACCEPT} className="hidden" onChange={addPicked} />
           <EmojiPicker onPick={insertAtCursor} />
+          {conversationId && (
+            <AiAssistButton
+              conversationId={conversationId}
+              draft={text}
+              onUseText={(value) => {
+                change(value);
+                requestAnimationFrame(() => areaRef.current?.focus());
+              }}
+              onSaveNote={onSendNote}
+            />
+          )}
           {!noting && (
             <>
               <Tooltip label="Attach files" side="top" align="start">

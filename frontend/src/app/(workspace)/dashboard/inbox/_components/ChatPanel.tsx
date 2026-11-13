@@ -968,6 +968,7 @@ export function ChatPanel({
         onCancelReply={() => setReplyTo(null)}
         onSendText={sendText}
         onSendNote={sendNote}
+        conversationId={id}
         mode={mode}
         onModeChange={changeMode}
         onDraftChange={onDraftChange}
