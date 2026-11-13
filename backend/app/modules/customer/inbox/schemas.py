@@ -142,3 +142,9 @@ class StartConversationSchema(BaseModel):
         if not 8 <= len(digits) <= 15:
             raise ValueError("Enter the number with its country code, e.g. 919876543210")
         return digits
+
+
+class ViewSchema(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    params: dict = Field(default_factory=dict)
+    shared: bool = False

@@ -15,6 +15,7 @@ from app.modules.customer.inbox.schemas import (
     PinSchema,
     SnoozeSchema,
     StarSchema,
+    ViewSchema,
     PresenceSchema,
     QuickReplySchema,
     SendTemplateSchema,
@@ -44,10 +45,20 @@ def conversations(
     per_page: int | None = None,
     assignee: str | None = Query(None, pattern=r"^(me|unassigned|\d+)$"),
     team_id: int | None = None,
+    waiting: int | None = Query(None, ge=0, le=60 * 24 * 30),
+    attachment: Literal["any", "image", "document", "audio", "video", "location"] | None = None,
+    date_from: str | None = Query(None, max_length=10),
+    date_to: str | None = Query(None, max_length=10),
+    window: Literal["open", "closed"] | None = None,
+    starred: bool = False,
+    tag: str | None = Query(None, max_length=40),
     customer: Customer = Depends(require_workspace),
     db: Session = Depends(get_db),
 ):
-    return service.list_conversations(db, customer, status, search, unread, page, per_page, assignee, team_id)
+    filters = {"waiting": waiting, "attachment": attachment, "date_from": date_from, "date_to": date_to,
+               "window": window, "starred": starred, "tag": tag}
+    return service.list_conversations(db, customer, status, search, unread, page, per_page, assignee, team_id,
+                                      filters)
 
 
 @router.post("/conversations", dependencies=[_csrf])
@@ -232,3 +243,24 @@ def stars(conversation_id: int | None = None, mine: bool = False, search: str | 
 @router.post("/bulk", dependencies=[Depends(RateLimit(30, 60)), _csrf])
 def bulk(payload: BulkSchema, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
     return service.bulk(db, customer, payload)
+
+
+@router.get("/conversations/{conversation_id}/search")
+def search_in_chat(conversation_id: int, q: str = Query(..., min_length=1, max_length=100),
+                   customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.search_in_chat(db, customer, conversation_id, q)
+
+
+@router.get("/views")
+def views(customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.list_views(db, customer)
+
+
+@router.post("/views", dependencies=[_csrf])
+def save_view(payload: ViewSchema, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.save_view(db, customer, payload)
+
+
+@router.delete("/views/{view_id}", dependencies=[_csrf])
+def delete_view(view_id: int, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.delete_view(db, customer, view_id)

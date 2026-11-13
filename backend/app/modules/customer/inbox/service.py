@@ -22,6 +22,7 @@ from app.modules.customer.inbox.models import (
 from app.modules.customer.integrations import hooks
 from app.modules.customer.inbox import marks
 from app.modules.customer.inbox import presence as here
+from app.modules.customer.inbox import search as finder
 from app.modules.customer.inbox import snooze as snoozing
 from app.modules.customer.inbox.processor import get_or_create_contact, get_or_create_conversation, touch
 from app.modules.customer.inbox.schemas import (
@@ -35,6 +36,7 @@ from app.modules.customer.inbox.schemas import (
     SendTextSchema,
     StartConversationSchema,
     StatusSchema,
+    ViewSchema,
 )
 from app.modules.customer.team import assign as assigning
 from app.modules.customer.team.access import actor, actor_name, can_reply, role_of, settings_of, visible_chats
@@ -44,7 +46,6 @@ from app.modules.customer.whatsapp.models import WhatsAppAccount
 from app.services.whatsapp import MEDIA_LIMITS, WhatsAppClient, WhatsAppError, media_kind
 from app.shared.pagination import list_response
 from app.shared.utils.datetime import iso, now
-from app.shared.utils.search import search_clause
 
 WINDOW = timedelta(hours=24)
 MEDIA_DIR = STORAGE_DIR / "whatsapp-media"
@@ -270,7 +271,7 @@ def _guard_contact(conversation: WaConversation) -> None:
 
 def list_conversations(db: Session, customer: Customer, status: str | None, search: str | None,
                        unread: bool, page: int | None, per_page: int | None, assignee: str | None = None,
-                       team_id: int | None = None) -> dict:
+                       team_id: int | None = None, filters: dict | None = None) -> dict:
     q = (_scoped(db, customer).join(WaContact, WaConversation.contact_id == WaContact.id)
          .options(joinedload(WaConversation.contact), joinedload(WaConversation.assignee),
                   joinedload(WaConversation.team)))
@@ -291,13 +292,18 @@ def list_conversations(db: Session, customer: Customer, status: str | None, sear
         q = q.filter(snoozing.not_snoozed(moment))  # snoozed chats wait in their own tab
     if unread:
         q = q.filter(WaConversation.unread_count > 0)
-    clause = search_clause([WaContact.name, WaContact.profile_name, WaContact.wa_id,
-                            WaConversation.last_message_preview], search)
+    term = (search or "").strip()
+    clause = finder.chat_clause(term) if term else None
     if clause is not None:
         q = q.filter(clause)
+    if filters:
+        q = finder.apply_filters(q, filters)
     me = actor(customer).id
     pinned_first = case((marks.pinned_for(me), 0), else_=1)
-    if status == "snoozed":  # the next one to come back first
+    rank = finder.name_rank(term) if clause is not None else None
+    if rank is not None:  # chats whose name or number matched first, then the newest
+        q = q.order_by(rank, WaConversation.last_message_at.desc().nulls_last(), WaConversation.id.desc())
+    elif status == "snoozed":  # the next one to come back first
         q = q.order_by(WaConversation.snoozed_until.asc(), WaConversation.id.desc())
     else:
         q = q.order_by(pinned_first, WaConversation.last_message_at.desc().nulls_last(), WaConversation.id.desc())
@@ -308,10 +314,12 @@ def list_conversations(db: Session, customer: Customer, status: str | None, sear
     bots = running_in(db, ids)
     live = here.others(db, ids, me)
     pins = marks.pins_for(db, me, ids)
+    found = finder.matches_for(db, ids, term) if clause is not None else {}
     for row in result["data"]:
         row["bot"] = bots.get(row["id"])
         row["presence"] = live.get(row["id"], [])
         row["pin"] = pins.get(row["id"])
+        row["match"] = found.get(row["id"])  # where the search words were found
     return result
 
 
@@ -1022,3 +1030,25 @@ def bulk(db: Session, customer: Customer, payload: BulkSchema) -> dict:
     if skipped:
         message += f", {skipped} skipped"
     return {"status": True, "message": message, "data": {"done": done, "skipped": skipped}}
+
+
+# Search & saved views ----------------------------------------------------------------
+
+def search_in_chat(db: Session, customer: Customer, conversation_id: int, term: str) -> dict:
+    conversation = _conversation(db, customer, conversation_id)
+    ids = finder.in_chat(db, conversation.id, term)
+    return {"status": True, "data": {"ids": ids, "count": len(ids), "words": finder.words(term)}}
+
+
+def list_views(db: Session, customer: Customer) -> dict:
+    return {"status": True, "data": finder.list_views(db, customer.id, actor(customer).id)}
+
+
+def save_view(db: Session, customer: Customer, payload: ViewSchema) -> dict:
+    view = finder.save_view(db, customer.id, actor(customer).id, payload.name, payload.params, payload.shared)
+    return {"status": True, "message": "View saved", "data": view}
+
+
+def delete_view(db: Session, customer: Customer, view_id: int) -> dict:
+    finder.delete_view(db, customer.id, actor(customer).id, view_id, role_of(customer) in ("owner", "admin"))
+    return {"status": True, "message": "View deleted"}

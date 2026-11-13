@@ -29,6 +29,8 @@ import {
   PinOff,
   Users,
   X,
+  Search,
+  ChevronUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -139,6 +141,8 @@ export function ChatPanel({
   onToggleContact,
   autoTemplate,
   onTemplateShown,
+  jump,
+  onJumped,
 }: {
   conversation: Conversation;
   onBack: () => void;
@@ -147,6 +151,9 @@ export function ChatPanel({
   onToggleContact: () => void;
   autoTemplate: boolean;
   onTemplateShown: () => void;
+  /** open at this message, with the search words marked (from a search result) */
+  jump?: { messageId: number; words: string[] } | null;
+  onJumped?: () => void;
 }) {
   const queryClient = useQueryClient();
   const id = conversation.id;
@@ -459,6 +466,80 @@ export function ChatPanel({
   const sendProducts = (input: SendProductsInput) => run(() => commerceApi.send(id, input));
 
   const [snoozeOpen, setSnoozeOpen] = useState(false);
+
+  // Find in this chat, and jumping to a message (search results, starred messages)
+  const [finding, setFinding] = useState(false);
+  const [findText, setFindText] = useState("");
+  const [found, setFound] = useState<{ q: string; ids: number[] } | null>(null);
+  const [findPos, setFindPos] = useState(0);
+  const [marks, setMarks] = useState<string[]>([]);
+  const [currentHit, setCurrentHit] = useState<number | null>(null);
+
+  /** Loads older pages until `target` is in the chat, then scrolls to it. */
+  const reveal = async (target: number) => {
+    let items = olderItems;
+    let more = hasMore;
+    let first = all[0]?.id;
+    for (let guard = 0; first !== undefined && target < first && more && guard < 30; guard++) {
+      const res = await inboxApi.messages(id, { before: first, limit: 100 });
+      items = mergeById(res.data, items);
+      more = res.meta.has_more;
+      first = items[0]?.id ?? first;
+    }
+    if (items !== olderItems) setOlder({ id, items, hasMore: more });
+    stickToBottom.current = false;
+    setCurrentHit(target);
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        document.getElementById(`msg-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" })
+      )
+    );
+  };
+
+  const jumped = useRef(false);
+  useEffect(() => {
+    if (!jump || jumped.current || latest.isLoading) return;
+    jumped.current = true;
+    setMarks(jump.words);
+    void reveal(jump.messageId).catch(() => null);
+    onJumped?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jump, latest.isLoading]);
+
+  const runFind = async (q: string) => {
+    const term = q.trim();
+    if (!term) return;
+    if (found && found.q === term && found.ids.length) {
+      // Enter again: the next (older) match
+      const next = (findPos + 1) % found.ids.length;
+      setFindPos(next);
+      void reveal(found.ids[next]!);
+      return;
+    }
+    try {
+      const res = await inboxApi.searchIn(id, term);
+      setFound({ q: term, ids: res.data.ids });
+      setMarks(res.data.words);
+      setFindPos(0);
+      if (res.data.ids.length) void reveal(res.data.ids[0]!);
+      else setCurrentHit(null);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    }
+  };
+  const stepFind = (delta: number) => {
+    if (!found?.ids.length) return;
+    const next = (findPos + delta + found.ids.length) % found.ids.length;
+    setFindPos(next);
+    void reveal(found.ids[next]!);
+  };
+  const closeFind = () => {
+    setFinding(false);
+    setFindText("");
+    setFound(null);
+    setMarks([]);
+    setCurrentHit(null);
+  };
   const live = { ...conversation, ...(fresh ?? {}) };
   const snoozed = !!live.snoozed_until;
   const act = async (task: () => Promise<{ message?: string; data: Conversation }>) => {
@@ -656,6 +737,17 @@ export function ChatPanel({
             />
           </div>
         )}
+        <Tooltip label="Find in this chat" align="end">
+          <Button
+            iconOnly
+            variant={finding ? "secondary" : "ghost"}
+            size="sm"
+            leftIcon={Search}
+            aria-label="Find in this chat"
+            aria-pressed={finding}
+            onClick={() => (finding ? closeFind() : setFinding(true))}
+          />
+        </Tooltip>
         <Tooltip label={contactOpen ? "Hide contact" : "Show contact"} align="end">
           <Button
             iconOnly
@@ -668,6 +760,62 @@ export function ChatPanel({
           />
         </Tooltip>
       </header>
+
+      {finding && (
+        <div className="border-line bg-surface flex items-center gap-2 border-b px-3 py-1.5 sm:px-4">
+          <Search className="text-fg-faint h-3.5 w-3.5 shrink-0" aria-hidden />
+          <input
+            autoFocus
+            value={findText}
+            onChange={(e) => {
+              setFindText(e.target.value);
+              if (found) setFound(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") closeFind();
+              if (e.key === "Enter") {
+                e.preventDefault();
+                if (e.shiftKey) stepFind(-1);
+                else void runFind(findText);
+              }
+            }}
+            placeholder="Find words in this chat, then Enter"
+            aria-label="Find in this chat"
+            className="text-fg placeholder:text-fg-faint min-w-0 flex-1 bg-transparent text-[13px] outline-none"
+          />
+          {found && (
+            <span className="text-fg-subtle tabular shrink-0 text-xs" aria-live="polite">
+              {found.ids.length ? `${findPos + 1} of ${found.ids.length}` : "No matches"}
+            </span>
+          )}
+          <Button
+            iconOnly
+            size="xs"
+            variant="ghost"
+            leftIcon={ChevronUp}
+            aria-label="Older match"
+            disabled={!found?.ids.length}
+            onClick={() => stepFind(1)}
+          />
+          <Button
+            iconOnly
+            size="xs"
+            variant="ghost"
+            leftIcon={ChevronDown}
+            aria-label="Newer match"
+            disabled={!found?.ids.length}
+            onClick={() => stepFind(-1)}
+          />
+          <Button
+            iconOnly
+            size="xs"
+            variant="ghost"
+            leftIcon={X}
+            aria-label="Close find"
+            onClick={closeFind}
+          />
+        </div>
+      )}
 
       <div className="relative min-h-0 flex-1">
         <div
@@ -722,6 +870,8 @@ export function ChatPanel({
                       onRetry={retry}
                       retrying={retryingId === m.id}
                       onStar={readOnly ? undefined : toggleStar}
+                      highlight={marks.length ? marks : undefined}
+                      current={m.id === currentHit}
                     />
                   </div>
                 </Fragment>

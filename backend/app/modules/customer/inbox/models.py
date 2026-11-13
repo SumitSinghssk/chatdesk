@@ -226,3 +226,18 @@ class WaMessageStar(Base):
     member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     note = Column(String(200), nullable=True)
     created_at = Column(DateTime, nullable=False, default=now)
+
+
+class WaInboxView(Base):
+    """A saved inbox view: a search plus tab and filters, for one person or shared (member_id empty)."""
+
+    __tablename__ = "wa_inbox_views"
+    __table_args__ = (Index("ix_wa_inbox_views_customer_member", "customer_id", "member_id"),)
+
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True)
+    name = Column(String(60), nullable=False)
+    params = Column(JSON, nullable=False, default=dict)
+    created_by_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=now)

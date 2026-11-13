@@ -57,6 +57,38 @@ export interface Conversation {
   snooze_woke_at: string | null;
   /** pinned to the top: for the signed-in person, or for everyone */
   pin: "me" | "everyone" | null;
+  /** where a search found its words in this chat (search results only) */
+  match?: SearchMatch | null;
+}
+
+export interface SearchMatch {
+  count: number;
+  /** the newest matching message, to jump to (empty when only a note matched) */
+  message_id: number | null;
+  snippet: string;
+  direction: "in" | "out" | null;
+  in_note: boolean;
+  created_at: string | null;
+}
+
+/** The filter panel. Every key is optional; they combine with AND. */
+export interface InboxFilters {
+  /** unanswered for at least this many minutes */
+  waiting?: number;
+  attachment?: "any" | "image" | "document" | "audio" | "video" | "location";
+  date_from?: string;
+  date_to?: string;
+  window?: "open" | "closed";
+  starred?: boolean;
+  tag?: string;
+}
+
+export interface SavedView {
+  id: number;
+  name: string;
+  params: Record<string, string | number | boolean>;
+  shared: boolean;
+  mine: boolean;
 }
 
 export interface MessageStar {
@@ -291,6 +323,12 @@ export const inboxApi = {
   unstar: (messageId: number) => request<InboxMessage>("DELETE", I.STAR(messageId)),
   stars: (params: { conversation_id?: number; mine?: boolean; search?: string; before?: number }) =>
     getFull<{ data: StarredItem[]; meta: { has_more: boolean } }>(withQuery(I.STARS, params)),
+  searchIn: (id: number, q: string) =>
+    request<{ ids: number[]; count: number; words: string[] }>("GET", withQuery(I.SEARCH_IN(id), { q })),
+  views: () => request<SavedView[]>("GET", I.VIEWS),
+  saveView: (body: { name: string; params: Record<string, unknown>; shared: boolean }) =>
+    request<SavedView>("POST", I.VIEWS, body),
+  deleteView: (id: number) => request<null>("DELETE", I.VIEW(id)),
   bulk: (body: { ids: number[]; action: BulkAction; until?: string; note?: string | null }) =>
     request<{ done: number; skipped: number }>("POST", I.BULK, body),
   quickReplies: () => request<QuickReply[]>("GET", I.QUICK_REPLIES),
@@ -314,4 +352,5 @@ export const INBOX_QK = {
   TAGS: ["inbox", "tags"] as const,
   QUICK_REPLIES: ["inbox", "quick-replies"] as const,
   STARS: (params: QueryParams) => ["inbox", "stars", params] as const,
+  VIEWS: ["inbox", "views"] as const,
 };

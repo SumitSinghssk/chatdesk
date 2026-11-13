@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   AlarmClock,
   AlarmClockOff,
@@ -22,6 +22,7 @@ import {
   Search,
   ShoppingCart,
   Star,
+  StickyNote,
   Sticker,
   Undo2,
   Users,
@@ -36,10 +37,12 @@ import { cn } from "@/lib/utils";
 import type { BulkAction, Conversation, InboxSummary } from "../../_lib/inboxApi";
 import { listTime } from "./format";
 import { PresenceMark } from "./Presence";
+import { WaText } from "../../_components/whatsapp/WaText";
 import { Tooltip } from "../../_components/Tooltip";
 
 export type ListFilter = "open" | "pending" | "resolved" | "all" | "snoozed";
-export type OwnerFilter = "all" | "me" | "unassigned";
+/** whose chats: everyone, mine, unassigned, or one team member (their id, from the filter panel) */
+export type OwnerFilter = "all" | "me" | "unassigned" | `${number}`;
 
 /** The preview without WhatsApp's *bold*, _italic_ and ~strike~ marks. */
 const plainPreview = (text: string) =>
@@ -98,6 +101,9 @@ export function ConversationList({
   loadingMore,
   onStarred,
   onBulk,
+  headerExtra,
+  chips,
+  searchWords,
 }: {
   items: Conversation[];
   loading: boolean;
@@ -120,6 +126,12 @@ export function ConversationList({
   onStarred: () => void;
   /** the same action on many chats (left out for viewers); resolves to true when it worked */
   onBulk?: (ids: number[], action: BulkAction) => Promise<boolean>;
+  /** more header buttons (filters, saved views) */
+  headerExtra?: ReactNode;
+  /** active filters, under the search box */
+  chips?: ReactNode;
+  /** the searched words, marked in result snippets */
+  searchWords?: string[];
 }) {
   const [selecting, setSelecting] = useState(false);
   const [picked, setPicked] = useState<Set<number>>(new Set());
@@ -173,6 +185,7 @@ export function ConversationList({
       active={c.id === selectedId}
       selecting={selecting}
       picked={picked.has(c.id)}
+      searchWords={searchWords}
       onSelect={() => (selecting ? toggle(c.id) : onSelect(c))}
     />
   );
@@ -182,6 +195,7 @@ export function ConversationList({
       <div className="border-line space-y-2.5 border-b p-3">
         <div className="flex items-center gap-1">
           <h2 className="text-fg flex-1 text-base font-semibold">Chats</h2>
+          {headerExtra}
           <Tooltip label="Starred messages" align="end">
             <Button
               iconOnly
@@ -256,7 +270,7 @@ export function ConversationList({
             value={search}
             onChange={(e) => onSearch(e.target.value)}
             onKeyDown={(e) => e.key === "Escape" && onSearch("")}
-            placeholder="Search name, number or message"
+            placeholder="Search names, numbers, messages and notes"
             aria-label="Search chats"
             className="text-fg placeholder:text-fg-faint w-full bg-transparent text-[13px] outline-none"
           />
@@ -271,6 +285,7 @@ export function ConversationList({
             </button>
           )}
         </label>
+        {chips}
         <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Chat status">
           {tabs.map((tab) => {
             const count = summary?.[tab.key];
@@ -461,12 +476,14 @@ function ConversationRow({
   active,
   selecting,
   picked,
+  searchWords,
   onSelect,
 }: {
   conversation: Conversation;
   active: boolean;
   selecting: boolean;
   picked: boolean;
+  searchWords?: string[];
   onSelect: () => void;
 }) {
   const unread = c.unread_count > 0;
@@ -518,11 +535,33 @@ function ConversationRow({
           </span>
         </span>
         <span className="mt-0.5 flex items-center gap-1.5">
-          {TypeIcon && <TypeIcon className="text-fg-faint h-3.5 w-3.5 shrink-0" aria-hidden />}
-          <span className={cn("min-w-0 flex-1 truncate text-xs", unread ? "text-fg" : "text-fg-subtle")}>
-            {c.last_message_direction === "out" && <span className="text-fg-faint">You: </span>}
-            {c.last_message_preview ? plainPreview(c.last_message_preview) : "No messages yet"}
-          </span>
+          {c.match ? (
+            <>
+              {c.match.in_note && (
+                <StickyNote className="h-3.5 w-3.5 shrink-0 text-amber-600" aria-label="Found in a note" />
+              )}
+              <span className="text-fg-subtle min-w-0 flex-1 truncate text-xs">
+                {c.match.direction === "out" && <span className="text-fg-faint">You: </span>}
+                <WaText text={c.match.snippet} highlight={searchWords} />
+              </span>
+              {c.match.count > 1 && (
+                <span
+                  className="shrink-0 rounded bg-amber-100 px-1 text-[10px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
+                  title={`${c.match.count} messages match`}
+                >
+                  {c.match.count}
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              {TypeIcon && <TypeIcon className="text-fg-faint h-3.5 w-3.5 shrink-0" aria-hidden />}
+              <span className={cn("min-w-0 flex-1 truncate text-xs", unread ? "text-fg" : "text-fg-subtle")}>
+                {c.last_message_direction === "out" && <span className="text-fg-faint">You: </span>}
+                {c.last_message_preview ? plainPreview(c.last_message_preview) : "No messages yet"}
+              </span>
+            </>
+          )}
           {c.presence?.length ? <PresenceMark others={c.presence} /> : null}
           {c.snoozed_until ? (
             <span
