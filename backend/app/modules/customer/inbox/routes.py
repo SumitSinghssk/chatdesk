@@ -17,6 +17,7 @@ from app.modules.customer.inbox.schemas import (
     StarSchema,
     ViewSchema,
     PresenceSchema,
+    ReactSchema,
     QuickReplySchema,
     SendTemplateSchema,
     SendTextSchema,
@@ -264,3 +265,9 @@ def save_view(payload: ViewSchema, customer: Customer = Depends(require_workspac
 @router.delete("/views/{view_id}", dependencies=[_csrf])
 def delete_view(view_id: int, customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
     return service.delete_view(db, customer, view_id)
+
+
+@router.post("/messages/{message_id}/react", dependencies=[_send_limit, _csrf])
+def react(message_id: int, payload: ReactSchema, customer: Customer = Depends(require_workspace),
+          db: Session = Depends(get_db)):
+    return service.react(db, customer, message_id, payload)

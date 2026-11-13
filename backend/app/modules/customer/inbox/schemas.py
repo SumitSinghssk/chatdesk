@@ -148,3 +148,13 @@ class ViewSchema(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     params: dict = Field(default_factory=dict)
     shared: bool = False
+
+
+class ReactSchema(BaseModel):
+    # an emoji; empty removes the reaction (WhatsApp keeps one reaction per person per message)
+    emoji: str = Field("", max_length=16)
+
+    @field_validator("emoji", mode="before")
+    @classmethod
+    def _strip(cls, v):
+        return (v or "").strip()

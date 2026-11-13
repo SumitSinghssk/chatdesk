@@ -37,6 +37,7 @@ from app.modules.customer.inbox.schemas import (
     StartConversationSchema,
     StatusSchema,
     ViewSchema,
+    ReactSchema,
 )
 from app.modules.customer.team import assign as assigning
 from app.modules.customer.team.access import actor, actor_name, can_reply, role_of, settings_of, visible_chats
@@ -172,6 +173,14 @@ def serialize_message(message: WaMessage, replied: WaMessage | None = None) -> d
         data["template"] = raw["template"]  # buttons / list of an automatic reply
     if raw.get("auto_reply"):
         data["auto_reply"] = raw["auto_reply"]["name"]
+    # who sent it when it wasn't a person: shown on the bubble
+    data["source"] = None
+    if message.direction == "out":
+        campaign = (raw.get("template") or {}).get("campaign") if isinstance(raw.get("template"), dict) else None
+        if campaign:
+            data["source"] = {"kind": "campaign", "label": f"Campaign · {campaign.get('name') or ''}".rstrip(" ·")}
+        elif message.sent_by in AUTOMATED_SENDERS:
+            data["source"] = {"kind": SOURCE_KINDS.get(message.sent_by, "bot"), "label": message.sent_by}
     if message.media_id:
         data["media"] = {
             "path": f"/customer/inbox/messages/{message.id}/media",
@@ -1052,3 +1061,28 @@ def save_view(db: Session, customer: Customer, payload: ViewSchema) -> dict:
 def delete_view(db: Session, customer: Customer, view_id: int) -> dict:
     finder.delete_view(db, customer.id, actor(customer).id, view_id, role_of(customer) in ("owner", "admin"))
     return {"status": True, "message": "View deleted"}
+
+
+# Reactions ---------------------------------------------------------------------------
+
+SOURCE_KINDS = {"AI agent": "ai", "Auto-reply": "auto_reply", "Chatbot": "chatbot", "Shop": "shop", "Calls": "calls"}
+
+
+def react(db: Session, customer: Customer, message_id: int, payload: ReactSchema) -> dict:
+    """Reacts to a message with an emoji (an empty one removes the reaction), like on the phone."""
+    message = _message(db, customer, message_id)
+    if not message.wamid or message.type == "reaction":
+        raise HTTPException(422, detail="You can't react to this message")
+    conversation = _conversation(db, customer, message.conversation_id)
+    _guard_contact(conversation)
+    if not window_open(conversation):
+        raise HTTPException(422, detail="The 24-hour reply window is closed, so WhatsApp doesn't allow reactions now")
+    _, client = _client(db, customer)
+    reaction = {"message_id": message.wamid, "emoji": payload.emoji}
+    request = {"type": "reaction", "reaction": reaction}
+    out = _outbound(db, customer, conversation, type="reaction", text=payload.emoji or None,
+                    payload={"request": request, "reaction": reaction})
+    text = _attempt(db, conversation, out, lambda: client.send({"to": conversation.contact.wa_id, **request}),
+                    reopen=False)
+    return {"status": True, "message": "Reaction removed" if not payload.emoji else text,
+            "data": serialize_message(out)}

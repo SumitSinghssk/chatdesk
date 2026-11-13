@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEv
 import { useQuery } from "@tanstack/react-query";
 import {
   Ban,
+  Camera,
   Eye,
   FileText,
   Loader2,
@@ -28,6 +29,7 @@ import {
   type QuickReply,
 } from "../../_lib/inboxApi";
 import { AiAssistButton } from "./AiAssist";
+import { prepareFiles } from "./attachments";
 import { EmojiPicker } from "./EmojiPicker";
 import { CollisionBar } from "./Presence";
 import { fileKind } from "./fileKind";
@@ -75,12 +77,15 @@ function Thumb({
   file,
   url,
   active,
+  error,
   onClick,
   onRemove,
 }: {
   file: File;
   url: string;
   active: boolean;
+  /** why it didn't send last time */
+  error?: string;
   onClick: () => void;
   onRemove: () => void;
 }) {
@@ -89,9 +94,15 @@ function Thumb({
     <div
       className={cn(
         "group/thumb relative h-14 w-14 shrink-0 overflow-hidden rounded-lg border-2",
-        active ? "border-primary" : "border-transparent"
+        error ? "border-danger" : active ? "border-primary" : "border-transparent"
       )}
+      title={error ? `Didn't send: ${error}` : undefined}
     >
+      {error && (
+        <span className="bg-danger absolute bottom-0.5 left-0.5 z-10 rounded px-1 text-[9px] font-bold text-white">
+          Failed
+        </span>
+      )}
       <button
         type="button"
         onClick={onClick}
@@ -174,6 +185,7 @@ export function Composer({
   others,
   assignedTo,
   conversationId,
+  fileErrors = {},
 }: {
   windowOpen: boolean;
   blocked: boolean;
@@ -205,6 +217,8 @@ export function Composer({
   assignedTo: string | null;
   /** for AI assist */
   conversationId?: number;
+  /** why files in the tray didn't send, keyed by "name:size" */
+  fileErrors?: Record<string, string>;
 }) {
   const [text, setText] = useState("");
   const [active, setActive] = useState(0);
@@ -215,6 +229,7 @@ export function Composer({
     assigned: false,
   });
   const fileRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const lastTyping = useRef(0);
   const noting = mode === "note";
@@ -323,10 +338,11 @@ export function Composer({
     }
   };
 
-  const addPicked = (e: ChangeEvent<HTMLInputElement>) => {
+  const addPicked = async (e: ChangeEvent<HTMLInputElement>) => {
     const picked = Array.from(e.target.files ?? []);
     e.target.value = "";
-    if (picked.length) onFilesChange([...files, ...picked].slice(0, MAX_FILES));
+    // photos WhatsApp can't take as images become JPEGs, big ones are shrunk to its 5 MB limit
+    if (picked.length) onFilesChange([...files, ...(await prepareFiles(picked))].slice(0, MAX_FILES));
     areaRef.current?.focus();
   };
 
@@ -429,6 +445,7 @@ export function Composer({
                 file={f}
                 url={urls[i]!}
                 active={i === shown}
+                error={fileErrors[`${f.name}:${f.size}`]}
                 onClick={() => setActive(i)}
                 onRemove={() => onFilesChange(files.filter((_, j) => j !== i))}
               />
@@ -505,7 +522,22 @@ export function Composer({
           </div>
         )}
         <div className="flex items-end gap-1 p-2 sm:p-3">
-          <input ref={fileRef} type="file" multiple accept={ACCEPT} className="hidden" onChange={addPicked} />
+          <input
+            ref={fileRef}
+            type="file"
+            multiple
+            accept={ACCEPT}
+            className="hidden"
+            onChange={(e) => void addPicked(e)}
+          />
+          <input
+            ref={cameraRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => void addPicked(e)}
+          />
           <EmojiPicker onPick={insertAtCursor} />
           {conversationId && (
             <AiAssistButton
@@ -520,6 +552,14 @@ export function Composer({
           )}
           {!noting && (
             <>
+              <Button
+                iconOnly
+                variant="ghost"
+                leftIcon={Camera}
+                aria-label="Take a photo"
+                className="sm:hidden"
+                onClick={() => cameraRef.current?.click()}
+              />
               <Tooltip label="Attach files" side="top" align="start">
                 <Button
                   iconOnly

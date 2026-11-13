@@ -60,6 +60,7 @@ import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
 import { MessageBubble } from "./MessageBubble";
+import { prepareFiles } from "./attachments";
 import { AssignMenu } from "./AssignMenu";
 import { AiBanner } from "./AiControls";
 import { BotBanner, StartBotMenu } from "./BotControls";
@@ -174,6 +175,8 @@ export function ChatPanel({
   const [productsOpen, setProductsOpen] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [files, setFiles] = useState<File[]>([]);
+  // why a file in the tray didn't send, keyed by "name:size"
+  const [fileErrors, setFileErrors] = useState<Record<string, string>>({});
   const [dragging, setDragging] = useState(false);
   const [viewer, setViewer] = useState<number | null>(null);
   const [atBottom, setAtBottom] = useState(true);
@@ -230,14 +233,26 @@ export function ChatPanel({
   const hasMore =
     older.id === id && older.hasMore !== null ? older.hasMore : (latest.data?.meta.has_more ?? false);
   const all = useMemo(() => mergeById(olderItems, latest.data?.data ?? []), [olderItems, latest.data]);
-  const reactions = useMemo(() => {
-    const map = new Map<string, string[]>();
+  // One reaction per side per message, like WhatsApp: the latest wins, an empty one removes it
+  const { reactions, myReactions } = useMemo(() => {
+    const latest = new Map<string, { to: string; out: boolean; emoji: string }>();
     for (const m of all) {
-      if (m.type === "reaction" && m.reaction_to && m.text) {
-        map.set(m.reaction_to, [...(map.get(m.reaction_to) ?? []), m.text]);
+      if (m.type === "reaction" && m.reaction_to) {
+        latest.set(`${m.reaction_to}\u0000${m.direction}`, {
+          to: m.reaction_to,
+          out: m.direction === "out",
+          emoji: m.text ?? "",
+        });
       }
     }
-    return map;
+    const map = new Map<string, string[]>();
+    const mine = new Map<string, string>();
+    for (const r of latest.values()) {
+      if (!r.emoji) continue;
+      map.set(r.to, [...(map.get(r.to) ?? []), r.emoji]);
+      if (r.out) mine.set(r.to, r.emoji);
+    }
+    return { reactions: map, myReactions: mine };
   }, [all]);
   const visible = useMemo(() => all.filter((m) => m.type !== "reaction"), [all]);
   const media = useMemo(() => visible.filter(viewable), [visible]);
@@ -389,18 +404,48 @@ export function ChatPanel({
   /** Sends picked files one by one (like WhatsApp); the caption goes with the first. */
   const sendFiles = async (picked: File[], caption: string) => {
     setSending(true);
+    const failed: File[] = [];
+    const reasons: Record<string, string> = {};
+    let captionSent = false;
     try {
-      for (const [i, file] of picked.entries()) {
-        const res = await inboxApi.sendMedia(id, file, i === 0 ? caption : undefined);
-        afterSend(res.data, res.message);
+      for (const file of picked) {
+        try {
+          const res = await inboxApi.sendMedia(id, file, captionSent ? undefined : caption || undefined);
+          captionSent = true;
+          afterSend(res.data, res.message);
+        } catch (err) {
+          failed.push(file);
+          reasons[`${file.name}:${file.size}`] = errorMessage(err);
+        }
       }
+      if (failed.length) {
+        // the ones that didn't go stay in the tray with the reason; Send tries them again
+        setFiles(failed);
+        setFileErrors(reasons);
+        toast.error(
+          failed.length === picked.length
+            ? (Object.values(reasons)[0] ?? "Couldn't send the files")
+            : `${picked.length - failed.length} sent, ${failed.length} didn't. Press Send to try them again.`
+        );
+        return false;
+      }
+      setFileErrors({});
       setReplyTo(null);
       return true;
-    } catch (err) {
-      toast.error(errorMessage(err));
-      return false;
     } finally {
       setSending(false);
+    }
+  };
+
+  const react = async (m: InboxMessage, emoji: string) => {
+    try {
+      const res = await inboxApi.react(m.id, emoji);
+      queryClient.setQueryData(INBOX_QK.MESSAGES(id), (prev: typeof latest.data) =>
+        prev ? { ...prev, data: mergeById(prev.data, [res.data]) } : prev
+      );
+      if (res.data.status === "failed") toast.error(res.data.error ?? "WhatsApp didn't accept the reaction");
+    } catch (err) {
+      toast.error(errorMessage(err));
     }
   };
 
@@ -585,7 +630,7 @@ export function ChatPanel({
   const canAttach = conversation.window_open && !contact.blocked;
   const addFiles = (incoming: File[]) => {
     if (!canAttach || !incoming.length) return;
-    setFiles((prev) => [...prev, ...incoming].slice(0, MAX_FILES));
+    void prepareFiles(incoming).then((ready) => setFiles((prev) => [...prev, ...ready].slice(0, MAX_FILES)));
   };
   const onDragEnter = (e: DragEvent) => {
     if (!canAttach || !e.dataTransfer.types.includes("Files")) return;
@@ -865,6 +910,12 @@ export function ChatPanel({
                     <MessageBubble
                       message={m}
                       reactions={reactions.get(m.wamid ?? "") ?? []}
+                      myReaction={myReactions.get(m.wamid ?? "")}
+                      onReact={
+                        !readOnly && conversation.window_open && !contact.blocked && m.wamid
+                          ? react
+                          : undefined
+                      }
                       onReply={setReplyTo}
                       onOpenMedia={(msg) => setViewer(media.findIndex((x) => x.id === msg.id))}
                       onRetry={retry}
@@ -964,6 +1015,7 @@ export function ChatPanel({
         sending={sending}
         replyTo={replyTo}
         files={files}
+        fileErrors={fileErrors}
         onFilesChange={setFiles}
         onCancelReply={() => setReplyTo(null)}
         onSendText={sendText}

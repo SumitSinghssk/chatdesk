@@ -22,6 +22,12 @@ import {
   ShoppingCart,
   Store,
   Star,
+  Bot,
+  Megaphone,
+  Smile,
+  Sparkles,
+  Zap,
+  PhoneCall,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -308,6 +314,69 @@ function CommerceCard({ commerce }: { commerce: NonNullable<InboxMessage["commer
   );
 }
 
+const QUICK_REACTIONS = ["👍", "❤️", "😂", "😮", "🙏", "✅"];
+
+/** The six quick reactions; picking the one already sent removes it. */
+function ReactButton({ current, onPick }: { current?: string; onPick: (emoji: string) => void }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative">
+      <Tooltip label="React">
+        <button
+          type="button"
+          aria-label="React to this message"
+          aria-expanded={open}
+          onClick={() => setOpen((o) => !o)}
+          className="text-fg-faint hover:bg-surface hover:text-fg rounded-full p-1"
+        >
+          <Smile className="h-3.5 w-3.5" />
+        </button>
+      </Tooltip>
+      {open && (
+        <span
+          role="menu"
+          onMouseLeave={() => setOpen(false)}
+          className="border-line bg-surface absolute bottom-full left-1/2 z-20 mb-1 flex -translate-x-1/2 gap-0.5 rounded-full border p-1 shadow-lg"
+        >
+          {QUICK_REACTIONS.map((e) => (
+            <button
+              key={e}
+              type="button"
+              role="menuitem"
+              aria-label={e === current ? `Remove ${e}` : `React ${e}`}
+              onClick={() => {
+                setOpen(false);
+                onPick(e === current ? "" : e);
+              }}
+              className={cn(
+                "hover:bg-hover flex h-7 w-7 items-center justify-center rounded-full text-base transition hover:scale-110",
+                e === current && "bg-primary-soft"
+              )}
+            >
+              {e}
+            </button>
+          ))}
+        </span>
+      )}
+    </span>
+  );
+}
+
+const SOURCE_ICONS = {
+  ai: Sparkles,
+  auto_reply: Zap,
+  chatbot: Bot,
+  shop: ShoppingBag,
+  calls: PhoneCall,
+  campaign: Megaphone,
+  bot: Bot,
+};
+
+function SourceIcon({ kind }: { kind: keyof typeof SOURCE_ICONS }) {
+  const Icon = SOURCE_ICONS[kind] ?? Bot;
+  return <Icon className="h-3 w-3 shrink-0" aria-hidden />;
+}
+
 export function MessageBubble({
   message,
   reactions,
@@ -318,6 +387,8 @@ export function MessageBubble({
   onStar,
   highlight,
   current,
+  myReaction,
+  onReact,
 }: {
   message: InboxMessage;
   reactions: string[];
@@ -331,6 +402,10 @@ export function MessageBubble({
   highlight?: string[];
   /** the current search hit: drawn with a ring */
   current?: boolean;
+  /** the team's own reaction on this message */
+  myReaction?: string;
+  /** react with an emoji ("" removes it); left out when reactions can't be sent */
+  onReact?: (m: InboxMessage, emoji: string) => void;
 }) {
   const out = message.direction === "out";
   const type = mediaType(message);
@@ -418,8 +493,19 @@ export function MessageBubble({
               visual && "px-1.5 pb-0.5"
             )}
           >
-            {out && message.sent_by && (
-              <span className="hidden max-w-24 truncate sm:inline">{message.sent_by} ·</span>
+            {out && message.source ? (
+              <span
+                className="inline-flex max-w-32 items-center gap-0.5 truncate"
+                title={`Sent by ${message.source.label}`}
+              >
+                <SourceIcon kind={message.source.kind} />
+                <span className="hidden truncate sm:inline">{message.source.label} ·</span>
+              </span>
+            ) : (
+              out &&
+              message.sent_by && (
+                <span className="hidden max-w-24 truncate sm:inline">{message.sent_by} ·</span>
+              )
             )}
             {message.star && (
               <Star
@@ -461,11 +547,16 @@ export function MessageBubble({
                 out ? "right-2" : "left-2"
               )}
             >
-              {reactions.join(" ")}
+              {reactions.map((r, i) => (
+                <span key={i} className={cn(r === myReaction && "bg-primary-soft rounded-full px-0.5")}>
+                  {r}
+                </span>
+              ))}
             </span>
           )}
         </div>
         <div className="flex shrink-0 flex-col opacity-0 transition group-hover/msg:opacity-100 focus-within:opacity-100">
+          {onReact && <ReactButton current={myReaction} onPick={(e) => onReact(message, e)} />}
           <Tooltip label="Reply">
             <button
               type="button"
