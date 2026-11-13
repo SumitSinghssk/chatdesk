@@ -169,6 +169,11 @@ export interface InboxMessage {
   reaction_to: string | null;
   /** starred for the team */
   star?: MessageStar | null;
+  /** sent by the platform rather than a person (AI agent, auto-reply, chatbot, shop, calls, campaign) */
+  source?: {
+    kind: "ai" | "auto_reply" | "chatbot" | "shop" | "calls" | "campaign" | "bot";
+    label: string;
+  } | null;
   reply_to: { id: number; text: string | null; type: string; direction: "in" | "out" } | null;
   /** Template messages: the header kind and the buttons, to draw them like WhatsApp does */
   template: { header_format: string | null; buttons: { type: string; text: string }[] } | null;
@@ -321,6 +326,8 @@ export const inboxApi = {
   star: (messageId: number, note?: string | null) =>
     request<InboxMessage>("PUT", I.STAR(messageId), { note: note ?? null }),
   unstar: (messageId: number) => request<InboxMessage>("DELETE", I.STAR(messageId)),
+  /** an emoji; "" removes your reaction */
+  react: (messageId: number, emoji: string) => request<InboxMessage>("POST", I.REACT(messageId), { emoji }),
   stars: (params: { conversation_id?: number; mine?: boolean; search?: string; before?: number }) =>
     getFull<{ data: StarredItem[]; meta: { has_more: boolean } }>(withQuery(I.STARS, params)),
   searchIn: (id: number, q: string) =>

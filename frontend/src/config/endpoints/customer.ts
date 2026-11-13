@@ -249,6 +249,7 @@ export const CUSTOMER_ENDPOINTS = {
     SNOOZE: (id: number) => `/customer/inbox/conversations/${id}/snooze`,
     PIN: (id: number) => `/customer/inbox/conversations/${id}/pin`,
     STAR: (messageId: number) => `/customer/inbox/messages/${messageId}/star`,
+    REACT: (messageId: number) => `/customer/inbox/messages/${messageId}/react`,
     STARS: "/customer/inbox/stars",
     BULK: "/customer/inbox/bulk",
     SEARCH_IN: (id: number) => `/customer/inbox/conversations/${id}/search`,
