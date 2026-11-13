@@ -180,6 +180,13 @@ def update_member(db: Session, ws: Customer, member_id: int, payload: MemberUpda
         raise HTTPException(422, detail="The owner's role can't be changed")
     if member.id == actor(ws).id and payload.role != member.role:
         raise HTTPException(422, detail="You can't change your own role")
+    if payload.role == "viewer" and member.role != "viewer":
+        # a viewer can't answer, so their chats go back to the queue
+        chats = db.query(WaConversation).filter(WaConversation.customer_id.in_(_number_ids(db, ws)),
+                                                WaConversation.assignee_id == member.id).all()
+        for conversation in chats:
+            assigning.assign(db, db.get(Customer, conversation.customer_id), conversation, None,
+                             conversation.team_id, actor_name(ws))
     member.role = payload.role
     _set_teams(db, ws, member, payload.team_ids)
     _set_numbers(db, ws, member, payload.all_numbers, payload.number_ids)

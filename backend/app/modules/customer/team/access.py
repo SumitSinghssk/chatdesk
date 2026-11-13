@@ -11,6 +11,8 @@ so the same queries scope everything to the number picked in the switcher (the `
 What the numbers share (the team, teams, assignment rules) lives on the main row: see `as_main`.
 """
 
+import re
+
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
@@ -20,7 +22,14 @@ from app.core.database import get_db
 from app.modules.customer.account.models import Customer
 from app.shared.enums import Status
 
-ROLES = ("owner", "admin", "agent")
+ROLES = ("owner", "admin", "agent", "viewer")
+# Viewers read chats and everything else but change nothing: every write request is refused for them in
+# require_workspace, except these (opening a chat, being seen in it, their own availability, switching number).
+VIEWER_WRITES = (
+    re.compile(r"^/api/v1/customer/inbox/conversations/\d+/(read|presence)$"),
+    re.compile(r"^/api/v1/customer/team/availability$"),
+    re.compile(r"^/api/v1/customer/numbers/\d+/switch$"),
+)
 DEFAULT_SETTINGS = {
     "auto_assign": "off",  # off | round_robin
     "assign_team_id": None,  # only members of this team get new chats (None = everyone)
@@ -78,6 +87,9 @@ def require_workspace(request: Request, customer: Customer = Depends(require_cus
     owner.actor = customer
     owner.member_role = customer.role if customer.workspace_id else "owner"
     owner.numbers = allowed
+    if owner.member_role == "viewer" and request.method not in ("GET", "HEAD", "OPTIONS")             and not any(p.match(request.url.path) for p in VIEWER_WRITES):
+        raise HTTPException(status_code=403, detail="You can view this workspace but not change anything. "
+                                                    "Ask an admin of your team for a different role.")
     return owner
 
 
@@ -135,13 +147,18 @@ def role_of(workspace: Customer) -> str:
     return getattr(workspace, "member_role", "owner")
 
 
+def can_reply(workspace: Customer) -> bool:
+    """Viewers can read chats but not answer them."""
+    return role_of(workspace) != "viewer"
+
+
 def settings_of(owner: Customer) -> dict:
     return {**DEFAULT_SETTINGS, **(root(owner).team_settings or {})}  # one set of rules for every number
 
 
 def visible_chats(db: Session, workspace: Customer, conversation_model):
     """SQL filter for the chats this member may see, or None for no restriction."""
-    if role_of(workspace) != "agent":
+    if role_of(workspace) not in ("agent", "viewer"):
         return None
     mode = settings_of(workspace)["agent_visibility"]
     if mode == "all":

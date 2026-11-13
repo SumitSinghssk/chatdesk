@@ -2,6 +2,7 @@
 
 import {
   Fragment,
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -26,20 +27,26 @@ import {
 import { toast } from "sonner";
 
 import { Avatar, Button, Dropdown, Spinner } from "@/app/admin/_components/ui/index";
-import { errorMessage } from "@/app/(customer)/_lib/customerApi";
+import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { cn } from "@/lib/utils";
 
 import {
   INBOX_QK,
   inboxApi,
+  type ColleagueReply,
   type Conversation,
   type ConversationEvent,
   type ConversationStatus,
   type InboxMessage,
+  type InboxNote,
+  type Presence,
   type SendTemplateInput,
 } from "../../_lib/inboxApi";
 import { commerceApi } from "../../_lib/commerceApi";
-import { Composer, MAX_FILES } from "./Composer";
+import { useDashboard } from "../../_components/DashboardContext";
+import { Composer, MAX_FILES, type ComposerMode } from "./Composer";
+import { NoteBubble } from "./NoteBubble";
+import { PresenceChip } from "./Presence";
 import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
@@ -53,6 +60,12 @@ import { Tooltip } from "../../_components/Tooltip";
 
 const LATEST = 50;
 const POLL_MS = 4000;
+const BEAT_MS = 4000; // "I'm in this chat" heartbeat
+const TYPING_FOR_MS = 6000; // a draft untouched this long counts as viewing, not typing
+
+/** An event or a note, placed between the messages by time. */
+type Marker =
+  { kind: "event"; at: string; event: ConversationEvent } | { kind: "note"; at: string; note: InboxNote };
 
 function mergeById(...lists: InboxMessage[][]): InboxMessage[] {
   const map = new Map<number, InboxMessage>();
@@ -153,6 +166,16 @@ export function ChatPanel({
   const [seenId, setSeenId] = useState(0);
   // the "N unread messages" divider stays where it was when the chat was opened
   const [unreadAtOpen] = useState(conversation.unread_count);
+  const { me } = useDashboard();
+  const readOnly = me.role === "viewer";
+  // Collisions: who else is here, and a colleague's reply that came in while this person was typing
+  const [mode, setMode] = useState<ComposerMode>("reply");
+  const [others, setOthers] = useState<Presence[]>([]);
+  const [conflict, setConflict] = useState<ColleagueReply | null>(null);
+  const draft = useRef({ text: "", mode: "reply" as ComposerMode, editedAt: 0 });
+  const lastBeat = useRef(0);
+  // the newest message this person had seen when they started typing (sent with the reply)
+  const seenWhenTyping = useRef<number | null>(null);
 
   // older pages belong to one conversation; switching resets them (derived, no effect needed)
   const olderItems = useMemo(() => (older.id === id ? older.items : []), [older, id]);
@@ -204,20 +227,75 @@ export function ChatPanel({
   }, [all]);
   const visible = useMemo(() => all.filter((m) => m.type !== "reaction"), [all]);
   const media = useMemo(() => visible.filter(viewable), [visible]);
-  // assignment and status changes, placed between the messages by time
-  const events = useMemo(() => {
-    const list = latest.data?.events ?? [];
+  // assignment and status changes, and internal notes, placed between the messages by time
+  const markers = useMemo(() => {
+    const list: Marker[] = [
+      ...(latest.data?.events ?? []).map((e) => ({ kind: "event" as const, at: e.created_at, event: e })),
+      ...(latest.data?.notes ?? []).map((n) => ({ kind: "note" as const, at: n.created_at, note: n })),
+    ].sort((a, b) => at(a.at) - at(b.at));
     const first = visible[0]?.created_at;
-    return hasMore && first ? list.filter((e) => at(e.created_at) >= at(first)) : list;
+    return hasMore && first ? list.filter((x) => at(x.at) >= at(first)) : list;
   }, [latest.data, visible, hasMore]);
-  const eventsBefore = (m: InboxMessage, prev: InboxMessage | undefined) =>
-    events.filter(
-      (e) => at(e.created_at) <= at(m.created_at) && (!prev || at(e.created_at) > at(prev.created_at))
-    );
-  const eventsAfterLast = events.filter(
-    (e) => !visible.length || at(e.created_at) > at(visible[visible.length - 1]!.created_at)
+  const markersBefore = (m: InboxMessage, prev: InboxMessage | undefined) =>
+    markers.filter((x) => at(x.at) <= at(m.created_at) && (!prev || at(x.at) > at(prev.created_at)));
+  const markersAfterLast = markers.filter(
+    (x) => !visible.length || at(x.at) > at(visible[visible.length - 1]!.created_at)
   );
   const lastId = visible.at(-1)?.id;
+  const refreshTimeline = () => {
+    void queryClient.invalidateQueries({ queryKey: INBOX_QK.MESSAGES(id) });
+    void queryClient.invalidateQueries({ queryKey: INBOX_QK.NOTES(id) });
+  };
+  const renderMarker = (x: Marker) =>
+    x.kind === "event" ? (
+      <EventChip key={`e${x.event.id}`} event={x.event} />
+    ) : (
+      <NoteBubble
+        key={`n${x.note.id}-${x.note.edited_at ?? ""}`}
+        conversationId={id}
+        note={x.note}
+        onChanged={refreshTimeline}
+      />
+    );
+
+  // Presence: "I'm here" every few seconds while the tab is visible, "left" when the chat closes
+  const beat = useCallback(
+    (left = false) => {
+      const d = draft.current;
+      const typing = !!d.text.trim() && Date.now() - d.editedAt < TYPING_FOR_MS;
+      const state = left ? "left" : typing ? (d.mode === "note" ? "note" : "reply") : "viewing";
+      lastBeat.current = Date.now();
+      return inboxApi.presence(id, state).then(
+        (res) => {
+          if (!left && res.data) setOthers(res.data.others);
+        },
+        () => undefined
+      );
+    },
+    [id]
+  );
+  useEffect(() => {
+    void beat();
+    const timer = setInterval(() => {
+      if (!document.hidden) void beat();
+    }, BEAT_MS);
+    return () => {
+      clearInterval(timer);
+      void beat(true);
+    };
+  }, [beat]);
+
+  const onDraftChange = (text: string) => {
+    if (!draft.current.text.trim() && text.trim()) seenWhenTyping.current = all.at(-1)?.id ?? 0;
+    if (!text.trim()) seenWhenTyping.current = null;
+    draft.current = { text, mode, editedAt: Date.now() };
+    // tell colleagues right away when typing starts, not only on the next heartbeat
+    if (text.trim() && Date.now() - lastBeat.current > 2000) void beat();
+  };
+  const changeMode = (next: ComposerMode) => {
+    setMode(next);
+    draft.current = { ...draft.current, mode: next };
+  };
 
   // first of the messages that were unread when the chat opened
   const unreadStartId = useMemo(() => {
@@ -325,6 +403,51 @@ export function ChatPanel({
     }
   };
 
+  const sendText = async (text: string, force = false) => {
+    setSending(true);
+    try {
+      const res = await inboxApi.sendText(id, text, {
+        reply_to_id: replyTo?.id,
+        seen_message_id: seenWhenTyping.current ?? undefined,
+        force,
+      });
+      afterSend(res.data, res.message);
+      setReplyTo(null);
+      setConflict(null);
+      seenWhenTyping.current = null;
+      return true;
+    } catch (err) {
+      const clash =
+        err instanceof CustomerApiError && err.status === 409
+          ? (err.data as { conflict?: ColleagueReply } | null)?.conflict
+          : undefined;
+      if (clash) {
+        setConflict(clash); // keep the text: they read the colleague's reply, then decide
+        void queryClient.invalidateQueries({ queryKey: INBOX_QK.MESSAGES(id) });
+      } else {
+        toast.error(errorMessage(err));
+      }
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const sendNote = async (body: string) => {
+    setSending(true);
+    try {
+      await inboxApi.addNote(id, body);
+      stickToBottom.current = true;
+      refreshTimeline();
+      return true;
+    } catch (err) {
+      toast.error(errorMessage(err));
+      return false;
+    } finally {
+      setSending(false);
+    }
+  };
+
   const sendTemplate = (input: SendTemplateInput) => run(() => inboxApi.sendTemplate(id, input));
   const sendProducts = (input: SendProductsInput) => run(() => commerceApi.send(id, input));
 
@@ -396,19 +519,23 @@ export function ChatPanel({
           <Avatar name={contact.display_name} size={36} />
           <span className="min-w-0">
             <span className="text-fg block truncate text-sm font-semibold">{contact.display_name}</span>
-            <span className="text-fg-subtle block truncate text-xs">{contact.phone}</span>
+            {others.length ? (
+              <PresenceChip others={others} />
+            ) : (
+              <span className="text-fg-subtle block truncate text-xs">{contact.phone}</span>
+            )}
           </span>
         </button>
         <div className="hidden sm:block">
           <WindowChip conversation={conversation} nowMs={nowMs} />
         </div>
-        {!conversation.bot && (
+        {!conversation.bot && !readOnly && (
           <div className="hidden sm:block">
             <StartBotMenu conversation={conversation} />
           </div>
         )}
-        <AssignMenu conversation={conversation} onChanged={onChanged} />
-        {conversation.status === "resolved" ? (
+        {!readOnly && <AssignMenu conversation={conversation} onChanged={onChanged} />}
+        {readOnly ? null : conversation.status === "resolved" ? (
           <Button size="sm" variant="secondary" leftIcon={RotateCcw} onClick={() => setStatus("open")}>
             <span className="hidden sm:inline">Reopen</span>
           </Button>
@@ -480,9 +607,7 @@ export function ChatPanel({
               )}
               {visible.map((m, i) => (
                 <Fragment key={m.id}>
-                  {eventsBefore(m, visible[i - 1]).map((e) => (
-                    <EventChip key={`e${e.id}`} event={e} />
-                  ))}
+                  {markersBefore(m, visible[i - 1]).map(renderMarker)}
                   {(i === 0 || !sameDay(visible[i - 1]!.created_at, m.created_at)) && (
                     <div className="flex justify-center py-1.5">
                       <span className="bg-surface/90 text-fg-subtle rounded-md px-2.5 py-1 text-[11px] font-medium shadow-xs">
@@ -509,9 +634,7 @@ export function ChatPanel({
                   </div>
                 </Fragment>
               ))}
-              {eventsAfterLast.map((e) => (
-                <EventChip key={`e${e.id}`} event={e} />
-              ))}
+              {markersAfterLast.map(renderMarker)}
             </div>
           )}
         </div>
@@ -547,12 +670,26 @@ export function ChatPanel({
       <Composer
         windowOpen={conversation.window_open}
         blocked={contact.blocked}
+        readOnly={readOnly}
         sending={sending}
         replyTo={replyTo}
         files={files}
         onFilesChange={setFiles}
         onCancelReply={() => setReplyTo(null)}
-        onSendText={(text) => run(() => inboxApi.sendText(id, text, replyTo?.id))}
+        onSendText={sendText}
+        onSendNote={sendNote}
+        mode={mode}
+        onModeChange={changeMode}
+        onDraftChange={onDraftChange}
+        conflict={conflict}
+        onConflictEdit={() => {
+          if (conflict) seenWhenTyping.current = conflict.id; // they've read it now
+          setConflict(null);
+        }}
+        others={others}
+        assignedTo={
+          conversation.assignee && conversation.assignee.id !== me.id ? conversation.assignee.name : null
+        }
         onSendFiles={sendFiles}
         onOpenTemplates={() => setTemplateOpen(true)}
         onOpenProducts={() => setProductsOpen(true)}

@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field, field_validator
 class SendTextSchema(BaseModel):
     text: str = Field(..., min_length=1, max_length=4096)
     reply_to_id: Optional[int] = None
+    # The newest message the sender had seen when they started typing. If a colleague replied after it, the
+    # send is refused (409) so they can read it first; `force` sends anyway.
+    seen_message_id: Optional[int] = None
+    force: bool = False
 
     @field_validator("text")
     @classmethod
@@ -43,6 +47,10 @@ class SendTemplateSchema(BaseModel):
 
 class StatusSchema(BaseModel):
     status: Literal["open", "pending", "resolved"]
+
+
+class PresenceSchema(BaseModel):
+    state: Literal["viewing", "reply", "note", "left"] = "viewing"
 
 
 class NoteSchema(BaseModel):

@@ -6,7 +6,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 class InviteSchema(BaseModel):
     email: EmailStr
     name: Optional[str] = Field(None, max_length=150)
-    role: Literal["admin", "agent"] = "agent"
+    role: Literal["admin", "agent", "viewer"] = "agent"
     team_ids: list[int] = Field(default_factory=list, max_length=50)
     all_numbers: bool = True
     number_ids: list[int] = Field(default_factory=list, max_length=100)
@@ -18,7 +18,7 @@ class InviteSchema(BaseModel):
 
 
 class MemberUpdateSchema(BaseModel):
-    role: Literal["admin", "agent"]
+    role: Literal["admin", "agent", "viewer"]
     team_ids: list[int] = Field(default_factory=list, max_length=50)
     all_numbers: bool = True
     number_ids: list[int] = Field(default_factory=list, max_length=100)

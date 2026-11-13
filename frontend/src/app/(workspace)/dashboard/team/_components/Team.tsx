@@ -41,7 +41,7 @@ import { RulesTab } from "./RulesTab";
 import { TeamModal } from "./TeamModal";
 
 type Tab = "members" | "teams" | "rules" | "performance";
-const ROLE_TONE = { owner: "brand", admin: "info", agent: "neutral" } as const;
+const ROLE_TONE = { owner: "brand", admin: "info", agent: "neutral", viewer: "neutral" } as const;
 
 export function Team() {
   const router = useRouter();

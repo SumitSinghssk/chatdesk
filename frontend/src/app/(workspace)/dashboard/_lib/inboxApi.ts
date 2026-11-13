@@ -46,6 +46,29 @@ export interface Conversation {
   bot?: string | null;
   /** details of that chatbot (single chat responses only) */
   bot_session?: { id: number; chatbot_id: number; name: string; wait: string | null; node: string } | null;
+  /** other team members in this chat right now (list responses only) */
+  presence?: Presence[];
+}
+
+/** A team member who has a chat open: just looking, typing a reply, or writing a note. */
+export interface Presence {
+  id: number;
+  name: string;
+  state: "viewing" | "reply" | "note";
+  at: string;
+}
+
+/** The newest reply a colleague typed into the chat (not bots, campaigns or automatic messages). */
+export interface ColleagueReply {
+  id: number;
+  by: { id: number; name: string };
+  preview: string;
+  created_at: string | null;
+}
+
+export interface PresenceInfo {
+  others: Presence[];
+  last_colleague_reply: ColleagueReply | null;
 }
 
 /** Something that happened to a chat, shown in its timeline (assigned, resolved…). */
@@ -109,14 +132,18 @@ export interface InboxSummary {
   unread: number;
   mine: number;
   unassigned: number;
-  role: "owner" | "admin" | "agent";
+  role: "owner" | "admin" | "agent" | "viewer";
 }
 
 export interface InboxNote {
   id: number;
   body: string;
   author: string | null;
+  member_id: number | null;
   created_at: string;
+  edited_at: string | null;
+  /** the signed-in person wrote it, or is an admin */
+  can_edit: boolean;
 }
 
 export interface QuickReply {
@@ -177,9 +204,15 @@ export const inboxApi = {
       meta: { has_more: boolean };
       conversation: Conversation;
       events: ConversationEvent[];
+      notes: InboxNote[];
     }>(withQuery(I.MESSAGES(id), params)),
-  sendText: (id: number, text: string, reply_to_id?: number) =>
-    request<InboxMessage>("POST", I.MESSAGES(id), { text, reply_to_id }),
+  /** `seen_message_id`: the newest message seen when typing started. A 409 with `data.conflict` (a
+   * ColleagueReply) means a colleague answered since; send again with `force` to send anyway. */
+  sendText: (
+    id: number,
+    text: string,
+    opts: { reply_to_id?: number; seen_message_id?: number; force?: boolean } = {}
+  ) => request<InboxMessage>("POST", I.MESSAGES(id), { text, ...opts }),
   sendTemplate: (id: number, body: SendTemplateInput) => request<InboxMessage>("POST", I.TEMPLATE(id), body),
   async sendMedia(id: number, file: File, caption?: string) {
     const form = new FormData();
@@ -204,7 +237,12 @@ export const inboxApi = {
   ) => request<Conversation>("PUT", I.CONTACT(id), body),
   notes: (id: number) => request<InboxNote[]>("GET", I.NOTES(id)),
   addNote: (id: number, body: string) => request<InboxNote>("POST", I.NOTES(id), { body }),
+  updateNote: (id: number, noteId: number, body: string) =>
+    request<InboxNote>("PUT", I.NOTE(id, noteId), { body }),
   deleteNote: (id: number, noteId: number) => request<null>("DELETE", I.NOTE(id, noteId)),
+  /** "I'm in this chat" (every few seconds while it's open); "left" when it closes. */
+  presence: (id: number, state: "viewing" | "reply" | "note" | "left") =>
+    request<PresenceInfo | null>("POST", I.PRESENCE(id), { state }),
   retry: (messageId: number) => request<InboxMessage>("POST", I.RETRY(messageId)),
   typing: (id: number) => request<null>("POST", I.TYPING(id)),
   quickReplies: () => request<QuickReply[]>("GET", I.QUICK_REPLIES),

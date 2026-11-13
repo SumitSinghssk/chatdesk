@@ -20,6 +20,7 @@ from app.modules.customer.inbox.models import (
     WaQuickReply,
 )
 from app.modules.customer.integrations import hooks
+from app.modules.customer.inbox import presence as here
 from app.modules.customer.inbox.processor import get_or_create_contact, get_or_create_conversation, touch
 from app.modules.customer.inbox.schemas import (
     ContactUpdateSchema,
@@ -31,7 +32,7 @@ from app.modules.customer.inbox.schemas import (
     StatusSchema,
 )
 from app.modules.customer.team import assign as assigning
-from app.modules.customer.team.access import actor, actor_name, role_of, visible_chats
+from app.modules.customer.team.access import actor, actor_name, can_reply, role_of, visible_chats
 from app.modules.customer.templates import builder
 from app.modules.customer.templates import service as templates_service
 from app.modules.customer.whatsapp.models import WhatsAppAccount
@@ -282,9 +283,12 @@ def list_conversations(db: Session, customer: Customer, status: str | None, sear
     result = list_response(q, serialize_conversation, page or 1, per_page or 30, search)
     from app.modules.customer.chatbots.service import running_in
 
-    bots = running_in(db, [c["id"] for c in result["data"]])
+    ids = [c["id"] for c in result["data"]]
+    bots = running_in(db, ids)
+    live = here.others(db, ids, actor(customer).id)
     for row in result["data"]:
         row["bot"] = bots.get(row["id"])
+        row["presence"] = live.get(row["id"], [])
     return result
 
 
@@ -391,10 +395,13 @@ def list_messages(db: Session, customer: Customer, conversation_id: int, before:
         rows = list(reversed(rows[:limit]))
     events = (db.query(WaConversationEvent).filter(WaConversationEvent.conversation_id == conversation.id)
               .order_by(WaConversationEvent.id.desc()).limit(200).all())
+    notes = (db.query(WaNote).filter(WaNote.conversation_id == conversation.id)
+             .order_by(WaNote.id.desc()).limit(200).all())
     return {"status": True, "data": _serialize_messages(db, rows), "meta": {"has_more": has_more},
             "conversation": _with_bot(db, conversation),
             "events": [{"id": e.id, "kind": e.kind, "text": e.text, "actor": e.actor, "created_at": iso(e.created_at)}
-                       for e in reversed(events)]}
+                       for e in reversed(events)],
+            "notes": [_note(n, customer) for n in reversed(notes)]}
 
 
 def assign_conversation(db: Session, customer: Customer, conversation_id: int, assignee_id: int | None,
@@ -417,6 +424,11 @@ def assign_conversation(db: Session, customer: Customer, conversation_id: int, a
 def send_text(db: Session, customer: Customer, conversation_id: int, payload: SendTextSchema) -> dict:
     conversation = _conversation(db, customer, conversation_id)
     _guard_contact(conversation)
+    if payload.seen_message_id is not None and not payload.force:
+        newer = _last_colleague_reply(db, customer, conversation, after=payload.seen_message_id)
+        if newer is not None:
+            raise HTTPException(409, detail={"message": f"{newer['by']['name']} replied while you were typing",
+                                             "data": {"conflict": newer}})
     if not window_open(conversation):
         raise HTTPException(422, detail="The 24-hour reply window is closed. Send an approved template instead.")
     _, client = _client(db, customer)
@@ -683,31 +695,58 @@ def contact_tags(db: Session, customer: Customer) -> dict:
     return {"status": True, "data": sorted(tags, key=lambda t: (-tags[t], t.lower()))}
 
 
-def _note(note: WaNote) -> dict:
-    return {"id": note.id, "body": note.body, "author": note.author, "created_at": iso(note.created_at)}
+def _may_edit_note(note: WaNote, customer: Customer) -> bool:
+    if not can_reply(customer):
+        return False
+    if role_of(customer) in ("owner", "admin"):
+        return True
+    return note.member_id is not None and note.member_id == actor(customer).id
+
+
+def _note(note: WaNote, customer: Customer | None = None) -> dict:
+    return {"id": note.id, "body": note.body, "author": note.author, "member_id": note.member_id,
+            "created_at": iso(note.created_at), "edited_at": iso(note.edited_at),
+            "can_edit": _may_edit_note(note, customer) if customer is not None else False}
 
 
 def list_notes(db: Session, customer: Customer, conversation_id: int) -> dict:
     conversation = _conversation(db, customer, conversation_id)
     notes = (db.query(WaNote).filter(WaNote.conversation_id == conversation.id)
              .order_by(WaNote.id.desc()).limit(200).all())
-    return {"status": True, "data": [_note(n) for n in notes]}
+    return {"status": True, "data": [_note(n, customer) for n in notes]}
 
 
 def add_note(db: Session, customer: Customer, conversation_id: int, payload: NoteSchema) -> dict:
     conversation = _conversation(db, customer, conversation_id)
     note = WaNote(customer_id=customer.id, conversation_id=conversation.id, body=payload.body,
-                  author=actor_name(customer), created_at=now())
+                  author=actor_name(customer), member_id=actor(customer).id, created_at=now())
     db.add(note)
     db.commit()
-    return {"status": True, "message": "Note added", "data": _note(note)}
+    return {"status": True, "message": "Note added", "data": _note(note, customer)}
+
+
+def _own_note(db: Session, customer: Customer, conversation_id: int, note_id: int) -> WaNote:
+    conversation = _conversation(db, customer, conversation_id)
+    note = db.query(WaNote).filter(WaNote.id == note_id, WaNote.conversation_id == conversation.id).first()
+    if note is None:
+        raise HTTPException(404, detail="Note not found")
+    if not _may_edit_note(note, customer):
+        raise HTTPException(403, detail="Only whoever wrote this note, or an admin, can change it")
+    return note
+
+
+def update_note(db: Session, customer: Customer, conversation_id: int, note_id: int, payload: NoteSchema) -> dict:
+    note = _own_note(db, customer, conversation_id, note_id)
+    if note.body != payload.body:
+        note.body = payload.body
+        note.edited_at = now()
+        db.commit()
+    return {"status": True, "message": "Note updated", "data": _note(note, customer)}
 
 
 def delete_note(db: Session, customer: Customer, conversation_id: int, note_id: int) -> dict:
-    conversation = _conversation(db, customer, conversation_id)
-    deleted = db.query(WaNote).filter(WaNote.id == note_id, WaNote.conversation_id == conversation.id).delete()
-    if not deleted:
-        raise HTTPException(404, detail="Note not found")
+    note = _own_note(db, customer, conversation_id, note_id)
+    db.delete(note)
     db.commit()
     return {"status": True, "message": "Note deleted"}
 
@@ -796,3 +835,42 @@ def delete_quick_reply(db: Session, customer: Customer, quick_id: int) -> dict:
     db.delete(_quick_or_404(db, customer, quick_id))
     db.commit()
     return {"status": True, "message": "Quick reply deleted"}
+
+
+# Presence & collisions ---------------------------------------------------------------
+
+# Sent by the platform, not by a person: never "a colleague replied"
+AUTOMATED_SENDERS = ("AI agent", "Auto-reply", "Calls", "Chatbot", "Shop")
+
+
+def _last_colleague_reply(db: Session, customer: Customer, conversation: WaConversation,
+                          after: int | None = None) -> dict | None:
+    """The newest reply a team member other than the signed-in person typed into this chat (optionally only
+    one newer than message id `after`)."""
+    me = actor(customer).id
+    q = db.query(WaMessage).filter(WaMessage.conversation_id == conversation.id, WaMessage.direction == "out",
+                                   WaMessage.member_id.isnot(None), WaMessage.member_id != me,
+                                   WaMessage.sent_by.notin_(AUTOMATED_SENDERS))
+    if after is not None:
+        q = q.filter(WaMessage.id > after)
+    for message in q.order_by(WaMessage.id.desc()).limit(10):
+        if ((message.payload or {}).get("template") or {}).get("campaign"):
+            continue  # a campaign, not someone answering
+        return {"id": message.id, "by": {"id": message.member_id, "name": message.sent_by or "A colleague"},
+                "preview": (message.text or "a message")[:200], "created_at": iso(message.created_at)}
+    return None
+
+
+def heartbeat(db: Session, customer: Customer, conversation_id: int, state: str) -> dict:
+    """I'm in this chat (viewing / typing a reply / writing a note). Returns who else is, and the latest reply
+    a colleague typed, so the composer can warn before two people answer the same customer."""
+    conversation = _conversation(db, customer, conversation_id)
+    if state in ("reply", "note") and not can_reply(customer):
+        state = "viewing"
+    me = actor(customer).id
+    here.beat(db, customer.id, conversation.id, me, state)
+    db.commit()
+    if state == "left":
+        return {"status": True, "data": None}
+    return {"status": True, "data": {"others": here.others(db, [conversation.id], me).get(conversation.id, []),
+                                     "last_colleague_reply": _last_colleague_reply(db, customer, conversation)}}

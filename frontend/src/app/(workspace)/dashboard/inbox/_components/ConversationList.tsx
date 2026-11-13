@@ -24,6 +24,7 @@ import { cn } from "@/lib/utils";
 
 import type { Conversation, InboxSummary } from "../../_lib/inboxApi";
 import { listTime } from "./format";
+import { PresenceMark } from "./Presence";
 import { Tooltip } from "../../_components/Tooltip";
 
 export type ListFilter = "open" | "pending" | "resolved" | "all";
@@ -87,7 +88,8 @@ export function ConversationList({
   onSearch: (v: string) => void;
   selectedId: number | null;
   onSelect: (c: Conversation) => void;
-  onNewChat: () => void;
+  /** left out for viewers, who can't start chats */
+  onNewChat?: () => void;
   hasMore: boolean;
   onLoadMore: () => void;
   loadingMore: boolean;
@@ -97,16 +99,18 @@ export function ConversationList({
       <div className="border-line space-y-2.5 border-b p-3">
         <div className="flex items-center gap-2">
           <h2 className="text-fg flex-1 text-base font-semibold">Chats</h2>
-          <Tooltip label="New chat" align="end">
-            <Button
-              iconOnly
-              variant="secondary"
-              size="sm"
-              leftIcon={MessageSquarePlus}
-              aria-label="New chat"
-              onClick={onNewChat}
-            />
-          </Tooltip>
+          {onNewChat && (
+            <Tooltip label="New chat" align="end">
+              <Button
+                iconOnly
+                variant="secondary"
+                size="sm"
+                leftIcon={MessageSquarePlus}
+                aria-label="New chat"
+                onClick={onNewChat}
+              />
+            </Tooltip>
+          )}
         </div>
         <div
           className="bg-page grid grid-cols-3 gap-1 rounded-lg p-0.5"
@@ -305,6 +309,7 @@ function ConversationRow({
           <span className={cn("min-w-0 flex-1 truncate text-xs", unread ? "text-fg" : "text-fg-subtle")}>
             {c.last_message_preview ? plainPreview(c.last_message_preview) : "No messages yet"}
           </span>
+          {c.presence?.length ? <PresenceMark others={c.presence} /> : null}
           {c.waiting_since && c.status !== "resolved" && (
             <span
               className="bg-warning-soft text-warning shrink-0 rounded px-1 text-[10px] font-semibold"

@@ -10,6 +10,7 @@ import { Avatar, Badge, Button, Input, Skeleton, Switch } from "@/app/admin/_com
 import { errorMessage } from "@/app/(customer)/_lib/customerApi";
 import { formatDateTime, timeAgo } from "@/lib/utils";
 
+import { useDashboard } from "../../_components/DashboardContext";
 import { INBOX_QK, inboxApi, type Conversation } from "../../_lib/inboxApi";
 import { InfoHint } from "../../_components/CardHeader";
 import { ContactOrders } from "./ContactOrders";
@@ -43,6 +44,11 @@ export function ContactPanel({
   const [tag, setTag] = useState("");
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const readOnly = useDashboard().me.role === "viewer";
+  const refreshNotes = () => {
+    void queryClient.invalidateQueries({ queryKey: INBOX_QK.NOTES(conversation.id) });
+    void queryClient.invalidateQueries({ queryKey: INBOX_QK.MESSAGES(conversation.id) }); // the chat timeline
+  };
 
   const notes = useQuery({
     queryKey: INBOX_QK.NOTES(conversation.id),
@@ -101,7 +107,7 @@ export function ContactPanel({
     try {
       await inboxApi.addNote(conversation.id, note.trim());
       setNote("");
-      void queryClient.invalidateQueries({ queryKey: INBOX_QK.NOTES(conversation.id) });
+      refreshNotes();
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -110,7 +116,7 @@ export function ContactPanel({
   const removeNote = async (id: number) => {
     try {
       await inboxApi.deleteNote(conversation.id, id);
-      void queryClient.invalidateQueries({ queryKey: INBOX_QK.NOTES(conversation.id) });
+      refreshNotes();
     } catch (err) {
       toast.error(errorMessage(err));
     }
@@ -152,6 +158,8 @@ export function ContactPanel({
                 </Button>
               </div>
             </form>
+          ) : readOnly ? (
+            <p className="text-fg mt-3 text-base font-semibold">{contact.display_name}</p>
           ) : (
             <button
               type="button"
@@ -198,35 +206,39 @@ export function ContactPanel({
                 className="bg-primary-soft text-primary inline-flex items-center gap-1 rounded-full py-0.5 pr-1 pl-2 text-xs font-medium"
               >
                 {t}
-                <button
-                  type="button"
-                  aria-label={`Remove tag ${t}`}
-                  onClick={() => update({ tags: contact.tags.filter((x) => x !== t) })}
-                  className="hover:bg-primary/15 rounded-full p-0.5"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    aria-label={`Remove tag ${t}`}
+                    onClick={() => update({ tags: contact.tags.filter((x) => x !== t) })}
+                    className="hover:bg-primary/15 rounded-full p-0.5"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
               </span>
             ))}
             {!contact.tags.length && <span className="text-fg-faint text-xs">No tags yet</span>}
           </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void addTag(tag);
-            }}
-            className="mt-2"
-          >
-            <Input
-              leftIcon={Tag}
-              placeholder="Add a tag and press Enter"
-              aria-label="Add a tag"
-              value={tag}
-              maxLength={40}
-              onChange={(e) => setTag(e.target.value)}
-            />
-          </form>
-          {suggestions.length > 0 && (
+          {!readOnly && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void addTag(tag);
+              }}
+              className="mt-2"
+            >
+              <Input
+                leftIcon={Tag}
+                placeholder="Add a tag and press Enter"
+                aria-label="Add a tag"
+                value={tag}
+                maxLength={40}
+                onChange={(e) => setTag(e.target.value)}
+              />
+            </form>
+          )}
+          {!readOnly && suggestions.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-1">
               {suggestions.map((t) => (
                 <button
@@ -248,14 +260,14 @@ export function ContactPanel({
               label="Opted out of marketing"
               hint="Templates won't be sent to this contact."
               checked={contact.opted_out}
-              disabled={saving}
+              disabled={saving || readOnly}
               onChange={(v) => update({ opted_out: v }, v ? "Marked as opted out" : "Opt-out removed")}
             />
             <Switch
               label="Blocked"
               hint="Stops all replies from this inbox."
               checked={contact.blocked}
-              disabled={saving}
+              disabled={saving || readOnly}
               onChange={toggleBlock}
             />
           </div>
@@ -290,21 +302,26 @@ export function ContactPanel({
           </dl>
         </Section>
 
-        <Section title="Internal notes" hint="Only your team sees notes. They're never sent to the customer.">
-          <form onSubmit={addNote} className="space-y-2">
-            <textarea
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              rows={2}
-              maxLength={4000}
-              placeholder="Add a note for your team"
-              aria-label="New note"
-              className="border-line-strong bg-page text-fg placeholder:text-fg-faint focus:border-primary focus:ring-primary/15 w-full resize-none rounded-lg border px-3 py-2 text-sm focus:ring-3 focus:outline-none"
-            />
-            <Button size="sm" type="submit" leftIcon={StickyNote} disabled={!note.trim()}>
-              Add note
-            </Button>
-          </form>
+        <Section
+          title="Internal notes"
+          hint="Only your team sees notes. They're never sent to the customer, and they also show in the chat."
+        >
+          {!readOnly && (
+            <form onSubmit={addNote} className="space-y-2">
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={2}
+                maxLength={4000}
+                placeholder="Add a note for your team"
+                aria-label="New note"
+                className="border-line-strong bg-page text-fg placeholder:text-fg-faint focus:border-primary focus:ring-primary/15 w-full resize-none rounded-lg border px-3 py-2 text-sm focus:ring-3 focus:outline-none"
+              />
+              <Button size="sm" type="submit" leftIcon={StickyNote} disabled={!note.trim()}>
+                Add note
+              </Button>
+            </form>
+          )}
           <ul className="mt-3 space-y-2">
             {notes.isLoading && <Skeleton className="h-12" />}
             {notes.data?.map((n) => (
@@ -316,15 +333,18 @@ export function ContactPanel({
                 <p className="text-fg-subtle mt-1 flex items-center gap-1">
                   <span className="flex-1">
                     {n.author ?? "You"} · {timeAgo(n.created_at)}
+                    {n.edited_at ? " · edited" : ""}
                   </span>
-                  <button
-                    type="button"
-                    aria-label="Delete note"
-                    onClick={() => removeNote(n.id)}
-                    className="text-fg-faint hover:text-danger opacity-0 transition group-hover/note:opacity-100 focus-visible:opacity-100"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  {n.can_edit && (
+                    <button
+                      type="button"
+                      aria-label="Delete note"
+                      onClick={() => removeNote(n.id)}
+                      className="text-fg-faint hover:text-danger opacity-0 transition group-hover/note:opacity-100 focus-visible:opacity-100"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  )}
                 </p>
               </li>
             ))}

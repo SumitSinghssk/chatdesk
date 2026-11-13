@@ -135,7 +135,7 @@ export function NumbersCard() {
   const [renaming, setRenaming] = useState<WaNumber | null>(null);
   const [deleting, setDeleting] = useState<WaNumber | null>(null);
   const [busy, setBusy] = useState<number | null>(null);
-  const manager = me.role !== "agent";
+  const manager = me.role === "owner" || me.role === "admin";
 
   const go = async (n: WaNumber) => {
     setBusy(n.id);

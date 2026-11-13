@@ -194,7 +194,7 @@ export interface TeamPerson {
   id: number;
   name: string;
   email: string;
-  role: "owner" | "admin" | "agent";
+  role: "owner" | "admin" | "agent" | "viewer";
   color: string;
 }
 

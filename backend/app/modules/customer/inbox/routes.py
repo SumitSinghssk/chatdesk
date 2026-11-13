@@ -11,6 +11,7 @@ from app.modules.customer.inbox import service
 from app.modules.customer.inbox.schemas import (
     ContactUpdateSchema,
     NoteSchema,
+    PresenceSchema,
     QuickReplySchema,
     SendTemplateSchema,
     SendTextSchema,
@@ -114,6 +115,18 @@ def notes(conversation_id: int, customer: Customer = Depends(require_workspace),
 def add_note(conversation_id: int, payload: NoteSchema, customer: Customer = Depends(require_workspace),
              db: Session = Depends(get_db)):
     return service.add_note(db, customer, conversation_id, payload)
+
+
+@router.put("/conversations/{conversation_id}/notes/{note_id}", dependencies=[_csrf])
+def update_note(conversation_id: int, note_id: int, payload: NoteSchema,
+                customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.update_note(db, customer, conversation_id, note_id, payload)
+
+
+@router.post("/conversations/{conversation_id}/presence", dependencies=[Depends(RateLimit(60, 60)), _csrf])
+def presence(conversation_id: int, payload: PresenceSchema, customer: Customer = Depends(require_workspace),
+             db: Session = Depends(get_db)):
+    return service.heartbeat(db, customer, conversation_id, payload.state)
 
 
 @router.delete("/conversations/{conversation_id}/notes/{note_id}", dependencies=[_csrf])

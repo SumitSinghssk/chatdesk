@@ -32,7 +32,7 @@ class Customer(Base, TimestampMixin, SoftDeleteMixin):
     last_login_method = Column(String(20), nullable=True)
     # Team: a member belongs to the owner's workspace (workspace_id = owner's id; NULL = an owner)
     workspace_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=True, index=True)
-    role = Column(String(10), nullable=False, default="owner", server_default="owner")  # owner | admin | agent
+    role = Column(String(10), nullable=False, default="owner", server_default="owner")  # owner | admin | agent | viewer
     availability = Column(String(10), nullable=False, default="available", server_default="available")
     last_assigned_at = Column(DateTime, nullable=True)  # round-robin order
     invite_token_hash = Column(String(64), nullable=True, index=True)

@@ -2,13 +2,33 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Ban, FileText, Loader2, Paperclip, Plus, SendHorizontal, ShoppingBag, X, Zap } from "lucide-react";
+import {
+  Ban,
+  Eye,
+  FileText,
+  Loader2,
+  Paperclip,
+  Plus,
+  SendHorizontal,
+  ShoppingBag,
+  StickyNote,
+  X,
+  Zap,
+} from "lucide-react";
 
 import { Button } from "@/app/admin/_components/ui/index";
 import { cn } from "@/lib/utils";
 
-import { INBOX_QK, inboxApi, type InboxMessage, type QuickReply } from "../../_lib/inboxApi";
+import {
+  INBOX_QK,
+  inboxApi,
+  type ColleagueReply,
+  type InboxMessage,
+  type Presence,
+  type QuickReply,
+} from "../../_lib/inboxApi";
 import { EmojiPicker } from "./EmojiPicker";
+import { CollisionBar } from "./Presence";
 import { fileKind } from "./fileKind";
 import { fileSize } from "./format";
 import { QuickRepliesModal } from "./QuickRepliesModal";
@@ -97,9 +117,43 @@ function Thumb({
   );
 }
 
+export type ComposerMode = "reply" | "note";
+
+function ModeSwitch({ mode, onChange }: { mode: ComposerMode; onChange: (mode: ComposerMode) => void }) {
+  return (
+    <div
+      role="tablist"
+      aria-label="Write a"
+      className="bg-hover inline-flex rounded-md p-0.5 text-[11px] font-semibold"
+    >
+      {(["reply", "note"] as const).map((m) => (
+        <button
+          key={m}
+          type="button"
+          role="tab"
+          aria-selected={mode === m}
+          onClick={() => onChange(m)}
+          className={cn(
+            "flex items-center gap-1 rounded px-2 py-0.5 transition",
+            mode === m
+              ? m === "note"
+                ? "bg-amber-100 text-amber-800 shadow-xs dark:bg-amber-500/20 dark:text-amber-300"
+                : "bg-surface text-fg shadow-xs"
+              : "text-fg-subtle hover:text-fg"
+          )}
+        >
+          {m === "note" ? <StickyNote className="h-3 w-3" /> : <SendHorizontal className="h-3 w-3" />}
+          {m === "note" ? "Note" : "Reply"}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Composer({
   windowOpen,
   blocked,
+  readOnly = false,
   sending,
   replyTo,
   files,
@@ -107,31 +161,59 @@ export function Composer({
   onCancelReply,
   onSendText,
   onSendFiles,
+  onSendNote,
   onOpenTemplates,
   onOpenProducts,
   onTyping,
+  mode,
+  onModeChange,
+  onDraftChange,
+  conflict,
+  onConflictEdit,
+  others,
+  assignedTo,
 }: {
   windowOpen: boolean;
   blocked: boolean;
+  /** viewers can read the chat but not answer it */
+  readOnly?: boolean;
   sending: boolean;
   replyTo: InboxMessage | null;
   files: File[];
   onFilesChange: (files: File[]) => void;
   onCancelReply: () => void;
-  onSendText: (text: string) => Promise<boolean>;
+  /** false keeps the text (e.g. a colleague replied first and the sender has to choose) */
+  onSendText: (text: string, force?: boolean) => Promise<boolean>;
   onSendFiles: (files: File[], caption: string) => Promise<boolean>;
+  onSendNote: (text: string) => Promise<boolean>;
   onOpenTemplates: () => void;
   /** Commerce: send products (left out when the person can't manage products) */
   onOpenProducts?: () => void;
   onTyping: () => void;
+  mode: ComposerMode;
+  onModeChange: (mode: ComposerMode) => void;
+  /** the text being written, for "X is typing" shown to colleagues */
+  onDraftChange: (text: string) => void;
+  /** a colleague replied while this person was typing: shown before their reply goes out */
+  conflict: ColleagueReply | null;
+  onConflictEdit: () => void;
+  /** colleagues in the chat right now */
+  others: Presence[];
+  /** the chat is assigned to someone else (their name) */
+  assignedTo: string | null;
 }) {
   const [text, setText] = useState("");
   const [active, setActive] = useState(0);
   const [cursor, setCursor] = useState(0);
   const [manageOpen, setManageOpen] = useState(false);
+  const [dismissed, setDismissed] = useState<{ typing: number | null; assigned: boolean }>({
+    typing: null,
+    assigned: false,
+  });
   const fileRef = useRef<HTMLInputElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   const lastTyping = useRef(0);
+  const noting = mode === "note";
 
   const quick = useQuery({
     queryKey: INBOX_QK.QUICK_REPLIES,
@@ -144,7 +226,7 @@ export function Composer({
   useEffect(() => () => urls.forEach((u) => URL.revokeObjectURL(u)), [urls]);
   const shown = Math.min(active, Math.max(files.length - 1, 0));
 
-  const slash = text.startsWith("/") && !text.includes("\n") ? text.slice(1).toLowerCase() : null;
+  const slash = !noting && text.startsWith("/") && !text.includes("\n") ? text.slice(1).toLowerCase() : null;
   const suggestions: QuickReply[] =
     slash === null
       ? []
@@ -163,8 +245,19 @@ export function Composer({
   const change = (value: string) => {
     setText(value);
     setCursor(0);
+    onDraftChange(value);
     requestAnimationFrame(resize);
-    if (value.trim() && typingDue(lastTyping)) onTyping();
+    if (!noting && value.trim() && typingDue(lastTyping)) onTyping();
+  };
+
+  const cleared = () => {
+    setText("");
+    onDraftChange("");
+    onFilesChange([]);
+    setActive(0);
+    setDismissed({ typing: null, assigned: false });
+    requestAnimationFrame(resize);
+    areaRef.current?.focus();
   };
 
   const insertAtCursor = (value: string) => {
@@ -184,17 +277,19 @@ export function Composer({
     requestAnimationFrame(() => areaRef.current?.focus());
   };
 
-  const submit = async () => {
+  const submit = async (force = false) => {
     if (sending) return;
     const body = text.trim();
-    const ok = files.length ? await onSendFiles(files, body) : body ? await onSendText(body) : false;
-    if (ok) {
-      setText("");
-      onFilesChange([]);
-      setActive(0);
-      requestAnimationFrame(resize);
-      areaRef.current?.focus();
-    }
+    const ok = noting
+      ? body
+        ? await onSendNote(body)
+        : false
+      : files.length
+        ? await onSendFiles(files, body)
+        : body
+          ? await onSendText(body, force)
+          : false;
+    if (ok) cleared();
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -231,31 +326,80 @@ export function Composer({
     areaRef.current?.focus();
   };
 
-  if (blocked) {
+  if (readOnly) {
     return (
       <div className="border-line bg-surface text-fg-subtle flex items-center justify-center gap-2 border-t px-4 py-4 text-sm">
-        <Ban className="h-4 w-4" /> You blocked this contact. Unblock them in the contact panel to reply.
+        <Eye className="h-4 w-4" /> You can read this chat but not reply. Ask an admin of your team for a
+        different role.
       </div>
     );
   }
 
-  if (!windowOpen) {
+  // Notes are internal, so they can be written even when the customer can't be messaged
+  if (!noting && blocked) {
+    return (
+      <div className="border-line bg-surface text-fg-subtle flex flex-wrap items-center justify-center gap-2 border-t px-4 py-3 text-sm">
+        <Ban className="h-4 w-4" /> You blocked this contact. Unblock them in the contact panel to reply.
+        <Button size="sm" variant="secondary" leftIcon={StickyNote} onClick={() => onModeChange("note")}>
+          Add a note
+        </Button>
+      </div>
+    );
+  }
+
+  if (!noting && !windowOpen) {
     return (
       <div className="border-line bg-surface flex flex-col items-center gap-2 border-t px-4 py-3 text-center sm:flex-row sm:text-left">
         <p className="text-fg-subtle flex-1 text-[13px]">
           <span className="text-fg font-semibold">The 24-hour reply window is closed.</span> WhatsApp only
           allows approved template messages until the customer writes again.
         </p>
-        <Button leftIcon={FileText} onClick={onOpenTemplates}>
-          Send template
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" leftIcon={StickyNote} onClick={() => onModeChange("note")}>
+            Add a note
+          </Button>
+          <Button leftIcon={FileText} onClick={onOpenTemplates}>
+            Send template
+          </Button>
+        </div>
       </div>
     );
   }
 
+  // Warnings before two people answer the same customer (only while writing a reply)
+  const writing = !noting && !!text.trim();
+  const typingOther = others.find((o) => o.state === "reply");
+  const warning = conflict ? (
+    <CollisionBar
+      tone="danger"
+      actions={[
+        { label: "Send mine anyway", primary: true, onClick: () => void submit(true) },
+        { label: "Edit my reply", onClick: onConflictEdit },
+      ]}
+    >
+      <b>{conflict.by.name}</b> just replied: <span className="italic">“{conflict.preview}”</span>
+    </CollisionBar>
+  ) : writing && typingOther && dismissed.typing !== typingOther.id ? (
+    <CollisionBar
+      tone="warning"
+      actions={[
+        { label: "Carry on", onClick: () => setDismissed((d) => ({ ...d, typing: typingOther.id })) },
+      ]}
+    >
+      <b>{typingOther.name}</b> is replying to this customer right now. Wait for them, or carry on.
+    </CollisionBar>
+  ) : writing && assignedTo && !dismissed.assigned ? (
+    <CollisionBar
+      tone="info"
+      actions={[{ label: "Reply anyway", onClick: () => setDismissed((d) => ({ ...d, assigned: true })) }]}
+    >
+      This chat is assigned to <b>{assignedTo}</b>. Reply anyway?
+    </CollisionBar>
+  ) : null;
+
   return (
     <div className="relative">
-      {files.length > 0 && (
+      {files.length > 0 && !noting && (
         <div className="border-line bg-page absolute inset-x-0 bottom-full z-20 flex h-[min(26rem,60vh)] flex-col border-t shadow-lg">
           <div className="flex items-center gap-2 px-4 py-2">
             <p className="text-fg min-w-0 flex-1 truncate text-sm font-medium">
@@ -326,8 +470,19 @@ export function Composer({
         </ul>
       )}
 
-      <div className="border-line bg-surface border-t">
-        {replyTo && (
+      <div
+        className={cn("border-line border-t", noting ? "bg-amber-50/70 dark:bg-amber-500/5" : "bg-surface")}
+      >
+        {warning}
+        <div className="flex items-center gap-2 px-3 pt-2 sm:px-4">
+          <ModeSwitch mode={mode} onChange={onModeChange} />
+          {noting && (
+            <span className="text-fg-subtle truncate text-[11px]">
+              Only your team sees notes. They&apos;re never sent to the customer.
+            </span>
+          )}
+        </div>
+        {!noting && replyTo && (
           <div className="border-line flex items-center gap-2 border-b px-4 py-2">
             <div className="border-primary min-w-0 flex-1 border-l-4 pl-2">
               <p className="text-primary text-xs font-semibold">
@@ -348,43 +503,47 @@ export function Composer({
         <div className="flex items-end gap-1 p-2 sm:p-3">
           <input ref={fileRef} type="file" multiple accept={ACCEPT} className="hidden" onChange={addPicked} />
           <EmojiPicker onPick={insertAtCursor} />
-          <Tooltip label="Attach files" side="top" align="start">
-            <Button
-              iconOnly
-              variant="ghost"
-              leftIcon={Paperclip}
-              aria-label="Attach files"
-              onClick={() => fileRef.current?.click()}
-            />
-          </Tooltip>
-          <Tooltip label="Quick replies (type /)" side="top" align="start">
-            <Button
-              iconOnly
-              variant="ghost"
-              leftIcon={Zap}
-              aria-label="Quick replies"
-              onClick={() => setManageOpen(true)}
-            />
-          </Tooltip>
-          <Tooltip label="Send a template" side="top" align="start">
-            <Button
-              iconOnly
-              variant="ghost"
-              leftIcon={FileText}
-              aria-label="Send a template"
-              onClick={onOpenTemplates}
-            />
-          </Tooltip>
-          {onOpenProducts && (
-            <Tooltip label="Send products" side="top" align="start">
-              <Button
-                iconOnly
-                variant="ghost"
-                leftIcon={ShoppingBag}
-                aria-label="Send products"
-                onClick={onOpenProducts}
-              />
-            </Tooltip>
+          {!noting && (
+            <>
+              <Tooltip label="Attach files" side="top" align="start">
+                <Button
+                  iconOnly
+                  variant="ghost"
+                  leftIcon={Paperclip}
+                  aria-label="Attach files"
+                  onClick={() => fileRef.current?.click()}
+                />
+              </Tooltip>
+              <Tooltip label="Quick replies (type /)" side="top" align="start">
+                <Button
+                  iconOnly
+                  variant="ghost"
+                  leftIcon={Zap}
+                  aria-label="Quick replies"
+                  onClick={() => setManageOpen(true)}
+                />
+              </Tooltip>
+              <Tooltip label="Send a template" side="top" align="start">
+                <Button
+                  iconOnly
+                  variant="ghost"
+                  leftIcon={FileText}
+                  aria-label="Send a template"
+                  onClick={onOpenTemplates}
+                />
+              </Tooltip>
+              {onOpenProducts && (
+                <Tooltip label="Send products" side="top" align="start">
+                  <Button
+                    iconOnly
+                    variant="ghost"
+                    leftIcon={ShoppingBag}
+                    aria-label="Send products"
+                    onClick={onOpenProducts}
+                  />
+                </Tooltip>
+              )}
+            </>
           )}
           <textarea
             ref={areaRef}
@@ -392,25 +551,45 @@ export function Composer({
             value={text}
             onChange={(e) => change(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={files.length ? "Add a caption" : "Type a message, or / for quick replies"}
-            aria-label="Message"
-            maxLength={4096}
-            className="border-line-strong bg-page text-fg placeholder:text-fg-faint focus:border-primary focus:ring-primary/15 max-h-40 min-h-9 flex-1 resize-none rounded-lg border px-3 py-2 text-sm leading-5 focus:ring-3 focus:outline-none"
+            placeholder={
+              noting
+                ? "Write a note for your team"
+                : files.length
+                  ? "Add a caption"
+                  : "Type a message, or / for quick replies"
+            }
+            aria-label={noting ? "Internal note" : "Message"}
+            maxLength={noting ? 4000 : 4096}
+            className={cn(
+              "text-fg placeholder:text-fg-faint focus:ring-primary/15 max-h-40 min-h-9 flex-1 resize-none rounded-lg border px-3 py-2 text-sm leading-5 focus:ring-3 focus:outline-none",
+              noting
+                ? "border-amber-300 bg-amber-50 focus:border-amber-500 dark:border-amber-500/40 dark:bg-amber-500/10"
+                : "border-line-strong bg-page focus:border-primary"
+            )}
           />
           <Tooltip
-            label={files.length > 1 ? `Send ${files.length} files` : "Send (Enter)"}
+            label={
+              noting ? "Add note (Enter)" : files.length > 1 ? `Send ${files.length} files` : "Send (Enter)"
+            }
             side="top"
             align="end"
           >
             <button
               type="button"
               onClick={() => void submit()}
-              disabled={sending || (!text.trim() && !files.length)}
-              aria-label="Send"
-              className="bg-primary text-primary-fg hover:bg-primary-hover relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50"
+              disabled={sending || (!text.trim() && (noting || !files.length))}
+              aria-label={noting ? "Add note" : "Send"}
+              className={cn(
+                "relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50",
+                noting
+                  ? "bg-amber-500 text-white hover:bg-amber-600"
+                  : "bg-primary text-primary-fg hover:bg-primary-hover"
+              )}
             >
               {sending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
+              ) : noting ? (
+                <StickyNote className="h-4 w-4" />
               ) : (
                 <SendHorizontal className="h-4 w-4" />
               )}

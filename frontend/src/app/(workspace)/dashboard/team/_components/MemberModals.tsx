@@ -21,7 +21,14 @@ export const ROLE_OPTIONS = [
     label: "Admin",
     description: "Everything: templates, campaigns, WhatsApp setup and the team.",
   },
+  {
+    value: "viewer" as const,
+    label: "Viewer",
+    description: "Reads chats and contacts but can't reply or change anything. Never assigned chats.",
+  },
 ];
+
+type EditableRole = (typeof ROLE_OPTIONS)[number]["value"];
 
 /** Which WhatsApp numbers someone works on. Only shown once the workspace has more than one. */
 function NumberAccess({
@@ -122,7 +129,7 @@ export function InviteModal({
 }) {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
-  const [role, setRole] = useState<"admin" | "agent">("agent");
+  const [role, setRole] = useState<EditableRole>("agent");
   const [teamIds, setTeamIds] = useState<string[]>([]);
   const [everyNumber, setEveryNumber] = useState(true);
   const [numberIds, setNumberIds] = useState<string[]>([]);
@@ -218,7 +225,7 @@ export function InviteModal({
               onChange={(e) => setName(e.target.value)}
             />
           </div>
-          <RadioGroup label="Role" columns={2} value={role} onChange={setRole} options={ROLE_OPTIONS} />
+          <RadioGroup label="Role" columns={3} value={role} onChange={setRole} options={ROLE_OPTIONS} />
           {teams.length > 0 && (
             <MultiSelect
               id="invite-teams"
@@ -255,7 +262,9 @@ export function EditMemberModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [role, setRole] = useState<"admin" | "agent">(member?.role === "admin" ? "admin" : "agent");
+  const [role, setRole] = useState<EditableRole>(
+    member?.role === "admin" || member?.role === "viewer" ? member.role : "agent"
+  );
   const [teamIds, setTeamIds] = useState<string[]>((member?.teams ?? []).map((t) => String(t.id)));
   const [everyNumber, setEveryNumber] = useState(member?.all_numbers ?? true);
   const [numberIds, setNumberIds] = useState<string[]>((member?.number_ids ?? []).map(String));

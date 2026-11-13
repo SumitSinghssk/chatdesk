@@ -1,7 +1,7 @@
 """Assigning chats (by hand and round-robin), the chat timeline, and response times."""
 
 from fastapi import HTTPException
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.modules.customer.account.models import Customer
@@ -14,8 +14,8 @@ OPEN = ("open", "pending")
 
 
 def members(db: Session, owner_id: int):
-    """Everyone who can be assigned this number's chats (the owner included), active only."""
-    return people(db, owner_id)
+    """Everyone who can be assigned this number's chats (the owner included), active only. Viewers can't."""
+    return people(db, owner_id).filter(or_(Customer.role.is_(None), Customer.role != "viewer"))
 
 
 def member_of(db: Session, owner_id: int, member_id: int) -> Customer | None:
