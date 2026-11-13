@@ -15,6 +15,7 @@ const ROLE_TEXT = {
   agent: "an agent: you'll chat with customers in the shared inbox",
   admin: "an admin: you'll manage templates, campaigns and the team too",
   owner: "the owner",
+  viewer: "a viewer: you can read chats and contacts, but not reply or change anything",
 };
 
 export function AcceptInvite({ token }: { token: string }) {

@@ -15,6 +15,7 @@ import { WORKSPACE_QK, whatsappApi } from "../../_lib/whatsappApi";
 import { ChatPanel } from "./ChatPanel";
 import { ContactPanel } from "./ContactPanel";
 import { ConversationList, type ListFilter, type OwnerFilter } from "./ConversationList";
+import { useDashboard } from "../../_components/DashboardContext";
 import { NewChatModal } from "./NewChatModal";
 
 const PAGE = 30;
@@ -36,6 +37,7 @@ export function Inbox() {
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 1280px)").matches
   );
   const [newChatOpen, setNewChatOpen] = useState(false);
+  const readOnly = useDashboard().me.role === "viewer";
   const [templateFor, setTemplateFor] = useState<number | null>(null);
   const debounced = useDebouncedValue(search.trim(), 300);
 
@@ -137,7 +139,7 @@ export function Inbox() {
             onChanged(c);
             select(c.id);
           }}
-          onNewChat={() => setNewChatOpen(true)}
+          onNewChat={readOnly ? undefined : () => setNewChatOpen(true)}
           hasMore={!!meta && meta.total > items.length}
           onLoadMore={() => setPerPage((n) => n + PAGE)}
           loadingMore={list.isFetching && !list.isLoading}
@@ -172,9 +174,11 @@ export function Inbox() {
                   title="Select a chat"
                   description="Pick a conversation on the left, or start a new one with any WhatsApp number."
                   action={
-                    <Button variant="secondary" onClick={() => setNewChatOpen(true)}>
-                      New chat
-                    </Button>
+                    readOnly ? undefined : (
+                      <Button variant="secondary" onClick={() => setNewChatOpen(true)}>
+                        New chat
+                      </Button>
+                    )
                   }
                 />
               )}

@@ -49,7 +49,8 @@ export function AssignMenu({
     }
   };
 
-  const people = (members ?? []).filter((m) => m.status === "active" && m.works_here);
+  // viewers can't answer chats, so they're never assigned one
+  const people = (members ?? []).filter((m) => m.status === "active" && m.works_here && m.role !== "viewer");
   const items: (DropdownItem | "divider")[] = [
     {
       label: "Assign to me",

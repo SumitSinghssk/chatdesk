@@ -239,6 +239,7 @@ export const CUSTOMER_ENDPOINTS = {
     NOTES: (id: number) => `/customer/inbox/conversations/${id}/notes`,
     NOTE: (id: number, noteId: number) => `/customer/inbox/conversations/${id}/notes/${noteId}`,
     TYPING: (id: number) => `/customer/inbox/conversations/${id}/typing`,
+    PRESENCE: (id: number) => `/customer/inbox/conversations/${id}/presence`,
     RETRY: (messageId: number) => `/customer/inbox/messages/${messageId}/retry`,
     QUICK_REPLIES: "/customer/inbox/quick-replies",
     QUICK_REPLY: (id: number) => `/customer/inbox/quick-replies/${id}`,

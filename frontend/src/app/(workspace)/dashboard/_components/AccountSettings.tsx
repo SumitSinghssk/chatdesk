@@ -31,7 +31,7 @@ const SECTIONS: { key: Section; label: string; hint: string; icon: LucideIcon }[
   { key: "data", label: "Data & privacy", hint: "Download, delete", icon: Database },
 ];
 
-const ROLE = { owner: "Owner", admin: "Admin", agent: "Agent" } as const;
+const ROLE = { owner: "Owner", admin: "Admin", agent: "Agent", viewer: "Viewer" } as const;
 
 export function AccountSettings() {
   const { me } = useDashboard();

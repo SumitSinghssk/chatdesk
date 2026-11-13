@@ -305,7 +305,7 @@ export function ProfileSection() {
                   value={me.workspace?.name ?? ""}
                   readOnly
                   disabled
-                  hint={`You're ${me.role === "admin" ? "an admin" : "an agent"} here. The owner sets the business name.`}
+                  hint={`You're ${me.role === "admin" ? "an admin" : me.role === "viewer" ? "a viewer" : "an agent"} here. The owner sets the business name.`}
                 />
               )}
             </div>

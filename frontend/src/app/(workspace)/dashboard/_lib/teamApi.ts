@@ -3,7 +3,7 @@ import type { CustomerProfile } from "@/app/(customer)/_lib/customerApi";
 import { CUSTOMER_ENDPOINTS } from "@/config/endpoints/customer";
 import { withQuery } from "@/config/routes/query";
 
-export type MemberRole = "owner" | "admin" | "agent";
+export type MemberRole = "owner" | "admin" | "agent" | "viewer";
 
 export interface Member {
   id: number;
@@ -83,7 +83,7 @@ export const teamApi = {
   invite: (body: {
     email: string;
     name?: string | null;
-    role: "admin" | "agent";
+    role: "admin" | "agent" | "viewer";
     team_ids: number[];
     all_numbers: boolean;
     number_ids: number[];
@@ -91,7 +91,12 @@ export const teamApi = {
   reinvite: (id: number) => request<Member>("POST", T.REINVITE(id)),
   updateMember: (
     id: number,
-    body: { role: "admin" | "agent"; team_ids: number[]; all_numbers: boolean; number_ids: number[] }
+    body: {
+      role: "admin" | "agent" | "viewer";
+      team_ids: number[];
+      all_numbers: boolean;
+      number_ids: number[];
+    }
   ) => request<Member>("PUT", T.MEMBER(id), body),
   removeMember: (id: number) => request<null>("DELETE", T.MEMBER(id)),
   teams: () => request<Team[]>("GET", T.TEAMS),

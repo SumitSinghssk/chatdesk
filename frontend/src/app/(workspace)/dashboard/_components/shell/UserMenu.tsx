@@ -18,7 +18,7 @@ import { useDashboard } from "../DashboardContext";
 
 const item =
   "flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left text-sm text-fg-muted transition hover:bg-hover hover:text-fg";
-const ROLE_LABEL = { owner: "Owner", admin: "Admin", agent: "Agent" };
+const ROLE_LABEL = { owner: "Owner", admin: "Admin", agent: "Agent", viewer: "Viewer" };
 
 export function UserMenu({ onSignOut }: { onSignOut: () => void }) {
   const { me, setMe } = useDashboard();

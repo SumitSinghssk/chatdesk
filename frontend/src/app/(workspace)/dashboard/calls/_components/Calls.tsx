@@ -15,7 +15,7 @@ export function Calls() {
   const pathname = usePathname();
   const params = useSearchParams();
   const { me } = useDashboard();
-  const manager = me.role !== "agent";
+  const manager = me.role === "owner" || me.role === "admin";
   const tab: Tab = manager && params.get("tab") === "settings" ? "settings" : "log";
   const setTab = (t: Tab) =>
     router.replace(`${pathname}${t === "log" ? "" : `?tab=${t}`}`, { scroll: false });

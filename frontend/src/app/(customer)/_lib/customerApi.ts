@@ -33,7 +33,7 @@ export interface CustomerProfile {
   last_login_at: string | null;
   created_at: string;
   /** Team: this person's role in the workspace they work in */
-  role: "owner" | "admin" | "agent";
+  role: "owner" | "admin" | "agent" | "viewer";
   availability: "available" | "away";
   workspace: { id: number; name: string | null };
 }

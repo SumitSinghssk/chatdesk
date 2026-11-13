@@ -40,7 +40,7 @@ export type ModuleKey =
   | "team"
   | "account";
 
-export type Role = "owner" | "admin" | "agent";
+export type Role = "owner" | "admin" | "agent" | "viewer";
 const MANAGERS: Role[] = ["owner", "admin"];
 
 export interface WorkspaceModule {

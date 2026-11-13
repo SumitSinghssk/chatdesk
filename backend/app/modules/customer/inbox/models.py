@@ -120,9 +120,30 @@ class WaNote(Base):
                              index=True)
     body = Column(Text, nullable=False)
     author = Column(String(150), nullable=True)
+    # who wrote it (they and managers may edit or delete it); empty for notes from before this existed
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, nullable=False, default=now)
+    edited_at = Column(DateTime, nullable=True)
 
     conversation = relationship("WaConversation", back_populates="notes")
+
+
+class WaPresence(Base):
+    """Who has a chat open right now and what they're doing, so two people don't answer the same customer.
+
+    Browsers send a heartbeat every few seconds; a row older than presence.FRESH means they've gone.
+    """
+
+    __tablename__ = "wa_presence"
+    __table_args__ = (UniqueConstraint("conversation_id", "member_id", name="uq_wa_presence_conversation_member"),)
+
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(Integer, ForeignKey("wa_conversations.id", ondelete="CASCADE"), nullable=False,
+                             index=True)
+    member_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False)
+    state = Column(String(10), nullable=False, default="viewing")  # viewing | reply | note
+    updated_at = Column(DateTime, nullable=False, default=now, index=True)
 
 
 class WaQuickReply(Base, TimestampMixin):
