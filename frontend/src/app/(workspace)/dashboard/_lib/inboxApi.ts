@@ -137,7 +137,7 @@ export interface PresenceInfo {
 /** Something that happened to a chat, shown in its timeline (assigned, resolved…). */
 export interface ConversationEvent {
   id: number;
-  kind: "assigned" | "unassigned" | "team" | "status" | "bot" | "ai" | "snooze" | "pin";
+  kind: "assigned" | "unassigned" | "team" | "status" | "bot" | "ai" | "snooze" | "pin" | "call";
   text: string;
   actor: string | null;
   created_at: string;

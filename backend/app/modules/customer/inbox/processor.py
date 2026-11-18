@@ -113,6 +113,10 @@ def _content(raw: dict) -> dict:
         inter = raw.get("interactive") or {}
         reply = inter.get("button_reply") or inter.get("list_reply") or inter.get("nfm_reply") or {}
         fields["text"] = reply.get("title") or reply.get("body")
+        if inter.get("type") == "call_permission_reply":
+            from app.modules.customer.wa_calls.service import permission_reply_text
+
+            fields["text"] = permission_reply_text(raw)
     elif kind == "button":
         fields["text"] = (raw.get("button") or {}).get("text")
     elif kind == "order":  # a cart sent from the WhatsApp catalog
@@ -140,6 +144,10 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
         created_at=created, **_content(raw),
     )
     db.add(message)
+    from app.modules.customer.wa_calls.service import is_permission_reply, on_permission_reply
+
+    if is_permission_reply(raw):
+        on_permission_reply(db, conversation, contact, raw)
     if not conversation.last_inbound_at or created > conversation.last_inbound_at:
         conversation.last_inbound_at = created
     if message.type != "reaction":
@@ -212,6 +220,11 @@ def process_payload(db: Session, account: WhatsAppAccount, payload: dict) -> dic
             value = change.get("value") or {}
             if change.get("field") in TEMPLATE_FIELDS:
                 counts["templates"] += apply_template_update(db, account.customer_id, change["field"], value)
+                continue
+            if change.get("field") == "calls":  # WhatsApp voice calls (their statuses are call statuses too)
+                from app.modules.customer.wa_calls.service import handle_webhook
+
+                counts["calls"] = counts.get("calls", 0) + handle_webhook(db, account, value)
                 continue
             names = {c.get("wa_id"): (c.get("profile") or {}).get("name") for c in value.get("contacts") or []}
             for raw in value.get("messages") or []:

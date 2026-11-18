@@ -24,6 +24,7 @@ import { allowed, moduleFor } from "../_lib/nav";
 import { INBOX_QK, inboxApi } from "../_lib/inboxApi";
 import { NUMBERS_QK, announceNumber, numbersApi, onNumberChange } from "../_lib/numbersApi";
 import { WORKSPACE_QK } from "../_lib/whatsappApi";
+import { CallManager } from "./calls/CallManager";
 import { DashboardContext } from "./DashboardContext";
 import { CommandPalette } from "./shell/CommandPalette";
 import { Header } from "./shell/Header";
@@ -284,59 +285,61 @@ export function CustomerShell({ children }: { children: ReactNode }) {
     <DashboardContext.Provider
       value={{ me: me.data, options: options.data, setMe, numbers: numbers.data, number, switchNumber }}
     >
-      <div className="bg-page text-fg-muted flex h-dvh flex-col overflow-hidden">
-        <Header
-          numbers={numbers.data}
-          number={number}
-          onSwitchNumber={switchNumber}
-          onOpenMobile={() => setMobileOpen(true)}
-          onOpenSearch={() => setSearchOpen(true)}
-          onToggleSidebar={() => setCollapsedPersist(!collapsed)}
-          sidebarCollapsed={collapsed}
-          onSignOut={signOut}
-        />
-        <div className="relative flex min-h-0 flex-1">
-          {mobileOpen && (
-            <div
-              className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
-              onClick={() => setMobileOpen(false)}
-            />
-          )}
-          <Sidebar
-            badges={{ inbox: inbox.data?.unread }}
-            collapsed={collapsed}
-            mobileOpen={mobileOpen}
-            onCloseMobile={() => setMobileOpen(false)}
-            shell={shell}
-            resize={resize}
+      <CallManager>
+        <div className="bg-page text-fg-muted flex h-dvh flex-col overflow-hidden">
+          <Header
+            numbers={numbers.data}
+            number={number}
+            onSwitchNumber={switchNumber}
+            onOpenMobile={() => setMobileOpen(true)}
+            onOpenSearch={() => setSearchOpen(true)}
+            onToggleSidebar={() => setCollapsedPersist(!collapsed)}
+            sidebarCollapsed={collapsed}
+            onSignOut={signOut}
           />
-          <div className="flex min-w-0 flex-1 flex-col">
-            <TabsBar shell={shell} />
-            {/* keyed by number: a page never keeps the previous number's state */}
-            <main
-              key={number.id}
-              id="content"
-              className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4"
-            >
-              {blocked ? (
-                <Card>
-                  <EmptyState
-                    icon={Lock}
-                    title={`${blocked.label} is for owners and admins`}
-                    description="Your role in this workspace doesn't include this page. Ask an admin of your team if you need it."
-                    action={
-                      <Button onClick={() => router.push(CUSTOMER_ROUTES.INBOX())}>Go to the inbox</Button>
-                    }
-                  />
-                </Card>
-              ) : (
-                children
-              )}
-            </main>
+          <div className="relative flex min-h-0 flex-1">
+            {mobileOpen && (
+              <div
+                className="fixed inset-0 z-40 bg-slate-950/40 backdrop-blur-[2px] lg:hidden"
+                onClick={() => setMobileOpen(false)}
+              />
+            )}
+            <Sidebar
+              badges={{ inbox: inbox.data?.unread }}
+              collapsed={collapsed}
+              mobileOpen={mobileOpen}
+              onCloseMobile={() => setMobileOpen(false)}
+              shell={shell}
+              resize={resize}
+            />
+            <div className="flex min-w-0 flex-1 flex-col">
+              <TabsBar shell={shell} />
+              {/* keyed by number: a page never keeps the previous number's state */}
+              <main
+                key={number.id}
+                id="content"
+                className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4"
+              >
+                {blocked ? (
+                  <Card>
+                    <EmptyState
+                      icon={Lock}
+                      title={`${blocked.label} is for owners and admins`}
+                      description="Your role in this workspace doesn't include this page. Ask an admin of your team if you need it."
+                      action={
+                        <Button onClick={() => router.push(CUSTOMER_ROUTES.INBOX())}>Go to the inbox</Button>
+                      }
+                    />
+                  </Card>
+                ) : (
+                  children
+                )}
+              </main>
+            </div>
           </div>
+          {searchOpen && <CommandPalette onClose={() => setSearchOpen(false)} />}
         </div>
-        {searchOpen && <CommandPalette onClose={() => setSearchOpen(false)} />}
-      </div>
+      </CallManager>
     </DashboardContext.Provider>
   );
 }

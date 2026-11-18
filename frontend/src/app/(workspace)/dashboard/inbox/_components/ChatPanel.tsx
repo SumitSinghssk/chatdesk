@@ -31,6 +31,7 @@ import {
   X,
   Search,
   ChevronUp,
+  Phone,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -56,6 +57,7 @@ import { Composer, MAX_FILES, type ComposerMode } from "./Composer";
 import { NoteBubble } from "./NoteBubble";
 import { PresenceChip } from "./Presence";
 import { SnoozeDialog } from "./SnoozeDialog";
+import { CallButton } from "./CallButton";
 import { fileKind, mediaType } from "./fileKind";
 import { bubbleTime, dayLabel, sameDay, windowLeft } from "./format";
 import { MediaViewer } from "./MediaViewer";
@@ -100,6 +102,9 @@ function EventChip({ event }: { event: ConversationEvent }) {
       <span className="bg-surface/90 text-fg-subtle max-w-full truncate rounded-md px-2.5 py-1 text-[11px] shadow-xs">
         {event.kind === "bot" && (
           <Bot className="text-primary mr-1 inline h-3.5 w-3.5 align-[-3px]" aria-hidden />
+        )}
+        {event.kind === "call" && (
+          <Phone className="text-primary mr-1 inline h-3.5 w-3.5 align-[-3px]" aria-hidden />
         )}
         {event.kind === "ai" && (
           <Sparkles className="text-primary mr-1 inline h-3.5 w-3.5 align-[-3px]" aria-hidden />
@@ -782,6 +787,7 @@ export function ChatPanel({
             />
           </div>
         )}
+        {!readOnly && <CallButton conversationId={id} name={contact.display_name} />}
         <Tooltip label="Find in this chat" align="end">
           <Button
             iconOnly

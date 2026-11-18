@@ -11,6 +11,8 @@ from app.modules.customer.account.models import Customer
 EVENTS: dict[str, dict] = {
     "new_message": {"label": "A customer sends a message (in the chats you choose below)", "managers": False,
                     "default": {"in_app": False, "email": False, "browser": True}},
+    "missed_call": {"label": "A WhatsApp call to you or your team is missed", "managers": False,
+                    "default": {"in_app": True, "email": False, "browser": True}},
     "chat_assigned": {"label": "A chat is assigned to you", "managers": False,
                       "default": {"in_app": True, "email": False, "browser": True}},
     "customer_waiting": {"label": "A customer has been waiting for a reply", "managers": False,
