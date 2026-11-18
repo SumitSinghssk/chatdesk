@@ -181,6 +181,23 @@ export function CustomerShell({ children }: { children: ReactNode }) {
     lastUnread.current = unread;
   }, [unread, prefs?.sound]);
 
+  // "(3) Inbox · ChatDesk" in the browser tab while chats are unread (kept when pages change the title)
+  useEffect(() => {
+    const strip = (t: string) => t.replace(/^\(\d+\+?\) /, "");
+    const apply = () => {
+      const base = strip(document.title);
+      const next = unread ? `(${unread > 99 ? "99+" : unread}) ${base}` : base;
+      if (document.title !== next) document.title = next;
+    };
+    apply();
+    const watcher = new MutationObserver(apply);
+    watcher.observe(document.head, { childList: true, subtree: true, characterData: true });
+    return () => {
+      watcher.disconnect();
+      document.title = strip(document.title);
+    };
+  }, [unread]);
+
   const shell = useShellPrefs(me.data?.id ?? "guest");
   const opened = moduleFor(pathname);
   // pages this person's role can't open don't become tabs

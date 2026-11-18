@@ -4,6 +4,7 @@ Called by the webhook receiver right after the raw event is stored. Safe to run 
 payload: messages are de-duplicated by Meta's message id (wamid) and statuses only move forward.
 """
 
+import logging
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
@@ -30,6 +31,8 @@ PREVIEW_LABELS = {
     "template": "Template",
     "order": "Order",
 }
+
+logger = logging.getLogger(__name__)
 
 
 def _ts(value) -> datetime:
@@ -156,6 +159,13 @@ def _inbound(db: Session, account: WhatsAppAccount, raw: dict, names: dict[str, 
         auto_assign(db, account.customer_id, conversation)  # round-robin, when the workspace turned it on
     db.flush()
     hooks.message_event(db, "message.received", message, contact)
+    if message.type != "reaction":
+        try:
+            from app.modules.customer.account import notify
+
+            notify.new_message(db, conversation, message)
+        except Exception:  # a notification problem must never lose the message
+            logger.warning("New-message notification failed for chat %s", conversation.id, exc_info=True)
     return message
 
 

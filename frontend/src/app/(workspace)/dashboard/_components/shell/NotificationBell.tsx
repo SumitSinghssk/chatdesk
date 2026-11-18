@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlarmClock,
   AlertTriangle,
   Bell,
   CheckCheck,
   Clock3,
   IndianRupee,
   Megaphone,
+  MessageCircle,
   ShoppingBag,
   Settings,
   Sparkles,
@@ -26,6 +28,8 @@ import { ACCOUNT_QK, accountApi, type NotificationItem, type NotifyEvent } from 
 import { useDashboard } from "../DashboardContext";
 
 const ICONS: Record<NotifyEvent, { icon: LucideIcon; className: string }> = {
+  new_message: { icon: MessageCircle, className: "bg-primary-soft text-primary" },
+  snooze_ended: { icon: AlarmClock, className: "bg-info-soft text-info" },
   chat_assigned: { icon: UserRoundCheck, className: "bg-primary-soft text-primary" },
   customer_waiting: { icon: Clock3, className: "bg-warning-soft text-warning" },
   ai_handover: { icon: Sparkles, className: "bg-purple-soft text-purple" },

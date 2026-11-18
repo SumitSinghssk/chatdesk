@@ -9,6 +9,8 @@ from app.modules.customer.account.models import Customer
 
 # What can be notified. `managers`: only owners and admins can get it.
 EVENTS: dict[str, dict] = {
+    "new_message": {"label": "A customer sends a message (in the chats you choose below)", "managers": False,
+                    "default": {"in_app": False, "email": False, "browser": True}},
     "chat_assigned": {"label": "A chat is assigned to you", "managers": False,
                       "default": {"in_app": True, "email": False, "browser": True}},
     "customer_waiting": {"label": "A customer has been waiting for a reply", "managers": False,
@@ -41,9 +43,16 @@ class Channels(BaseModel):
     browser: bool = False
 
 
+Scope = Literal["mine", "mine_unassigned", "all"]
+
+
 class NotificationSettings(BaseModel):
     events: dict[str, Channels] = Field(default_factory=dict)
     waiting_minutes: int = Field(15, ge=1, le=1440)  # "customer waiting" after this long without a reply
+    # new messages from: chats assigned to me | mine + nobody's | every chat I can see
+    scope: Scope = "mine_unassigned"
+    # no browser pop-ups or push while I've set myself Away (the bell still keeps them)
+    quiet_when_away: bool = True
 
     @field_validator("events")
     @classmethod
@@ -73,6 +82,8 @@ class PreferencesUpdate(Preferences):
 class NotificationsUpdate(BaseModel):
     events: dict[str, Channels]
     waiting_minutes: int = Field(15, ge=1, le=1440)
+    scope: Scope = "mine_unassigned"
+    quiet_when_away: bool = True
 
 
 def is_manager(person: Customer) -> bool:
@@ -93,10 +104,14 @@ def notification_settings(person: Customer) -> dict:
             continue
         channels = saved.events.get(key) or Channels(**info["default"])
         events[key] = {"label": info["label"], **channels.model_dump()}
-    return {"events": events, "waiting_minutes": saved.waiting_minutes}
+    return {"events": events, "waiting_minutes": saved.waiting_minutes, "scope": saved.scope,
+            "quiet_when_away": saved.quiet_when_away}
 
 
 def channels_for(person: Customer, event: str) -> dict:
     settings = notification_settings(person)
-    return settings["events"].get(event) or {"in_app": False, "email": False, "browser": False}
+    ch = dict(settings["events"].get(event) or {"in_app": False, "email": False, "browser": False})
+    if settings["quiet_when_away"] and getattr(person, "availability", None) == "away":
+        ch["browser"] = False  # no pop-ups or push while Away; the bell still has it
+    return ch
 

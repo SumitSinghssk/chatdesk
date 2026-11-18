@@ -37,6 +37,8 @@ export interface LoginEvent {
 }
 
 export type NotifyEvent =
+  | "new_message"
+  | "snooze_ended"
   | "chat_assigned"
   | "customer_waiting"
   | "ai_handover"
@@ -51,9 +53,23 @@ export interface ChannelSet {
   browser: boolean;
 }
 
+export type NotifyScope = "mine" | "mine_unassigned" | "all";
+
 export interface NotificationSettings {
   events: Partial<Record<NotifyEvent, ChannelSet & { label: string }>>;
   waiting_minutes: number;
+  /** new messages from: my chats | mine + unassigned | every chat I can see */
+  scope: NotifyScope;
+  /** no pop-ups or push while I'm Away */
+  quiet_when_away: boolean;
+}
+
+export interface PushInfo {
+  /** the server has push keys */
+  enabled: boolean;
+  public_key: string | null;
+  /** browsers / phones with push on for this person */
+  devices: number;
 }
 
 export interface NotificationItem {
@@ -116,8 +132,16 @@ export const accountApi = {
   preferences: () => request<Preferences>("GET", A.PREFERENCES),
   savePreferences: (body: Preferences) => request<Preferences>("PUT", A.PREFERENCES, body),
   notificationSettings: () => request<NotificationSettings>("GET", A.NOTIFICATION_SETTINGS),
-  saveNotificationSettings: (body: { events: Record<string, ChannelSet>; waiting_minutes: number }) =>
-    request<NotificationSettings>("PUT", A.NOTIFICATION_SETTINGS, body),
+  push: () => request<PushInfo>("GET", A.PUSH),
+  pushSubscribe: (sub: PushSubscriptionJSON) =>
+    request<null>("POST", A.PUSH, { endpoint: sub.endpoint, keys: sub.keys ?? {} }),
+  pushUnsubscribe: (endpoint: string) => request<null>("DELETE", withQuery(A.PUSH, { endpoint })),
+  saveNotificationSettings: (body: {
+    events: Record<string, ChannelSet>;
+    waiting_minutes: number;
+    scope: NotifyScope;
+    quiet_when_away: boolean;
+  }) => request<NotificationSettings>("PUT", A.NOTIFICATION_SETTINGS, body),
   notifications: (after?: number) =>
     request<{ unread: number; items: NotificationItem[] }>("GET", withQuery(A.NOTIFICATIONS, { after })),
   markRead: (body: { ids?: number[]; all?: boolean }) =>

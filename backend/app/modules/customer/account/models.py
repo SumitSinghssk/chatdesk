@@ -136,3 +136,19 @@ class CustomerNotification(Base):
     browser = Column(Boolean, nullable=False, default=False)  # also show it as a desktop notification
     read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=now, nullable=False)
+
+
+class CustomerPushSubscription(Base):
+    """One browser or phone that allowed web push notifications for a person."""
+
+    __tablename__ = "customer_push_subscriptions"
+
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    endpoint = Column(Text, nullable=False, unique=True)  # the push service URL for this browser
+    p256dh = Column(String(255), nullable=False)
+    auth = Column(String(255), nullable=False)
+    user_agent = Column(String(255), nullable=True)
+    failures = Column(SmallInteger, nullable=False, default=0)
+    created_at = Column(DateTime, nullable=False, default=now)
+    last_used_at = Column(DateTime, nullable=True)
