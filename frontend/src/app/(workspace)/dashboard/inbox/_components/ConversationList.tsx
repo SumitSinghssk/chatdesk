@@ -17,6 +17,7 @@ import {
   MessageSquarePlus,
   Mic,
   MousePointerClick,
+  Phone,
   Pin,
   PinOff,
   Search,
@@ -61,6 +62,7 @@ const TYPE_ICONS: Record<string, LucideIcon> = {
   interactive: MousePointerClick,
   button: MousePointerClick,
   order: ShoppingCart,
+  call: Phone,
 };
 
 const TABS: { key: ListFilter; label: string }[] = [

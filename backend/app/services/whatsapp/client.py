@@ -76,6 +76,33 @@ class WhatsAppClient:
         fields = "display_phone_number,verified_name,quality_rating,messaging_limit_tier"
         return self._request("GET", f"{self.phone_number_id}?fields={fields}")
 
+    # Calling ----------------------------------------------------------------------
+
+    def call_action(self, call_id: str, action: str, sdp: str | None = None) -> dict:
+        """pre_accept / accept / reject / terminate one WhatsApp call."""
+        body: dict = {"messaging_product": "whatsapp", "call_id": call_id, "action": action}
+        if sdp:
+            body["session"] = {"sdp_type": "answer", "sdp": sdp}
+        return self._request("POST", f"{self.phone_number_id}/calls", body)
+
+    def answer_call(self, call_id: str, sdp: str) -> dict:
+        """pre_accept lets media start before the call connects; accept connects it."""
+        self.call_action(call_id, "pre_accept", sdp)
+        return self.call_action(call_id, "accept", sdp)
+
+    def start_call(self, to: str, sdp: str, opaque: str | None = None) -> dict:
+        """Business-initiated call. Returns {"calls": [{"id": call id}]}; the customer's answer SDP comes
+        in the `calls` webhook."""
+        body: dict = {"messaging_product": "whatsapp", "to": to, "action": "connect",
+                      "session": {"sdp_type": "offer", "sdp": sdp}}
+        if opaque:
+            body["biz_opaque_callback_data"] = opaque[:512]
+        return self._request("POST", f"{self.phone_number_id}/calls", body)
+
+    def set_calling(self, calling: dict) -> dict:
+        """Turns WhatsApp calling on or off for this number (Settings API)."""
+        return self._request("POST", f"{self.phone_number_id}/settings", {"calling": calling})
+
     # Sending ----------------------------------------------------------------------
 
     def send(self, payload: dict) -> dict:

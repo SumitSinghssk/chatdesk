@@ -12,6 +12,7 @@ import {
   IndianRupee,
   Megaphone,
   MessageCircle,
+  PhoneMissed,
   ShoppingBag,
   Settings,
   Sparkles,
@@ -29,6 +30,7 @@ import { useDashboard } from "../DashboardContext";
 
 const ICONS: Record<NotifyEvent, { icon: LucideIcon; className: string }> = {
   new_message: { icon: MessageCircle, className: "bg-primary-soft text-primary" },
+  missed_call: { icon: PhoneMissed, className: "bg-danger-soft text-danger" },
   snooze_ended: { icon: AlarmClock, className: "bg-info-soft text-info" },
   chat_assigned: { icon: UserRoundCheck, className: "bg-primary-soft text-primary" },
   customer_waiting: { icon: Clock3, className: "bg-warning-soft text-warning" },

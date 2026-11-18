@@ -146,6 +146,15 @@ export const CUSTOMER_ENDPOINTS = {
     TRY: "/customer/automation/try",
   },
   ANALYTICS: "/customer/analytics",
+  WA_CALLS: {
+    SETTINGS: "/customer/wa-calls/settings",
+    RINGING: "/customer/wa-calls/ringing",
+    ONE: (id: number) => `/customer/wa-calls/${id}`,
+    ACTION: (id: number, action: "claim" | "answer" | "decline" | "hangup") =>
+      `/customer/wa-calls/${id}/${action}`,
+    PERMISSION: (conversationId: number) => `/customer/wa-calls/conversations/${conversationId}/permission`,
+    START: (conversationId: number) => `/customer/wa-calls/conversations/${conversationId}/call`,
+  },
   AI_ASSIST: {
     SETTINGS: "/customer/ai-assist/settings",
     STATUS: "/customer/ai-assist/status",

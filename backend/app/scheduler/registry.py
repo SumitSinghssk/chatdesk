@@ -6,6 +6,7 @@ from app.scheduler.jobs import (
     ai_replies,
     calls,
     snooze,
+    wa_calls,
     backup,
     campaigns,
     carts,
@@ -43,6 +44,7 @@ JOBS: list[Job] = [
     _build(webhooks),
     _build(calls),
     _build(snooze),
+    _build(wa_calls),
 ]
 
 

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { Badge, Button, Input, Select, Skeleton, Switch, Textarea } from "@/app/admin/_components/ui/index";
 import { CustomerApiError, errorMessage } from "@/app/(customer)/_lib/customerApi";
 
+import { WhatsAppCallingSection } from "./WhatsAppCallingSection";
 import { CALLS_QK, callsApi, type CallRule, type CallSettings } from "../../_lib/callsApi";
 import { INBOX_QK, inboxApi } from "../../_lib/inboxApi";
 
@@ -382,6 +383,7 @@ export function CallSettingsTab() {
   if (!data) return <Skeleton className="m-5 h-64 rounded-xl" />;
   return (
     <div>
+      <WhatsAppCallingSection />
       <Connection key={`c-${data.provider}-${data.status}`} settings={data} />
       <Rules key={`r-${JSON.stringify([data.answered, data.missed])}`} settings={data} />
     </div>
