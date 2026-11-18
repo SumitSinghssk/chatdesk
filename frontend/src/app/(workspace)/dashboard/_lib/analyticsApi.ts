@@ -90,6 +90,18 @@ export interface AnalyticsReport {
     contacts: number;
     bots_talking: number;
   };
+  feedback?: {
+    asked: number;
+    answered: number;
+    response_rate: number | null;
+    average: number | null;
+    /** % of ratings that were 4 or 5 */
+    csat: number | null;
+    unhappy: number;
+    by_member: { id: number; name: string; ratings: number; average: number }[];
+  };
+  calls?: { total: number; answered: number; missed: number; outgoing: number; avg_seconds: number | null };
+  slowest?: { conversation_id: number; seconds: number; at: string; by: string | null; contact: string }[];
 }
 
 export type RangeQuery = { days: number } | { start: string; end: string };

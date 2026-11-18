@@ -271,3 +271,9 @@ def delete_view(view_id: int, customer: Customer = Depends(require_workspace), d
 def react(message_id: int, payload: ReactSchema, customer: Customer = Depends(require_workspace),
           db: Session = Depends(get_db)):
     return service.react(db, customer, message_id, payload)
+
+
+@router.get("/conversations/{conversation_id}/transcript")
+def transcript(conversation_id: int, format: Literal["txt", "xlsx"] = "txt",
+               customer: Customer = Depends(require_workspace), db: Session = Depends(get_db)):
+    return service.transcript(db, customer, conversation_id, format)

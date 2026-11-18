@@ -155,6 +155,12 @@ export const CUSTOMER_ENDPOINTS = {
     PERMISSION: (conversationId: number) => `/customer/wa-calls/conversations/${conversationId}/permission`,
     START: (conversationId: number) => `/customer/wa-calls/conversations/${conversationId}/call`,
   },
+  GROWTH: {
+    FEEDBACK: "/customer/feedback/settings",
+    JOURNEYS: "/customer/journeys",
+    JOURNEY: (kind: string) => `/customer/journeys/${kind}`,
+    SPEND: "/customer/spend",
+  },
   AI_ASSIST: {
     SETTINGS: "/customer/ai-assist/settings",
     STATUS: "/customer/ai-assist/status",
@@ -264,6 +270,7 @@ export const CUSTOMER_ENDPOINTS = {
     BULK: "/customer/inbox/bulk",
     SEARCH_IN: (id: number) => `/customer/inbox/conversations/${id}/search`,
     VIEWS: "/customer/inbox/views",
+    TRANSCRIPT: (id: number) => `/customer/inbox/conversations/${id}/transcript`,
     VIEW: (id: number) => `/customer/inbox/views/${id}`,
     QUICK_REPLIES: "/customer/inbox/quick-replies",
     QUICK_REPLY: (id: number) => `/customer/inbox/quick-replies/${id}`,

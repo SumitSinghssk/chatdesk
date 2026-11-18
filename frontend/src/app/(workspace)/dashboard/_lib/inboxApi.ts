@@ -171,7 +171,7 @@ export interface InboxMessage {
   star?: MessageStar | null;
   /** sent by the platform rather than a person (AI agent, auto-reply, chatbot, shop, calls, campaign) */
   source?: {
-    kind: "ai" | "auto_reply" | "chatbot" | "shop" | "calls" | "campaign" | "bot";
+    kind: "ai" | "auto_reply" | "chatbot" | "shop" | "calls" | "campaign" | "feedback" | "journey" | "bot";
     label: string;
   } | null;
   reply_to: { id: number; text: string | null; type: string; direction: "in" | "out" } | null;
@@ -257,6 +257,9 @@ async function getFull<T>(path: string) {
 }
 
 export const mediaUrl = (path: string) => `${BROWSER_API_BASE_URL}${path}`;
+/** The whole chat as a file (messages, notes, events), for downloading */
+export const transcriptUrl = (id: number, format: "txt" | "xlsx") =>
+  `${BROWSER_API_BASE_URL}${withQuery(I.TRANSCRIPT(id), { format })}`;
 export const downloadUrl = (path: string) => `${mediaUrl(path)}?download=1`;
 
 export const inboxApi = {

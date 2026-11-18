@@ -21,6 +21,8 @@ import {
   Zap,
   type LucideIcon,
 } from "lucide-react";
+import { useDashboard } from "../../_components/DashboardContext";
+import { GrowthCards, SpendCard } from "./GrowthCards";
 
 import { KpiGrid, KpiTile, type KpiTone } from "@/app/admin/_components/grid";
 import {
@@ -194,6 +196,7 @@ function exportCsv(r: AnalyticsReport) {
 }
 
 export function Analytics() {
+  const { me } = useDashboard();
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -620,6 +623,9 @@ export function Analytics() {
               series={[{ key: "new_contacts", label: "New contacts", color: "var(--viz-1)" }]}
             />
           </Section>
+
+          <GrowthCards r={r} />
+          {(me.role === "owner" || me.role === "admin") && <SpendCard />}
 
           <details className="border-line bg-surface rounded-xl border px-4 py-3">
             <summary className="text-fg cursor-pointer text-sm font-semibold select-none">

@@ -241,6 +241,16 @@ def handle(db: Session, account, message_ids: list[int]) -> int:
         contact = conversation.contact
         if contact.blocked:
             continue
+        # a "how did we do?" rating first: nothing else should answer it
+        try:
+            from app.modules.customer.feedback.service import takes as feedback_takes
+
+            if feedback_takes(db, owner, client, conversation, message):
+                sent += 1
+                continue
+        except (WhatsAppError, OSError, KeyError, ValueError) as exc:
+            db.rollback()
+            logger.warning("Feedback reply for message %s failed: %s", message.id, exc)
         # shopping first: carts, Buy now taps, addresses, how to pay, coupon codes
         try:
             if shop.takes(db, owner, client, conversation, message):

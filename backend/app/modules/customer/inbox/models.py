@@ -107,6 +107,8 @@ class WaMessage(Base):
     error_code = Column(Integer, nullable=True)
     error_message = Column(Text, nullable=True)
     sent_by = Column(String(150), nullable=True)  # who replied from the workspace
+    # Meta's pricing category when it bills the message (marketing | utility | authentication), for the spend meter
+    billable_category = Column(String(20), nullable=True)
     member_id = Column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, nullable=False, default=now)
     sent_at = Column(DateTime, nullable=True)

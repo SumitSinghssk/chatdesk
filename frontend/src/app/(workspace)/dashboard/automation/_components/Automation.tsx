@@ -48,10 +48,11 @@ import {
   type TryResult,
 } from "../../_lib/automationApi";
 import { HoursTab, OptOutTab } from "./SettingsTabs";
+import { FeedbackTab, JourneysTab } from "./GrowthTabs";
 import { previewOf } from "./ReplyFields";
 import { RuleModal, SAMPLE_NAMES, TRIGGERS } from "./RuleModal";
 
-type Tab = "replies" | "hours" | "opt-out";
+type Tab = "replies" | "hours" | "opt-out" | "feedback" | "journeys";
 const SPECIAL: { trigger: Trigger; icon: LucideIcon }[] = [
   { trigger: "welcome", icon: Hand },
   { trigger: "away", icon: MoonStar },
@@ -277,6 +278,8 @@ export function Automation() {
                 { value: "replies", label: "Replies", count: rules?.length },
                 { value: "hours", label: "Office hours" },
                 { value: "opt-out", label: "Opt-out" },
+                { value: "feedback", label: "Feedback" },
+                { value: "journeys", label: "Journeys" },
               ]}
             />
           </div>
@@ -455,6 +458,8 @@ export function Automation() {
           {tab === "opt-out" && settings && (
             <OptOutTab key={settings.opt_out_keywords.join()} initial={settings} onSaved={refresh} />
           )}
+          {tab === "feedback" && <FeedbackTab />}
+          {tab === "journeys" && <JourneysTab />}
         </Card>
 
         <TryPanel />

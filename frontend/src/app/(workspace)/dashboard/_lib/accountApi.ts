@@ -39,6 +39,8 @@ export interface LoginEvent {
 export type NotifyEvent =
   | "new_message"
   | "missed_call"
+  | "unhappy_customer"
+  | "spend_alert"
   | "snooze_ended"
   | "chat_assigned"
   | "customer_waiting"

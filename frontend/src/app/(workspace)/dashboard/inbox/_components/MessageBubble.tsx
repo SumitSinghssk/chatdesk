@@ -369,6 +369,8 @@ const SOURCE_ICONS = {
   shop: ShoppingBag,
   calls: PhoneCall,
   campaign: Megaphone,
+  feedback: Star,
+  journey: Zap,
   bot: Bot,
 };
 

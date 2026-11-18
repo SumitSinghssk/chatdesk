@@ -188,6 +188,10 @@ def _status(db: Session, account: WhatsAppAccount, raw: dict) -> bool:
         return False
     state = raw.get("status")
     at = _ts(raw.get("timestamp"))
+    if raw.get("pricing"):
+        from app.modules.customer.spend.service import record
+
+        record(message, raw)
     if state == "failed":
         error = (raw.get("errors") or [{}])[0]
         if message.status != "failed":

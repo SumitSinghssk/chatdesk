@@ -177,7 +177,9 @@ def serialize_message(message: WaMessage, replied: WaMessage | None = None) -> d
     data["source"] = None
     if message.direction == "out":
         campaign = (raw.get("template") or {}).get("campaign") if isinstance(raw.get("template"), dict) else None
-        if campaign:
+        if campaign and str(campaign.get("id") or "").startswith("journey:"):
+            data["source"] = {"kind": "journey", "label": f"Journey · {campaign.get('name') or ''}".rstrip(" ·")}
+        elif campaign:
             data["source"] = {"kind": "campaign", "label": f"Campaign · {campaign.get('name') or ''}".rstrip(" ·")}
         elif message.sent_by in AUTOMATED_SENDERS:
             data["source"] = {"kind": SOURCE_KINDS.get(message.sent_by, "bot"), "label": message.sent_by}
@@ -407,6 +409,10 @@ def set_status(db: Session, customer: Customer, conversation_id: int, payload: S
 
         on_resolved(db, conversation)
     db.commit()
+    if payload.status == "resolved":
+        from app.modules.customer.feedback.service import ask
+
+        ask(db, customer, conversation, "resolve")
     labels = {"open": "Conversation reopened", "pending": "Marked as pending", "resolved": "Conversation resolved"}
     return {"status": True, "message": labels[payload.status], "data": _out(db, customer, conversation)}
 
@@ -892,7 +898,7 @@ def delete_quick_reply(db: Session, customer: Customer, quick_id: int) -> dict:
 # Presence & collisions ---------------------------------------------------------------
 
 # Sent by the platform, not by a person: never "a colleague replied"
-AUTOMATED_SENDERS = ("AI agent", "Auto-reply", "Calls", "Chatbot", "Shop")
+AUTOMATED_SENDERS = ("AI agent", "Auto-reply", "Calls", "Chatbot", "Shop", "Feedback", "Journeys")
 
 
 def _last_colleague_reply(db: Session, customer: Customer, conversation: WaConversation,
@@ -1065,7 +1071,8 @@ def delete_view(db: Session, customer: Customer, view_id: int) -> dict:
 
 # Reactions ---------------------------------------------------------------------------
 
-SOURCE_KINDS = {"AI agent": "ai", "Auto-reply": "auto_reply", "Chatbot": "chatbot", "Shop": "shop", "Calls": "calls"}
+SOURCE_KINDS = {"AI agent": "ai", "Auto-reply": "auto_reply", "Chatbot": "chatbot", "Shop": "shop", "Calls": "calls",
+                "Feedback": "feedback", "Journeys": "journey"}
 
 
 def react(db: Session, customer: Customer, message_id: int, payload: ReactSchema) -> dict:
@@ -1086,3 +1093,53 @@ def react(db: Session, customer: Customer, message_id: int, payload: ReactSchema
                     reopen=False)
     return {"status": True, "message": "Reaction removed" if not payload.emoji else text,
             "data": serialize_message(out)}
+
+
+# Transcript ----------------------------------------------------------------------------
+
+def transcript(db: Session, customer: Customer, conversation_id: int, fmt: str):
+    """The whole chat (messages, notes and events) as a text file or an Excel sheet, in the site's time zone."""
+    import io
+
+    from fastapi.responses import Response
+
+    from app.shared.utils.datetime import to_site
+
+    conversation = _conversation(db, customer, conversation_id)
+    contact = conversation.contact
+    name = contact.name or contact.profile_name or f"+{contact.wa_id}"
+    rows: list[tuple] = []
+    for m in (db.query(WaMessage).filter(WaMessage.conversation_id == conversation.id)
+              .order_by(WaMessage.id).limit(20000)):
+        if m.type == "reaction":
+            continue
+        who = name if m.direction == "in" else (m.sent_by or "Team")
+        text = m.text or (f"[{m.type}] {m.media_filename or ''}".strip())
+        rows.append((m.created_at, "Message", who, text, m.status if m.direction == "out" else ""))
+    for n in db.query(WaNote).filter(WaNote.conversation_id == conversation.id):
+        rows.append((n.created_at, "Internal note", n.author or "Team", n.body, ""))
+    for e in db.query(WaConversationEvent).filter(WaConversationEvent.conversation_id == conversation.id):
+        rows.append((e.created_at, "Event", e.actor or "", e.text, ""))
+    rows.sort(key=lambda r: r[0])
+    stem = "".join(ch if ch.isalnum() else "-" for ch in name).strip("-")[:40] or "chat"
+    if fmt == "xlsx":
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Chat"
+        ws.append(["Time", "Kind", "From", "Text", "Delivery"])
+        for at, kind, who, text, status in rows:
+            ws.append([to_site(at).strftime("%Y-%m-%d %H:%M"), kind, who, text, status])
+        for col, width in zip("ABCDE", (18, 14, 22, 80, 12)):
+            ws.column_dimensions[col].width = width
+        buf = io.BytesIO()
+        wb.save(buf)
+        return Response(buf.getvalue(), headers={"Content-Disposition": f'attachment; filename="chat-{stem}.xlsx"'},
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    lines = [f"Chat with {name} (+{contact.wa_id})", ""]
+    for at, kind, who, text, _ in rows:
+        label = f"[{kind}] " if kind != "Message" else ""
+        lines.append(f"{to_site(at).strftime('%Y-%m-%d %H:%M')}  {label}{who}: {text}")
+    return Response("\n".join(lines) + "\n", media_type="text/plain; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="chat-{stem}.txt"'})

@@ -31,6 +31,7 @@ import {
   X,
   Search,
   ChevronUp,
+  Download,
   Phone,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -42,6 +43,7 @@ import { cn } from "@/lib/utils";
 import {
   INBOX_QK,
   inboxApi,
+  transcriptUrl,
   type ColleagueReply,
   type Conversation,
   type ConversationEvent,
@@ -750,6 +752,8 @@ export function ChatPanel({
                     },
                   ]
                 : []),
+              { label: "Download chat (.txt)", icon: Download, href: transcriptUrl(id, "txt") },
+              { label: "Download chat (Excel)", icon: Download, href: transcriptUrl(id, "xlsx") },
             ]}
           />
         )}
