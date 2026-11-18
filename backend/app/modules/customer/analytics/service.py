@@ -296,4 +296,45 @@ def report(db: Session, ws: Customer, start: date | None, end: date | None, days
         "chatbots": _chatbots(db, ws.id, p),
         "auto_replies": _auto_replies(db, ws.id, p),
         "now": _now(db, ws.id),
+        "feedback": _feedback(db, ws.id, p),
+        "calls": _calls(db, ws.id, p),
+        "slowest": _slowest(db, ws.id, p),
     }}
+
+
+def _feedback(db: Session, owner_id: int, p: Period) -> dict:
+    from app.modules.customer.feedback.service import stats
+
+    return stats(db, owner_id, p.start, p.end)
+
+
+def _calls(db: Session, owner_id: int, p: Period) -> dict:
+    """WhatsApp calls in the period: answered, missed, outgoing, average length."""
+    from app.modules.customer.wa_calls.models import WaCall
+
+    rows = dict(db.query(WaCall.status, func.count(WaCall.id))
+                .filter(WaCall.customer_id == owner_id, WaCall.created_at >= p.start, WaCall.created_at < p.end)
+                .group_by(WaCall.status).all())
+    avg = (db.query(func.avg(WaCall.duration))
+           .filter(WaCall.customer_id == owner_id, WaCall.created_at >= p.start, WaCall.created_at < p.end,
+                   WaCall.duration.isnot(None)).scalar())
+    outgoing = _count(db.query(func.count(WaCall.id)).filter(
+        WaCall.customer_id == owner_id, WaCall.direction == "out", WaCall.created_at >= p.start,
+        WaCall.created_at < p.end))
+    return {"total": int(sum(rows.values())), "answered": int(rows.get("ended", 0) + rows.get("answered", 0)),
+            "missed": int(rows.get("missed", 0) + rows.get("declined", 0)), "outgoing": outgoing,
+            "avg_seconds": round(float(avg)) if avg is not None else None}
+
+
+def _slowest(db: Session, owner_id: int, p: Period) -> list[dict]:
+    """The 10 longest waits for a first reply in the period, to see what went wrong."""
+    rows = (db.query(WaResponse.conversation_id, WaResponse.seconds, WaResponse.created_at, Customer.name,
+                     Customer.email, WaContact.name, WaContact.profile_name, WaContact.wa_id)
+            .join(WaConversation, WaConversation.id == WaResponse.conversation_id)
+            .join(WaContact, WaContact.id == WaConversation.contact_id)
+            .outerjoin(Customer, Customer.id == WaResponse.member_id)
+            .filter(WaResponse.customer_id == owner_id, WaResponse.created_at >= p.start,
+                    WaResponse.created_at < p.end)
+            .order_by(WaResponse.seconds.desc()).limit(10).all())
+    return [{"conversation_id": cid, "seconds": int(sec), "at": iso(at), "by": n or e,
+             "contact": cn or cp or f"+{wa}"} for cid, sec, at, n, e, cn, cp, wa in rows]

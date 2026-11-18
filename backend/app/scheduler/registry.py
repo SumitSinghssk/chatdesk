@@ -7,6 +7,8 @@ from app.scheduler.jobs import (
     calls,
     snooze,
     wa_calls,
+    journeys,
+    spend,
     backup,
     campaigns,
     carts,
@@ -45,6 +47,8 @@ JOBS: list[Job] = [
     _build(calls),
     _build(snooze),
     _build(wa_calls),
+    _build(journeys),
+    _build(spend),
 ]
 
 

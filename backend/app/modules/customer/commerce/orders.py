@@ -291,6 +291,13 @@ def change_status(db: Session, owner: Customer, order: Order, action: str, actor
         meta.after_change(db, owner, _products_of(db, order))  # stock changed
     if notify_customer:
         notify(db, owner, order, order.status)
+    if order.status == "delivered" and order.conversation_id:
+        from app.modules.customer.feedback.service import ask
+        from app.modules.customer.inbox.models import WaConversation
+
+        conversation = db.get(WaConversation, order.conversation_id)
+        if conversation is not None:
+            ask(db, owner, conversation, "order", order.id)
 
 
 def _products_of(db: Session, order: Order) -> list[Product]:
